@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.IOSDemo - demo iOS platform (P9)
+
+Headless test of IOSPlatform interface
+Build:
+  tkvc.exe build examples/TkvUI.IOSDemo.tkv --entry run --out build/TkvUI.IOSDemo.exe
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+def run() -> "str":
+    print("=== TkvUI.IOSDemo (P9) ===")
+    print("[ios] detect_platform=" + str(detect_platform()) + " (" + detect_platform_id() + ")")
+    plat = make_ios_platform()
+    wh = plat.create(0, 0, 390, 844, 0)
+    print("[ios] create: handle=" + str(wh.handle) + " w=" + str(wh.w) + " h=" + str(wh.h))
+    if wh.handle == 0:
+        # Khong phai thiet bi iOS: backend tra handle 0 thay vi crash DllNotFoundException (P1.1)
+        print("[ios] backend khong kha dung tren may nay - bo qua phan present")
+        return "IOS_DEMO_SKIPPED"
+    print("[ios] backend=" + plat.backend_name())
+    print("[ios] scale=" + str(plat.scale))
+    # Present frame
+    buf = []
+    i = 0
+    n = 390 * 844
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(390, 844, 390)
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    # Draw a simple card
+    card = make_card_notch(0.0, 0.0, 390.0, 120.0, "iOS P9")
+    card.render(buf, surf)
+    rc = plat.present(buf, surf, wh)
+    print("[ios] present result=" + str(rc))
+    # Test set_pos (resize)
+    rc = plat.set_pos(wh, 0, 0, 400, 850)
+    print("[ios] set_pos result=" + str(rc) + " new w=" + str(wh.w) + " h=" + str(wh.h))
+    # Test frame callback
+    cb = 12345
+    data = 67890
+    rc = plat.post_frame_callback(cb, data)
+    print("[ios] post_frame_callback=" + str(rc))
+    # Cleanup
+    plat.close_window(wh)
+    print("[ios] closed")
+    return "IOS_DEMO_OK"

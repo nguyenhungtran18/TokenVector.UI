@@ -1,0 +1,2305 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Text - bitmap font + renderer (Task 3), needs TkvUI.Core"""
+__tkv_import__ = ["TkvUI.Core"]
+# P2.1: pinvoke GetTickCount de do thoi gian (benchmark atlas vs classic)
+__tkv_extern_pinvoke__ = [{"name": "text_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+# TASK 3: TEXT - Embedded Bitmap Font 5x7 + Renderer + Glyph Atlas (P2.1)
+# =========================================================
+class TextMetrics:
+    w: "f64"
+    h: "f64"
+    def __init__(self, w, h):
+        self.w = w
+        self.h = h
+
+def text_charset() -> "str":
+    # 94 ky tu ASCII in duoc (code 32..126), da sap xep tang dan theo code
+    return " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+def char_code(ch: "str") -> "i32":
+    # Ma ASCII cua 1 ky tu in duoc (32..126) bang binary search trong charset.
+    # Compiler chua co ord()/chr() -> so sanh chuoi '<' '>' la so sanh codepoint,
+    # search trong bang 95 ky tu da sort la deterministic. Ngoai bang -> -1.
+    # P2.1 fix: hi = 94 (95 ky tu, index 0..94) - truoc do hi=93 lam sot '~'.
+    alpha = text_charset()
+    lo = int(0)
+    hi = int(94)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        c = alpha[mid]
+        if c == ch:
+            return mid + 32
+        if c < ch:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return 0 - 1
+
+def glyph_width(ch: "str") -> "i32":
+    # monospaced 5 +1 spacing
+    return 6
+
+# =========================================================
+# P2.1: GLYPH ATLAS - pre-bake toan bo 95 glyph vao 1 buffer, draw = blit
+# =========================================================
+# Atlas layout: 95 glyph (code 32..126), moi glyph 5x7 pixel, xep theo hang.
+# ATLAS_COLS glyph/hang de width vuong dep: 16 glyph x 6px = 96px hang.
+# Ky thuat: atlas buffer chua packed ARGB (den=0 / trang=0x00FFFFFF); mask alpha
+# cua glyph la KENH r (65536) thay vi a de blend nhanh: blit doc r, kenh khac bo qua.
+ATLAS_COLS = 16
+ATLAS_GLYPH_W = 6
+ATLAS_GLYPH_H = 7
+ATLAS_COUNT = 95
+# Luu y rang buoc §0: hang so module VONG (KeyError) khi dung trong than method -
+# cac method dung LITERAL so (16, 6, 7, 95) truc tiep; const chi la tai lieu.
+
+class GlyphAtlas:
+    cols: "i32"
+    glyph_w: "i32"
+    glyph_h: "i32"
+    scale: "i32"
+    width: "i32"
+    height: "i32"
+    def __init__(self, cols, glyph_w, glyph_h, scale, width, height):
+        self.cols = cols
+        self.glyph_w = glyph_w
+        self.glyph_h = glyph_h
+        self.scale = scale
+        self.width = width
+        self.height = height
+
+def atlas_width_for(cols: "i32", glyph_w: "i32", scale: "i32") -> "i32":
+    return cols * glyph_w * scale
+
+def atlas_rows_needed(count: "i32", cols: "i32") -> "i32":
+    rows = count // cols
+    if count % cols != 0:
+        rows = rows + 1
+    return rows
+
+def atlas_make_record(cols: "i32", gw: "i32", gh: "i32", scale: "i32", w: "i32", h: "i32") -> "GlyphAtlas":
+    # Factory vi hang so ATLAS_* vo hinh trong method - truyen tu mot ham thuong
+    return GlyphAtlas(cols, gw, gh, scale, w, h)
+
+def atlas_create(scale: "i32") -> "GlyphAtlas":
+    # P2.1: han so module van an toan trong ham thuong (dung duoc o day vi
+    # atlas_width_for/atlas_rows_needed cung la ham thuong) - KeyError truoc do
+    # la do toi truyen vao atlas_make_record ma class field infer gap chu.
+    sc = scale
+    if sc < 1:
+        sc = 1
+    cols = int(16)
+    gw = int(6)
+    gh = int(7)
+    cnt = int(95)
+    w = cols * gw * sc
+    rows = atlas_rows_needed(cnt, cols)
+    h = rows * gh * sc
+    return atlas_make_record(cols, gw, gh, sc, w, h)
+
+def atlas_buffer(atlas: "GlyphAtlas") -> "list[i64]":
+    out = []
+    total = atlas.width * atlas.height
+    i = int(0)
+    while i < total:
+        out.append(0)
+        i = i + 1
+    return out
+
+def atlas_glyph_origin(atlas: "GlyphAtlas", code: "i32") -> "Point2D":
+    # Vi tri goc trai-tren cua glyph trong atlas (Point2D de tranh tra nhieu gia tri)
+    col = code % atlas.cols
+    row = code // atlas.cols
+    return Point2D(float(col * atlas.glyph_w * atlas.scale), float(row * atlas.glyph_h * atlas.scale))
+
+def atlas_bake(atlas: "GlyphAtlas", abuf: "list[i64]") -> "i32":
+    # Pre-bake 95 glyph (code 32..126) vao atlas buffer. Pixel trong = 0,
+    # pixel den = 0x00FFFFFF (r=g=b=255, a=0) -> blend blit doc kenh r nhanh.
+    total = atlas.width * atlas.height
+    i = int(0)
+    while i < total:
+        abuf[i] = 0
+        i = i + 1
+    white = ColorRgba(255, 255, 255, 0)
+    charset = text_charset()
+    for code in range(ATLAS_COUNT):
+        ch = charset[code]
+        origin = atlas_glyph_origin(atlas, code)
+        ox = int(origin.x)
+        oy = int(origin.y)
+        sc = atlas.scale
+        for row in range(7):
+            mask = glyph_pattern(ch, row)
+            for col in range(5):
+                p = 16
+                if col == 1:
+                    p = 8
+                if col == 2:
+                    p = 4
+                if col == 3:
+                    p = 2
+                if col == 4:
+                    p = 1
+                on = 0
+                tmp = mask
+                if tmp >= 16:
+                    if p == 16:
+                        on = 1
+                    tmp = tmp - 16
+                if tmp >= 8:
+                    if p == 8:
+                        on = 1
+                    tmp = tmp - 8
+                if tmp >= 4:
+                    if p == 4:
+                        on = 1
+                    tmp = tmp - 4
+                if tmp >= 2:
+                    if p == 2:
+                        on = 1
+                    tmp = tmp - 2
+                if tmp >= 1:
+                    if p == 1:
+                        on = 1
+                if on == 1:
+                    for sy in range(sc):
+                        for sx in range(sc):
+                            px = ox + col * sc + sx
+                            py = oy + row * sc + sy
+                            abuf[py * atlas.width + px] = white.to_uint32() - 0
+    return ATLAS_COUNT
+
+def atlas_blit_glyph(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", code: "i32", dx: "i32", dy: "i32", color: "ColorRgba", alpha: "i64") -> "i32":
+    # Blit 1 glyph tu atlas sang buffer dich. Anh sang den: doc kenh r cua atlas pixel
+    # lam mask 0..255, blend vao buf voi mau color, do alpha toan cuc (alpha = color.a).
+    # P2.2 fast paths (theo thu tu re -> dat):
+    #   1. alpha = 255 (font dac, truong hop pho bien nhat): pixel mask > 0 thi GHI TRUC TIEP
+    #      mau color, khong can doc/blend/decode kenh dst -> bo ~70% cong sao moi pixel.
+    #   2. mask == 0 (pixel trong cua glyph): skip tu luc truoc (da co).
+    #   3. alpha < 255: giu blend SrcOver day du (trong suot dan).
+    if code < 0:
+        return 0
+    if code >= ATLAS_COUNT:
+        return 0
+    origin = atlas_glyph_origin(atlas, code)
+    ox = int(origin.x)
+    oy = int(origin.y)
+    gw = atlas.glyph_w * atlas.scale
+    gh = atlas.glyph_h * atlas.scale
+    cr = color.r
+    cg = color.g
+    cb = color.b
+    ca = alpha
+    if ca == 0:
+        return 0
+    if ca >= 255:
+        # FAST PATH: font dac, ghi de truc tiep (opaque overwrites)
+        packed = ca * 16777216 + cr * 65536 + cg * 256 + cb
+        sw = surf.width
+        sh = surf.height
+        stride = surf.stride
+        for ly in range(gh):
+            py = dy + ly
+            if py < 0:
+                continue
+            if py >= sh:
+                continue
+            arow = (oy + ly) * atlas.width + ox
+            drow = py * stride + dx
+            for lx in range(gw):
+                px = dx + lx
+                if px < 0:
+                    continue
+                if px >= sw:
+                    continue
+                apix = abuf[arow + lx]
+                if (apix // 65536) % 256 == 0:
+                    continue
+                buf[drow + lx] = packed
+        return 1
+    # SLOW PATH: alpha trong suot dan -> SrcOver day du
+    for ly in range(gh):
+        py = dy + ly
+        if py < 0:
+            continue
+        if py >= surf.height:
+            continue
+        arow = (oy + ly) * atlas.width + ox
+        for lx in range(gw):
+            px = dx + lx
+            if px < 0:
+                continue
+            if px >= surf.width:
+                continue
+            apix = abuf[arow + lx]
+            mask = (apix // 65536) % 256
+            if mask == 0:
+                continue
+            di = py * surf.stride + px
+            dst = buf[di]
+            da = dst // 16777216
+            rem = dst % 16777216
+            dr = rem // 65536
+            rem2 = rem % 65536
+            dg = rem2 // 256
+            db = rem2 % 256
+            inv = 255 - ca
+            nr = (cr * ca + dr * inv) // 255
+            ng = (cg * ca + dg * inv) // 255
+            nb = (cb * ca + db * inv) // 255
+            na = ca + (da * inv) // 255
+            if na > 255:
+                na = 255
+            buf[di] = na * 16777216 + nr * 65536 + ng * 256 + nb
+    return 1
+
+def glyph_pattern(ch: "str", row: "i32") -> "i32":
+    if ch == " ":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == "!":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 0
+        if row == 6:
+            return 4
+        return 0
+    if ch == "\"":
+        if row == 0:
+            return 10
+        if row == 1:
+            return 10
+        if row == 2:
+            return 10
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == "#":
+        if row == 0:
+            return 10
+        if row == 1:
+            return 10
+        if row == 2:
+            return 31
+        if row == 3:
+            return 10
+        if row == 4:
+            return 31
+        if row == 5:
+            return 10
+        if row == 6:
+            return 10
+        return 0
+    if ch == "$":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 15
+        if row == 2:
+            return 20
+        if row == 3:
+            return 14
+        if row == 4:
+            return 5
+        if row == 5:
+            return 30
+        if row == 6:
+            return 4
+        return 0
+    if ch == "%":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 2
+        if row == 3:
+            return 4
+        if row == 4:
+            return 8
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "&":
+        if row == 0:
+            return 12
+        if row == 1:
+            return 18
+        if row == 2:
+            return 18
+        if row == 3:
+            return 20
+        if row == 4:
+            return 22
+        if row == 5:
+            return 25
+        if row == 6:
+            return 13
+        return 0
+    if ch == "'":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 4
+        if row == 2:
+            return 8
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == "(":
+        if row == 0:
+            return 2
+        if row == 1:
+            return 4
+        if row == 2:
+            return 8
+        if row == 3:
+            return 8
+        if row == 4:
+            return 8
+        if row == 5:
+            return 4
+        if row == 6:
+            return 2
+        return 0
+    if ch == ")":
+        if row == 0:
+            return 8
+        if row == 1:
+            return 4
+        if row == 2:
+            return 2
+        if row == 3:
+            return 2
+        if row == 4:
+            return 2
+        if row == 5:
+            return 4
+        if row == 6:
+            return 8
+        return 0
+    if ch == "*":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 4
+        if row == 2:
+            return 21
+        if row == 3:
+            return 14
+        if row == 4:
+            return 21
+        if row == 5:
+            return 4
+        if row == 6:
+            return 0
+        return 0
+    if ch == "+":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 31
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 0
+        return 0
+    if ch == ",":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 0
+        if row == 4:
+            return 12
+        if row == 5:
+            return 4
+        if row == 6:
+            return 8
+        return 0
+    if ch == "-":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 31
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == ".":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 12
+        if row == 6:
+            return 12
+        return 0
+    if ch == "/":
+        if row == 0:
+            return 1
+        if row == 1:
+            return 2
+        if row == 2:
+            return 2
+        if row == 3:
+            return 4
+        if row == 4:
+            return 8
+        if row == 5:
+            return 8
+        if row == 6:
+            return 16
+        return 0
+    if ch == "0":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 19
+        if row == 3:
+            return 21
+        if row == 4:
+            return 25
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "1":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 12
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 14
+        return 0
+    if ch == "2":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 1
+        if row == 3:
+            return 2
+        if row == 4:
+            return 4
+        if row == 5:
+            return 8
+        if row == 6:
+            return 31
+        return 0
+    if ch == "3":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 2
+        if row == 2:
+            return 4
+        if row == 3:
+            return 2
+        if row == 4:
+            return 1
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "4":
+        if row == 0:
+            return 2
+        if row == 1:
+            return 6
+        if row == 2:
+            return 10
+        if row == 3:
+            return 18
+        if row == 4:
+            return 31
+        if row == 5:
+            return 2
+        if row == 6:
+            return 2
+        return 0
+    if ch == "5":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 16
+        if row == 2:
+            return 30
+        if row == 3:
+            return 1
+        if row == 4:
+            return 1
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "6":
+        if row == 0:
+            return 6
+        if row == 1:
+            return 8
+        if row == 2:
+            return 16
+        if row == 3:
+            return 30
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "7":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 1
+        if row == 2:
+            return 2
+        if row == 3:
+            return 4
+        if row == 4:
+            return 8
+        if row == 5:
+            return 8
+        if row == 6:
+            return 8
+        return 0
+    if ch == "8":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 14
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "9":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 15
+        if row == 4:
+            return 1
+        if row == 5:
+            return 2
+        if row == 6:
+            return 12
+        return 0
+    if ch == ":":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 12
+        if row == 2:
+            return 12
+        if row == 3:
+            return 0
+        if row == 4:
+            return 12
+        if row == 5:
+            return 12
+        if row == 6:
+            return 0
+        return 0
+    if ch == ";":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 12
+        if row == 2:
+            return 12
+        if row == 3:
+            return 0
+        if row == 4:
+            return 12
+        if row == 5:
+            return 4
+        if row == 6:
+            return 8
+        return 0
+    if ch == "<":
+        if row == 0:
+            return 2
+        if row == 1:
+            return 4
+        if row == 2:
+            return 8
+        if row == 3:
+            return 16
+        if row == 4:
+            return 8
+        if row == 5:
+            return 4
+        if row == 6:
+            return 2
+        return 0
+    if ch == "=":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 31
+        if row == 3:
+            return 0
+        if row == 4:
+            return 31
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == ">":
+        if row == 0:
+            return 8
+        if row == 1:
+            return 4
+        if row == 2:
+            return 2
+        if row == 3:
+            return 1
+        if row == 4:
+            return 2
+        if row == 5:
+            return 4
+        if row == 6:
+            return 8
+        return 0
+    if ch == "?":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 1
+        if row == 3:
+            return 2
+        if row == 4:
+            return 4
+        if row == 5:
+            return 0
+        if row == 6:
+            return 4
+        return 0
+    if ch == "@":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 21
+        if row == 3:
+            return 21
+        if row == 4:
+            return 23
+        if row == 5:
+            return 16
+        if row == 6:
+            return 14
+        return 0
+    if ch == "A":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 31
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "B":
+        if row == 0:
+            return 30
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 30
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 30
+        return 0
+    if ch == "C":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 16
+        if row == 3:
+            return 16
+        if row == 4:
+            return 16
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "D":
+        if row == 0:
+            return 30
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 30
+        return 0
+    if ch == "E":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 16
+        if row == 2:
+            return 16
+        if row == 3:
+            return 30
+        if row == 4:
+            return 16
+        if row == 5:
+            return 16
+        if row == 6:
+            return 31
+        return 0
+    if ch == "F":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 16
+        if row == 2:
+            return 16
+        if row == 3:
+            return 30
+        if row == 4:
+            return 16
+        if row == 5:
+            return 16
+        if row == 6:
+            return 16
+        return 0
+    if ch == "G":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 16
+        if row == 3:
+            return 23
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "H":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 31
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "I":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 14
+        return 0
+    if ch == "J":
+        if row == 0:
+            return 7
+        if row == 1:
+            return 2
+        if row == 2:
+            return 2
+        if row == 3:
+            return 2
+        if row == 4:
+            return 2
+        if row == 5:
+            return 18
+        if row == 6:
+            return 12
+        return 0
+    if ch == "K":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 18
+        if row == 2:
+            return 20
+        if row == 3:
+            return 24
+        if row == 4:
+            return 20
+        if row == 5:
+            return 18
+        if row == 6:
+            return 17
+        return 0
+    if ch == "L":
+        if row == 0:
+            return 16
+        if row == 1:
+            return 16
+        if row == 2:
+            return 16
+        if row == 3:
+            return 16
+        if row == 4:
+            return 16
+        if row == 5:
+            return 16
+        if row == 6:
+            return 31
+        return 0
+    if ch == "M":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 27
+        if row == 2:
+            return 21
+        if row == 3:
+            return 21
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "N":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 27
+        if row == 2:
+            return 21
+        if row == 3:
+            return 21
+        if row == 4:
+            return 19
+        if row == 5:
+            return 19
+        if row == 6:
+            return 17
+        return 0
+    if ch == "O":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "P":
+        if row == 0:
+            return 30
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 30
+        if row == 4:
+            return 16
+        if row == 5:
+            return 16
+        if row == 6:
+            return 16
+        return 0
+    if ch == "Q":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 21
+        if row == 5:
+            return 18
+        if row == 6:
+            return 13
+        return 0
+    if ch == "R":
+        if row == 0:
+            return 30
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 30
+        if row == 4:
+            return 20
+        if row == 5:
+            return 18
+        if row == 6:
+            return 17
+        return 0
+    if ch == "S":
+        if row == 0:
+            return 15
+        if row == 1:
+            return 16
+        if row == 2:
+            return 16
+        if row == 3:
+            return 14
+        if row == 4:
+            return 1
+        if row == 5:
+            return 1
+        if row == 6:
+            return 30
+        return 0
+    if ch == "T":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 4
+        return 0
+    if ch == "U":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "V":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 10
+        if row == 6:
+            return 4
+        return 0
+    if ch == "W":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 17
+        if row == 3:
+            return 21
+        if row == 4:
+            return 21
+        if row == 5:
+            return 27
+        if row == 6:
+            return 17
+        return 0
+    if ch == "X":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 10
+        if row == 3:
+            return 4
+        if row == 4:
+            return 10
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "Y":
+        if row == 0:
+            return 17
+        if row == 1:
+            return 17
+        if row == 2:
+            return 10
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 4
+        return 0
+    if ch == "Z":
+        if row == 0:
+            return 31
+        if row == 1:
+            return 1
+        if row == 2:
+            return 2
+        if row == 3:
+            return 4
+        if row == 4:
+            return 8
+        if row == 5:
+            return 16
+        if row == 6:
+            return 31
+        return 0
+    if ch == "[":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 8
+        if row == 2:
+            return 8
+        if row == 3:
+            return 8
+        if row == 4:
+            return 8
+        if row == 5:
+            return 8
+        if row == 6:
+            return 14
+        return 0
+    if ch == "]":
+        if row == 0:
+            return 14
+        if row == 1:
+            return 2
+        if row == 2:
+            return 2
+        if row == 3:
+            return 2
+        if row == 4:
+            return 2
+        if row == 5:
+            return 2
+        if row == 6:
+            return 14
+        return 0
+    if ch == "^":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 10
+        if row == 2:
+            return 17
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == "_":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 31
+        return 0
+    if ch == "`":
+        if row == 0:
+            return 8
+        if row == 1:
+            return 4
+        if row == 2:
+            return 2
+        if row == 3:
+            return 0
+        if row == 4:
+            return 0
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if ch == "a":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 14
+        if row == 3:
+            return 1
+        if row == 4:
+            return 15
+        if row == 5:
+            return 17
+        if row == 6:
+            return 15
+        return 0
+    if ch == "b":
+        if row == 0:
+            return 16
+        if row == 1:
+            return 16
+        if row == 2:
+            return 30
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 30
+        return 0
+    if ch == "c":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 14
+        if row == 3:
+            return 16
+        if row == 4:
+            return 16
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "d":
+        if row == 0:
+            return 1
+        if row == 1:
+            return 1
+        if row == 2:
+            return 15
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 15
+        return 0
+    if ch == "e":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 14
+        if row == 3:
+            return 17
+        if row == 4:
+            return 30
+        if row == 5:
+            return 16
+        if row == 6:
+            return 14
+        return 0
+    if ch == "f":
+        if row == 0:
+            return 6
+        if row == 1:
+            return 8
+        if row == 2:
+            return 8
+        if row == 3:
+            return 30
+        if row == 4:
+            return 8
+        if row == 5:
+            return 8
+        if row == 6:
+            return 8
+        return 0
+    if ch == "g":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 15
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 15
+        if row == 5:
+            return 1
+        if row == 6:
+            return 14
+        return 0
+    if ch == "h":
+        if row == 0:
+            return 16
+        if row == 1:
+            return 16
+        if row == 2:
+            return 30
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "i":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 0
+        if row == 2:
+            return 12
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 14
+        return 0
+    if ch == "j":
+        if row == 0:
+            return 2
+        if row == 1:
+            return 0
+        if row == 2:
+            return 6
+        if row == 3:
+            return 2
+        if row == 4:
+            return 2
+        if row == 5:
+            return 18
+        if row == 6:
+            return 12
+        return 0
+    if ch == "k":
+        if row == 0:
+            return 16
+        if row == 1:
+            return 16
+        if row == 2:
+            return 18
+        if row == 3:
+            return 20
+        if row == 4:
+            return 24
+        if row == 5:
+            return 20
+        if row == 6:
+            return 18
+        return 0
+    if ch == "l":
+        if row == 0:
+            return 12
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 14
+        return 0
+    if ch == "m":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 26
+        if row == 3:
+            return 21
+        if row == 4:
+            return 21
+        if row == 5:
+            return 21
+        if row == 6:
+            return 21
+        return 0
+    if ch == "n":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 30
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 17
+        return 0
+    if ch == "o":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 14
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 14
+        return 0
+    if ch == "p":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 30
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 30
+        if row == 6:
+            return 16
+        return 0
+    if ch == "q":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 15
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 15
+        if row == 6:
+            return 1
+        return 0
+    if ch == "r":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 22
+        if row == 3:
+            return 20
+        if row == 4:
+            return 16
+        if row == 5:
+            return 16
+        if row == 6:
+            return 16
+        return 0
+    if ch == "s":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 15
+        if row == 3:
+            return 16
+        if row == 4:
+            return 14
+        if row == 5:
+            return 1
+        if row == 6:
+            return 30
+        return 0
+    if ch == "t":
+        if row == 0:
+            return 8
+        if row == 1:
+            return 8
+        if row == 2:
+            return 30
+        if row == 3:
+            return 8
+        if row == 4:
+            return 8
+        if row == 5:
+            return 9
+        if row == 6:
+            return 6
+        return 0
+    if ch == "u":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 17
+        if row == 6:
+            return 15
+        return 0
+    if ch == "v":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 17
+        if row == 5:
+            return 10
+        if row == 6:
+            return 4
+        return 0
+    if ch == "w":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 21
+        if row == 5:
+            return 27
+        if row == 6:
+            return 17
+        return 0
+    if ch == "x":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 17
+        if row == 3:
+            return 10
+        if row == 4:
+            return 4
+        if row == 5:
+            return 10
+        if row == 6:
+            return 17
+        return 0
+    if ch == "y":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 17
+        if row == 3:
+            return 17
+        if row == 4:
+            return 15
+        if row == 5:
+            return 1
+        if row == 6:
+            return 14
+        return 0
+    if ch == "z":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 31
+        if row == 3:
+            return 2
+        if row == 4:
+            return 4
+        if row == 5:
+            return 8
+        if row == 6:
+            return 31
+        return 0
+    if ch == "{":
+        if row == 0:
+            return 6
+        if row == 1:
+            return 8
+        if row == 2:
+            return 8
+        if row == 3:
+            return 16
+        if row == 4:
+            return 8
+        if row == 5:
+            return 8
+        if row == 6:
+            return 6
+        return 0
+    if ch == "|":
+        if row == 0:
+            return 4
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 4
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 4
+        return 0
+    if ch == "}":
+        if row == 0:
+            return 24
+        if row == 1:
+            return 4
+        if row == 2:
+            return 4
+        if row == 3:
+            return 2
+        if row == 4:
+            return 4
+        if row == 5:
+            return 4
+        if row == 6:
+            return 24
+        return 0
+    if ch == "~":
+        if row == 0:
+            return 0
+        if row == 1:
+            return 0
+        if row == 2:
+            return 0
+        if row == 3:
+            return 13
+        if row == 4:
+            return 18
+        if row == 5:
+            return 0
+        if row == 6:
+            return 0
+        return 0
+    if row == 0:
+        return 31
+    if row == 6:
+        return 31
+    return 17
+
+def measure_string(text: "str", scale: "f64") -> "TextMetrics":
+    w = float(len(text) * 6) * scale
+    h = 7 * scale
+    return TextMetrics(w, h)
+
+def draw_string(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    sc = int(scale)
+    if sc < 1:
+        sc = 1
+    tw = 0.0
+    if len(text) > 0:
+        tw = float(len(text) * 6 * sc) + tracking * float(len(text) - 1)
+    cur_x = int(x)
+    if align == 1:
+        if box_w > tw:
+            cur_x = int(x) + int((box_w - tw) / 2.0)
+    if align == 2:
+        if box_w > tw:
+            cur_x = int(x) + int(box_w - tw)
+    cur_y = int(y)
+    adv = 6 * sc + int(tracking)
+    for idx in range(len(text)):
+        ch = text[idx]
+        code = char_code(ch)
+        if code >= 0:
+            for row in range(7):
+                mask = glyph_pattern(ch, row)
+                for col in range(5):
+                    # we compute bit by division instead of bitwise shift
+                    # Alternate: check if mask has col bit via table
+                    # Use precomputed powers: 16,8,4,2,1
+                    p = 16
+                    if col == 1:
+                        p = 8
+                    if col == 2:
+                        p = 4
+                    if col == 3:
+                        p = 2
+                    if col == 4:
+                        p = 1
+                    on = 0
+                    if mask >= p:
+                        # crude: check via subtraction loop
+                        tmp = mask
+                        if tmp >= 16:
+                            if p == 16:
+                                on = 1
+                            tmp = tmp - 16
+                        if tmp >= 8:
+                            if p == 8:
+                                on = 1
+                            tmp = tmp - 8
+                        if tmp >= 4:
+                            if p == 4:
+                                on = 1
+                            tmp = tmp - 4
+                        if tmp >= 2:
+                            if p == 2:
+                                on = 1
+                            tmp = tmp - 2
+                        if tmp >= 1:
+                            if p == 1:
+                                on = 1
+                            tmp = tmp - 1
+                        # P2.1 fix: else cu gan on=0 sai (day lenh if tmp>=1 khac cap
+                        # voi cap if col) - chi dung khi mask < p dau vao, da duoc
+                        # xu ly o phia tren. Bo else nay va them tmp -= 1 de khep kin.
+                        if on == 1:
+                            for sy in range(sc):
+                                for sx in range(sc):
+                                    surface_blend_pixel(buf, surf, cur_x + col * sc + sx, cur_y + row * sc + sy, color)
+        cur_x = cur_x + adv
+    return 1
+
+def text_atlas_draw_string(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    # P2.1: draw_string bang glyph atlas (da bake dung scale cua atlas).
+    # Khac biet voi draw_string: khong co scale (atlas da scale) va ma ASCII
+    # danh chi so atlas truc tiep (nhanh hon glyph_pattern per-pixel).
+    sc = atlas.scale
+    tw = 0.0
+    if len(text) > 0:
+        tw = float(len(text) * 6 * sc) + tracking * float(len(text) - 1)
+    cur_x = int(x)
+    if align == 1:
+        if box_w > tw:
+            cur_x = int(x) + int((box_w - tw) / 2.0)
+    if align == 2:
+        if box_w > tw:
+            cur_x = int(x) + int(box_w - tw)
+    cur_y = int(y)
+    adv = 6 * sc + int(tracking)
+    for idx in range(len(text)):
+        code = char_code(text[idx])
+        if code >= 0:
+            atlas_blit_glyph(abuf, atlas, buf, surf, code - 32, cur_x, cur_y, color, color.a)
+        cur_x = cur_x + adv
+    return 1
+
+def text_atlas_make(scale: "i32") -> "list[i64]":
+    # Factory: tra list 2 phan tu (GlyphAtlas o [0], buffer o [1]) - record khong chua duoc list (rang buoc §0)
+    out = []
+    atlas = atlas_create(scale)
+    out.append(atlas)
+    out.append(atlas_buffer(atlas))
+    atlas_bake(atlas, out[1])
+    return out
+
+def text_atlas_record(scale: "i32") -> "GlyphAtlas":
+    # Lay rieng record atlas (de caller .scale/.width tren bien record co kieu)
+    return atlas_create(scale)
+
+def text_atlas_baked_buffer(atlas: "GlyphAtlas") -> "list[i64]":
+    # Tao buffer + bake theo atlas
+    b = atlas_buffer(atlas)
+    atlas_bake(atlas, b)
+    return b
+
+def text_line_count(text: "str", scale: "f64", max_w: "f64") -> "i32":
+    sc = int(scale)
+    if sc < 1:
+        sc = 1
+    char_w = 6 * sc
+    per_line = int(max_w / float(char_w))
+    if per_line < 1:
+        per_line = 1
+    n = len(text)
+    if n == 0:
+        return 0
+    lines = 0
+    pos = 0
+    while pos < n:
+        remaining = n - pos
+        take = per_line
+        if take > remaining:
+            take = remaining
+        brk = -1
+        k = 0
+        while k < take:
+            if text[pos + k] == " ":
+                brk = k
+            k = k + 1
+        end = pos + take
+        if take == per_line:
+            if remaining > per_line:
+                if brk >= 0:
+                    end = pos + brk
+        lines = lines + 1
+        pos = end
+        if pos < n:
+            if text[pos] == " ":
+                pos = pos + 1
+    return lines
+
+def measure_block(text: "str", scale: "f64", max_w: "f64", line_h: "f64") -> "TextMetrics":
+    sc = int(scale)
+    if sc < 1:
+        sc = 1
+    char_w = 6 * sc
+    per_line = int(max_w / float(char_w))
+    if per_line < 1:
+        per_line = 1
+    lh = line_h
+    if lh <= 0.0:
+        lh = 7.0 * scale + 2.0
+    n = len(text)
+    if n == 0:
+        return TextMetrics(0.0, 0.0)
+    lines = int(0)
+    maxw = int(0)
+    pos = int(0)
+    while pos < n:
+        remaining = n - pos
+        take = per_line
+        if take > remaining:
+            take = remaining
+        brk = int(0) - 1
+        k = int(0)
+        while k < take:
+            if text[pos + k] == " ":
+                brk = k
+            k = k + 1
+        end = pos + take
+        if take == per_line:
+            if remaining > per_line:
+                if brk >= 0:
+                    end = pos + brk
+        segw = (end - pos) * char_w
+        if segw > maxw:
+            maxw = segw
+        lines = lines + 1
+        pos = end
+        if pos < n:
+            if text[pos] == " ":
+                pos = pos + 1
+    mw = float(maxw)
+    lf = float(lines)
+    mh = lf * lh
+    return TextMetrics(mw, mh)
+
+def draw_text_block(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", max_w: "f64", line_h: "f64", color: "ColorRgba", align: "i32" = 0, max_lines: "i32" = 0) -> "i32":
+    sc = int(scale)
+    if sc < 1:
+        sc = 1
+    char_w = 6 * sc
+    per_line = int(max_w / float(char_w))
+    if per_line < 1:
+        per_line = 1
+    lh = line_h
+    if lh <= 0.0:
+        lh = 7.0 * scale + 2.0
+    n = len(text)
+    if n == 0:
+        return 0
+    y_cur = int(y)
+    lines_done = 0
+    pos = 0
+    while pos < n:
+        remaining = n - pos
+        take = per_line
+        if take > remaining:
+            take = remaining
+        brk = -1
+        k = 0
+        while k < take:
+            if text[pos + k] == " ":
+                brk = k
+            k = k + 1
+        end = pos + take
+        if take == per_line:
+            if remaining > per_line:
+                if brk >= 0:
+                    end = pos + brk
+        seg = text[pos:end]
+        has_more = 1
+        if end >= n:
+            has_more = 0
+        if max_lines > 0:
+            if lines_done + 1 >= max_lines:
+                if has_more == 1:
+                    room = per_line - 3
+                    if room < 0:
+                        room = 0
+                    if len(seg) > room:
+                        seg = seg[0:room]
+                    seg = seg + "..."
+                draw_string(buf, surf, seg, x, float(y_cur), scale, color, align, max_w)
+                lines_done = lines_done + 1
+                break
+        draw_string(buf, surf, seg, x, float(y_cur), scale, color, align, max_w)
+        lines_done = lines_done + 1
+        pos = end
+        if pos < n:
+            if text[pos] == " ":
+                pos = pos + 1
+        y_cur = y_cur + int(lh)
+    return lines_done
+
+# =========================================================
+# P2 SELFTEST - bitmap font + renderer (headless)
+# =========================================================
+def text_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def text_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def text_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def text_check_gt(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got > lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want > " + str(lo))
+    return 0
+
+def text_count_nonzero(buf: "list[i64]", n: "i32", from_i: "i32", to_i: "i32") -> "i32":
+    c = int(0)
+    i = from_i
+    while i < to_i:
+        if buf[i] != 0:
+            c = c + 1
+        i = i + 1
+    return c
+
+def text_selftest() -> "str":
+    print("=== TkvUI.Text selftest (P2) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    white = ColorRgba(255, 255, 255, 255)
+    empty = ColorRgba(0, 0, 0, 0)
+    # --- glyph table
+    text_check_i(acc, "glyph_width mono = 6", glyph_width("A"), 6)
+    text_check_i(acc, "glyph space row 0 rong", glyph_pattern(" ", 0), 0)
+    text_check_gt(acc, "glyph A row 3 co net", glyph_pattern("A", 3), 0)
+    text_check_gt(acc, "glyph A row 6 co net", glyph_pattern("A", 6), 0)
+    fb = glyph_pattern("~", 3)
+    text_check_gt(acc, "glyph ~ row 3 co net", fb, 0)
+    # Ngoai bang ROM 5x7 (32..126) -> tra ve hop bao loi (row0=31, row3=17)
+    uni0 = glyph_pattern("Om", 0)
+    text_check_gt(acc, "glyph ngoai bang -> box row 0", uni0, 0)
+    # --- measure_string
+    m1 = measure_string("ABC", 1.0)
+    text_check_f(acc, "measure_string ABC @1 -> w", m1.w, 18.0, 0.001)
+    text_check_f(acc, "measure_string ABC @1 -> h", m1.h, 7.0, 0.001)
+    m2 = measure_string("AB", 2.0)
+    text_check_f(acc, "measure_string AB @2 -> w", m2.w, 24.0, 0.001)
+    m3 = measure_string("", 1.0)
+    text_check_f(acc, "measure_string rong -> w=0", m3.w, 0.0, 0.001)
+    # --- draw_string
+    buf = []
+    surface_ensure_capacity(buf, 4800)
+    surf = PixelSurface(200, 24, 200)
+    surface_clear(buf, surf, empty)
+    rc = draw_string(buf, surf, "AB", 0.0, 0.0, 1.0, white)
+    text_check_i(acc, "draw_string tra 1", rc, 1)
+    text_check_gt(acc, "draw_string AB co ve pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "", 0.0, 0.0, 1.0, white)
+    text_check_i(acc, "draw_string rong -> 0 pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    # --- align Center: box 100, text w=12 -> x=44
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "AB", 0.0, 0.0, 1.0, white, 1, 100.0)
+    left_zone = 0
+    i = 0
+    while i < 24:
+        left_zone = left_zone + text_count_nonzero(buf, 4800, i * 200 + 0, i * 200 + 44)
+        i = i + 1
+    right_zone = 0
+    i = 0
+    while i < 24:
+        right_zone = right_zone + text_count_nonzero(buf, 4800, i * 200 + 44, i * 200 + 56)
+        i = i + 1
+    text_check_i(acc, "align Center: vung trai trong", left_zone, 0)
+    text_check_gt(acc, "align Center: ve trong khung 44..56", right_zone, 0)
+    # --- align Right: x=88
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "AB", 0.0, 0.0, 1.0, white, 2, 100.0)
+    r_left = 0
+    i = 0
+    while i < 24:
+        r_left = r_left + text_count_nonzero(buf, 4800, i * 200 + 0, i * 200 + 88)
+        i = i + 1
+    r_right = 0
+    i = 0
+    while i < 24:
+        r_right = r_right + text_count_nonzero(buf, 4800, i * 200 + 88, i * 200 + 100)
+        i = i + 1
+    text_check_i(acc, "align Right: vung trai trong", r_left, 0)
+    text_check_gt(acc, "align Right: ve trong khung 88..100", r_right, 0)
+    # --- tracking: char thu 2 doi tu x=6 sang x=10
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "AB", 0.0, 0.0, 1.0, white, 0, 0.0, 4.0)
+    gap_zone = 0
+    i = 0
+    while i < 24:
+        gap_zone = gap_zone + text_count_nonzero(buf, 4800, i * 200 + 6, i * 200 + 10)
+        i = i + 1
+    track_zone = 0
+    i = 0
+    while i < 24:
+        track_zone = track_zone + text_count_nonzero(buf, 4800, i * 200 + 10, i * 200 + 16)
+        i = i + 1
+    text_check_i(acc, "tracking 4: khoang 6..10 trong", gap_zone, 0)
+    text_check_gt(acc, "tracking 4: char 2 nam tai 10..16", track_zone, 0)
+    # --- draw_string scale 2 phu 2x pixel
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "A", 0.0, 0.0, 2.0, white)
+    scaled = text_count_nonzero(buf, 4800, 0, 4800)
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "A", 0.0, 0.0, 1.0, white)
+    plain = text_count_nonzero(buf, 4800, 0, 4800)
+    text_check_i(acc, "scale 2 = 4x so pixel cua scale 1", scaled, plain * 4)
+    # --- wrap
+    lines = text_line_count("one two three four", 1.0, 48.0)
+    text_check_i(acc, "text_line_count wrap 3 dong", lines, 3)
+    text_check_i(acc, "text_line_count chuoi rong = 0", text_line_count("", 1.0, 48.0), 0)
+    mb = measure_block("one two three four", 1.0, 48.0, 0.0)
+    text_check_f(acc, "measure_block w = dong dai nhat", mb.w, 42.0, 0.001)
+    text_check_f(acc, "measure_block h = 3 x lineHeight", mb.h, 27.0, 0.001)
+    # --- draw_text_block + ellipsis khi gioi han dong
+    surface_clear(buf, surf, empty)
+    drawn = draw_text_block(buf, surf, "one two three four", 0.0, 0.0, 1.0, 48.0, 9.0, white)
+    text_check_i(acc, "draw_text_block ve 3 dong", drawn, 3)
+    line1_px = text_count_nonzero(buf, 4800, 0, 200)
+    line2_px = text_count_nonzero(buf, 4800, 9 * 200, 10 * 200)
+    text_check_gt(acc, "draw_text_block dong 1 co pixel", line1_px, 0)
+    text_check_gt(acc, "draw_text_block dong 2 (y=9) co pixel", line2_px, 0)
+    surface_clear(buf, surf, empty)
+    drawn2 = draw_text_block(buf, surf, "one two three four", 0.0, 0.0, 1.0, 48.0, 9.0, white, 0, 2)
+    text_check_i(acc, "draw_text_block max_lines=2 -> 2 dong", drawn2, 2)
+    line3_px = text_count_nonzero(buf, 4800, 18 * 200, 19 * 200)
+    text_check_i(acc, "max_lines=2: dong 3 khong ve", line3_px, 0)
+    # --- P2.1: char_code (binary search trong charset 94 ky tu)
+    text_check_i(acc, "char_code A=65", char_code("A"), 65)
+    text_check_i(acc, "char_code a=97", char_code("a"), 97)
+    text_check_i(acc, "char_code 0=48", char_code("0"), 48)
+    text_check_i(acc, "char_code space=32", char_code(" "), 32)
+    text_check_i(acc, "char_code ~=126", char_code("~"), 126)
+    text_check_i(acc, "char_code ngoai bang = -1", char_code("Om"), 0 - 1)
+    # --- P2.1: glyph atlas
+    atlas = text_atlas_record(1)
+    abuf = text_atlas_baked_buffer(atlas)
+    atlas_sc = atlas.scale
+    atlas_w = atlas.width
+    atlas_h = atlas.height
+    text_check_i(acc, "atlas scale=1", atlas_sc, 1)
+    text_check_i(acc, "atlas width = 16*6", atlas_w, 96)
+    text_check_i(acc, "atlas height = 6 hang x 7", atlas_h, 42)
+    # bake xong phai co pixel sang (mask kenh r > 0)
+    lit = int(0)
+    total = atlas_w * atlas_h
+    i = int(0)
+    while i < total:
+        pix = abuf[i]
+        if (pix // 65536) % 256 > 0:
+            lit = lit + 1
+        i = i + 1
+    text_check_gt(acc, "atlas bake co pixel sang", lit, 0)
+    print("  atlas: " + str(lit) + " px sang / " + str(total))
+    # --- P2.1: draw qua atlas ra dung bang pixel nhu draw_string
+    surface_clear(buf, surf, empty)
+    rc = text_atlas_draw_string(abuf, atlas, buf, surf, "AB", 0.0, 0.0, white)
+    text_check_i(acc, "text_atlas_draw_string tra 1", rc, 1)
+    atlas_px = text_count_nonzero(buf, 4800, 0, 4800)
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "AB", 0.0, 0.0, 1.0, white)
+    classic_px = text_count_nonzero(buf, 4800, 0, 4800)
+    text_check_i(acc, "atlas ve dung so px nhu draw_string", atlas_px, classic_px)
+    # vi tri pixel giong het: draw 'AB' 2 lan (atlas vs classic) vao 2 buffer roi so
+    abuf_draw = []
+    i = int(0)
+    while i < 4800:
+        abuf_draw.append(0)
+        i = i + 1
+    surf_draw = PixelSurface(200, 24, 200)
+    text_atlas_draw_string(abuf, atlas, abuf_draw, surf_draw, "AB", 0.0, 0.0, white)
+    same = int(1)
+    i = int(0)
+    while i < 4800:
+        if (buf[i] != 0) != (abuf_draw[i] != 0):
+            same = 0
+        i = i + 1
+    text_check_i(acc, "atlas va draw_string cung vi tri pixel", same, 1)
+    # mau sac: atlas blend dung mau color (buf[0] la pixel dau cua 'A' - hang 0 cua
+    # glyph A co mask 14 -> chi cot 1,2,3 sang nen x=0 trong; kiem tra pixel dau tien MAU)
+    surface_clear(buf, surf, empty)
+    red = ColorRgba(255, 0, 0, 255)
+    text_atlas_draw_string(abuf, atlas, buf, surf, "A", 0.0, 0.0, red)
+    pix = int(0)
+    found_red = int(0)
+    i = int(0)
+    while i < 4800:
+        if buf[i] != 0:
+            pix = buf[i]
+            if (pix // 65536) % 256 == 255:
+                if (pix // 256) % 256 == 0:
+                    if pix % 256 == 0:
+                        found_red = found_red + 1
+        i = i + 1
+    text_check_gt(acc, "atlas blend mau red (so px red)", found_red, 0)
+    # tracking + align qua atlas
+    surface_clear(buf, surf, empty)
+    text_atlas_draw_string(abuf, atlas, buf, surf, "AB", 0.0, 0.0, white, 1, 100.0)
+    left_zone = int(0)
+    i = int(0)
+    while i < 24:
+        left_zone = left_zone + text_count_nonzero(buf, 4800, i * 200, i * 200 + 44)
+        i = i + 1
+    text_check_i(acc, "atlas align Center: vung trai trong", left_zone, 0)
+    # --- P2.1 benchmark: atlas vs classic tren khoi text lon (lap nhieu vong)
+    bench_text = "the quick brown fox jumps over the lazy dog 0123456789"
+    bench_repeat = 400
+    bench_buf1 = []
+    bench_buf2 = []
+    surface_ensure_capacity(bench_buf1, 4800)
+    surface_ensure_capacity(bench_buf2, 4800)
+    bench_surf = PixelSurface(200, 24, 200)
+    # classic
+    t0 = text_ticks()
+    r = int(0)
+    while r < bench_repeat:
+        surface_clear(bench_buf1, bench_surf, empty)
+        draw_string(bench_buf1, bench_surf, bench_text, 0.0, 0.0, 1.0, white)
+        r = r + 1
+    t1 = text_ticks()
+    classic_ms = t1 - t0
+    # atlas
+    t0 = text_ticks()
+    r = int(0)
+    while r < bench_repeat:
+        surface_clear(bench_buf2, bench_surf, empty)
+        text_atlas_draw_string(abuf, atlas, bench_buf2, bench_surf, bench_text, 0.0, 0.0, white)
+        r = r + 1
+    t1 = text_ticks()
+    atlas_ms = t1 - t0
+    print("  bench: classic=" + str(classic_ms) + "ms atlas=" + str(atlas_ms) + "ms (" + str(bench_repeat) + " lap x " + str(len(bench_text)) + " ky tu)")
+    if atlas_ms > 0:
+        speedup_x10 = (classic_ms * 10) // atlas_ms
+        print("  speedup ~" + str(speedup_x10 // 10) + "." + str(speedup_x10 % 10) + "x")
+        if speedup_x10 >= 10:
+            text_check(acc, "atlas nhanh hon classic (>=1x)", 1)
+        else:
+            text_check(acc, "atlas nhanh hon classic (>=1x)", 0)
+    else:
+        print("  speedup: atlas < 1ms (qua nhanh de do)")
+        text_check(acc, "atlas nhanh hon classic (atlas < 1ms)", 1)
+    # ket qua 2 duong phai giong nhau ve so px
+    c1 = text_count_nonzero(bench_buf1, 4800, 0, 4800)
+    c2 = text_count_nonzero(bench_buf2, 4800, 0, 4800)
+    text_check_i(acc, "bench: classic va atlas cung so px", c2, c1)
+    print("--- text selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "TEXT_OK"
+    return "TEXT_FAIL"

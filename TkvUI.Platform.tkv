@@ -1,0 +1,822 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Platform - native window PAL (Task 5), needs TkvUI.Core"""
+__tkv_import__ = ["TkvUI.Core"]
+__tkv_extern_assembly__ = ["System.Windows.Forms"]
+# Probe runtime bang API mscorlib (portable Win/Mono/Android/iOS) - dung cho detect_platform()
+__tkv_extern_method__ = [{"name": "tkv_getenv", "assembly": "mscorlib", "class": "System.Environment", "method": "GetEnvironmentVariable", "params": ["str"], "returns": "str"}, {"name": "tkv_file_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}]
+__tkv_extern_class__ = [{"name": "TkvForm", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Form", "ctor": [], "methods": [{"name": "Show", "params": [], "returns": "void"}, {"name": "Hide", "params": [], "returns": "void"}, {"name": "Close", "params": [], "returns": "void"}, {"name": "Refresh", "params": [], "returns": "void"}], "properties": [{"name": "Text", "dtype": "str", "readonly": False}, {"name": "Opacity", "dtype": "f64", "readonly": False}]}]
+__tkv_extern_pinvoke__ = [{"name": "win_create_window_ex", "dll": "user32.dll", "symbol": "CreateWindowExA", "convention": "stdcall", "params": ["i32", "str", "str", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "win_destroy_window", "dll": "user32.dll", "symbol": "DestroyWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_show_window", "dll": "user32.dll", "symbol": "ShowWindow", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_set_window_pos", "dll": "user32.dll", "symbol": "SetWindowPos", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_set_layered_attr", "dll": "user32.dll", "symbol": "SetLayeredWindowAttributes", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_update_layered", "dll": "user32.dll", "symbol": "UpdateLayeredWindow", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "win_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "win_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "win_get_queue_status", "dll": "user32.dll", "symbol": "GetQueueStatus", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_set_window_text", "dll": "user32.dll", "symbol": "SetWindowTextA", "convention": "stdcall", "params": ["i64", "str"], "returns": "i32"}, {"name": "win_get_desktop_window", "dll": "user32.dll", "symbol": "GetDesktopWindow", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "gdi_create_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "gdi_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_create_bitmap", "dll": "gdi32.dll", "symbol": "CreateBitmap", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "gdi_select_object", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "gdi_delete_object", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_set_pixel_v", "dll": "gdi32.dll", "symbol": "SetPixelV", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_get_last_error", "dll": "kernel32.dll", "symbol": "GetLastError", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "win_virtual_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"}, {"name": "win_virtual_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "win_wsprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_create_dib_section", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"}, {"name": "win_get_window_long", "dll": "user32.dll", "symbol": "GetWindowLongA", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "gdi_get_object", "dll": "gdi32.dll", "symbol": "GetObject", "convention": "stdcall", "params": ["i64", "i32", "i64"], "returns": "i32"}, {"name": "gdi_get_device_caps", "dll": "gdi32.dll", "symbol": "GetDeviceCaps", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_lstrlen", "dll": "kernel32.dll", "symbol": "lstrlenA", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_bit_blt", "dll": "gdi32.dll", "symbol": "BitBlt", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"}, {"name": "win_lstrcmp", "dll": "kernel32.dll", "symbol": "lstrcmpA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "u_peek", "dll": "user32.dll", "symbol": "PeekMessageA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "u_getpos", "dll": "user32.dll", "symbol": "GetMessagePos", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "u_gks", "dll": "user32.dll", "symbol": "GetAsyncKeyState", "convention": "stdcall", "params": ["i32"], "returns": "i32"}]
+
+# =========================================================
+# TASK 5: PLATFORM - Abstraction & Native Window (P3: Win32 real)
+# =========================================================
+WS_EX_LAYERED = 524288
+WS_EX_TOPMOST = 8
+WS_EX_TOOLWINDOW = 128
+TKV_EX_STYLE = 524424
+TKV_EX_STYLE_NOTOP = 524416
+SW_SHOW = 5
+SW_HIDE = 0
+ULW_OPAQUE = 4
+LWA_COLORKEY = 1
+LWA_ALPHA = 2
+LWA_BOTH = 3
+QS_ALLINPUT = 1279
+TKV_COLORKEY = 16711935
+TKV_DEFAULT_ALPHA = 255
+
+def tkv_has_env(name: "str") -> "i32":
+    # tkv_getenv tra null khi bien khong ton tai -> noi chuoi de null-safe truoc khi len()
+    v = tkv_getenv(name) + "|"
+    if len(v) > 1:
+        return 1
+    return 0
+
+def tkv_has_file(path: "str") -> "i32":
+    if tkv_file_exists(path) == True:
+        return 1
+    return 0
+
+def detect_platform_id() -> "str":
+    # Ten backend theo ma platform (chi de hien thi/log)
+    pid = detect_platform()
+    if pid == 1:
+        return "win32"
+    if pid == 2:
+        return "x11"
+    if pid == 3:
+        return "wayland"
+    if pid == 4:
+        return "cocoa"
+    if pid == 5:
+        return "android"
+    if pid == 6:
+        return "ios"
+    return "unknown"
+
+def detect_platform() -> "i32":
+    # 1=Win32, 2=X11, 3=Wayland, 4=Cocoa/macOS, 5=Android, 6=iOS
+    # P1.1: do that bang probe runtime (env + file probe qua mscorlib), khong doan hang so.
+    # Dat bien moi truong TKVUI_PLATFORM=1..6 de ep backend khi test.
+    if tkv_has_env("TKVUI_PLATFORM") == 1:
+        v = tkv_getenv("TKVUI_PLATFORM") + ""
+        if len(v) == 1:
+            if v == "1":
+                return 1
+            if v == "2":
+                return 2
+            if v == "3":
+                return 3
+            if v == "4":
+                return 4
+            if v == "5":
+                return 5
+            if v == "6":
+                return 6
+    if tkv_has_env("ANDROID_ROOT") == 1:
+        return 5
+    if tkv_has_env("ANDROID_DATA") == 1:
+        return 5
+    if tkv_has_file("/system/build.prop") == 1:
+        return 5
+    if tkv_has_file("/var/mobile") == 1:
+        return 6
+    if tkv_has_file("/System/Library/CoreServices") == 1:
+        return 4
+    if tkv_has_env("WAYLAND_DISPLAY") == 1:
+        return 3
+    if tkv_has_env("DISPLAY") == 1:
+        return 2
+    if tkv_has_env("windir") == 1:
+        return 1
+    # Fallback: Win32 la backend duy nhat day du (xem docs/TkvUI.Roadmap.md §8)
+    return 1
+
+def win_last_error() -> "i32":
+    return win_get_last_error()
+
+def win_write_u32_le(mem: "i64", off: "i64", val: "i32") -> "i32":
+    return win_wsprintf(mem + off, "%c%c%c%c", val % 256, (val // 256) % 256, (val // 65536) % 256, (val // 16777216) % 256)
+
+def win_build_dib_info(w: "i32", h: "i32") -> "i64":
+    mem = win_virtual_alloc(0, 64, 12288, 4)
+    if mem == 0:
+        return 0
+    rc = win_wsprintf(mem, "%c%c%c%c", 40, 0, 0, 0)
+    rc = win_wsprintf(mem + 4, "%c%c%c%c", w % 256, (w // 256) % 256, (w // 65536) % 256, (w // 16777216) % 256)
+    t = 16777216 - h
+    rc = win_wsprintf(mem + 8, "%c%c%c%c", t % 256, (t // 256) % 256, (t // 65536) % 256, 255)
+    rc = win_wsprintf(mem + 12, "%c%c", 1, 0, 0, 0)
+    rc = win_wsprintf(mem + 14, "%c%c", 32, 0, 0, 0)
+    return mem
+
+class PlatformWindowHandle:
+    handle: "i64"
+    x: "i32"
+    y: "i32"
+    w: "i32"
+    h: "i32"
+    topmost: "i32"
+    memdc: "i64"
+    hbmp: "i64"
+    oldbmp: "i64"
+    screendc: "i64"
+    alpha: "i32"
+    colorkey: "i32"
+    structmem: "i64"
+    def __init__(self, handle, x, y, w, h, topmost, memdc, hbmp, oldbmp, screendc, alpha, colorkey, structmem):
+        self.handle = handle
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.topmost = topmost
+        self.memdc = memdc
+        self.hbmp = hbmp
+        self.oldbmp = oldbmp
+        self.screendc = screendc
+        self.alpha = alpha
+        self.colorkey = colorkey
+        self.structmem = structmem
+
+class Win32Platform:
+    dummy: "i32"
+    def __init__(self, dummy):
+        self.dummy = dummy
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        ex = 524424
+        if topmost == 0:
+            ex = 524416
+        style = 0 - 1879048192
+        hwnd = win_create_window_ex(ex, "Static", "TkvUI", style, x, y, w, h, 0, 0, 0, 0)
+        if hwnd == 0:
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        sdc = win_get_dc(0)
+        mdc = gdi_create_compat_dc(sdc)
+        info = win_build_dib_info(w, h)
+        hb = 0
+        if info != 0:
+            hb = gdi_create_dib_section(sdc, info, 0, info + 48, 0, 0)
+            fr = win_virtual_free(info, 0, 32768)
+        if hb == 0:
+            hb = gdi_create_bitmap(w, h, 1, 32, 0)
+        old = gdi_select_object(mdc, hb)
+        sm = win_virtual_alloc(0, 64, 12288, 4)
+        rc = win_show_window(hwnd, 5)
+        return PlatformWindowHandle(hwnd, x, y, w, h, topmost, mdc, hb, old, sdc, 255, 16711935, sm)
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        if wh.handle == 0:
+            return 0
+        if wh.memdc == 0:
+            return 0
+        drawn = int(0)
+        for y in range(surf.height):
+            for x in range(surf.width):
+                idx = y * surf.stride + x
+                pix = buf[idx]
+                sa = pix // 16777216
+                rem = pix % 16777216
+                sr = rem // 65536
+                rem2 = rem % 65536
+                sg = rem2 // 256
+                sb = rem2 % 256
+                if sa < 128:
+                    rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
+                else:
+                    rgb = int(sr + sg * 256 + sb * 65536)
+                    rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
+                    drawn = drawn + 1
+        sm = wh.structmem
+        rc = win_write_u32_le(sm, 0, wh.alpha * 65536)
+        rc = win_write_u32_le(sm, 8, wh.x)
+        rc = win_write_u32_le(sm, 12, wh.y)
+        rc = win_write_u32_le(sm, 16, wh.w)
+        rc = win_write_u32_le(sm, 20, wh.h)
+        rc = win_write_u32_le(sm, 24, 0)
+        rc = win_write_u32_le(sm, 28, 0)
+        ok = win_update_layered(wh.handle, 0, sm + 8, sm + 16, wh.memdc, sm + 24, wh.colorkey, sm, 3)
+        if ok == 0:
+            return 0 - 1
+        return drawn
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        if wh.handle == 0:
+            return 0
+        if wh.memdc == 0:
+            return 0
+        n = surf.width * surf.height
+        if len(prev) < n:
+            return 0 - 2
+        drawn = int(0)
+        for i in range(n):
+            if buf[i] != prev[i]:
+                y = i // surf.stride
+                x = i - y * surf.stride
+                pix = buf[i]
+                sa = pix // 16777216
+                rem = pix % 16777216
+                sr = rem // 65536
+                rem2 = rem % 65536
+                sg = rem2 // 256
+                sb = rem2 % 256
+                if sa < 128:
+                    rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
+                else:
+                    rgb = int(sr + sg * 256 + sb * 65536)
+                    rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
+                drawn = drawn + 1
+        if drawn == 0:
+            return 0
+        sm = wh.structmem
+        rc = win_write_u32_le(sm, 0, wh.alpha * 65536)
+        rc = win_write_u32_le(sm, 8, wh.x)
+        rc = win_write_u32_le(sm, 12, wh.y)
+        rc = win_write_u32_le(sm, 16, wh.w)
+        rc = win_write_u32_le(sm, 20, wh.h)
+        rc = win_write_u32_le(sm, 24, 0)
+        rc = win_write_u32_le(sm, 28, 0)
+        ok = win_update_layered(wh.handle, 0, sm + 8, sm + 16, wh.memdc, sm + 24, wh.colorkey, sm, 3)
+        if ok == 0:
+            return 0 - 1
+        return drawn
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        res = win_set_window_pos(wh.handle, 0, x, y, w, h, 68)
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        return res
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        a = alpha
+        if a < 0:
+            a = 0
+        if a > 255:
+            a = 255
+        wh.alpha = a
+        sm = wh.structmem
+        rc = win_write_u32_le(sm, 0, a * 65536)
+        rc = win_write_u32_le(sm, 8, wh.x)
+        rc = win_write_u32_le(sm, 12, wh.y)
+        rc = win_write_u32_le(sm, 16, wh.w)
+        rc = win_write_u32_le(sm, 20, wh.h)
+        rc = win_write_u32_le(sm, 24, 0)
+        rc = win_write_u32_le(sm, 28, 0)
+        return win_update_layered(wh.handle, 0, sm + 8, sm + 16, wh.memdc, sm + 24, wh.colorkey, sm, 3)
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        return win_set_window_text(wh.handle, title)
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        return win_show_window(wh.handle, cmd)
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        if wh.memdc != 0:
+            rc64 = gdi_select_object(wh.memdc, wh.oldbmp)
+        if wh.hbmp != 0:
+            rc = gdi_delete_object(wh.hbmp)
+        if wh.memdc != 0:
+            rc = gdi_delete_dc(wh.memdc)
+        if wh.screendc != 0:
+            rc = win_release_dc(0, wh.screendc)
+        if wh.handle != 0:
+            rc = win_destroy_window(wh.handle)
+        if wh.structmem != 0:
+            rc = win_virtual_free(wh.structmem, 0, 32768)
+        wh.handle = wh.handle - wh.handle
+        wh.memdc = wh.memdc - wh.memdc
+        wh.hbmp = wh.hbmp - wh.hbmp
+        wh.screendc = wh.screendc - wh.screendc
+        wh.structmem = wh.structmem - wh.structmem
+        return 1
+    def poll_events(self) -> "i32":
+        return win_get_queue_status(1279)
+    def backend_name(self) -> "str":
+        return "win32"
+
+def wf_create(title: "str") -> "TkvForm":
+    f = TkvForm()
+    f.Text = title
+    return f
+
+def wf_show(frm: "TkvForm", op: "f64") -> "i32":
+    frm.Opacity = op
+    frm.Show()
+    return 1
+
+def wf_hide(frm: "TkvForm") -> "i32":
+    frm.Hide()
+    return 1
+
+def wf_close(frm: "TkvForm") -> "i32":
+    frm.Close()
+    return 1
+
+def wf_set_title(frm: "TkvForm", title: "str") -> "i32":
+    frm.Text = title
+    return 1
+
+def wf_set_opacity(frm: "TkvForm", op: "f64") -> "i32":
+    frm.Opacity = op
+    return 1
+
+def wf_refresh(frm: "TkvForm") -> "i32":
+    frm.Refresh()
+    return 1
+
+def wf_backend_name() -> "str":
+    return "winforms"
+
+# ---- P7.6: input poll that (GetMessagePos = toa do man hinh lan cuoi) ----
+# Luu y da spike: returns pinvoke chi nhan void/bool/f32/f64/i32/i64/... (KHONG
+# co i16); float() tren gia tri i32 tra tu pinvoke DUNG (khac quirk float(TkvInt)).
+# Gioi han: toa do AM (man hinh thu 2 ben trai) chua ho tro (LOWORD khong xu dau).
+def win_poll_messages() -> "i32":
+    # Drain het queue; CHI dem mouse (0x0200..0x020A = 512..522) + keyboard
+    # (0x0100..0x0108 = 256..264) lam "co input". Con lai drain IM LANG - neu
+    # khong thi input gia mai mai (bug da gap: WM_INPUT = 0x00FF tu chuot vat ly
+    # repost ~2 msg/frame -> pump>0 lien tuc -> render moi vong -> khong idle).
+    # WM_PAINT (15) khong BAO GIO drain: ta khong DispatchMessage nen update
+    # region khong duoc validate -> Windows repost WM_PAINT vo han.
+    #   dai loai: A=0..14, B=16..255, C=265..511, D=523..32767
+    m = win_virtual_alloc(0, 64, 12288, 4)
+    if m == 0:
+        return 0 - 1
+    n = int(0)
+    more = int(1)
+    guard = int(0)
+    have = int(0)
+    while more == 1:
+        if guard >= 2000:
+            more = 0
+        have = u_peek(m, 0, 512, 522, 1)
+        if have != 0:
+            n = n + 1
+        else:
+            have = u_peek(m, 0, 256, 264, 1)
+            if have != 0:
+                n = n + 1
+            else:
+                have = u_peek(m, 0, 0, 14, 1)
+                if have == 0:
+                    have = u_peek(m, 0, 16, 255, 1)
+                if have == 0:
+                    have = u_peek(m, 0, 265, 511, 1)
+                if have == 0:
+                    have = u_peek(m, 0, 523, 32767, 1)
+                if have == 0:
+                    more = 0
+        guard = guard + 1
+    rcf = win_virtual_free(m, 0, 32768)
+    return n
+
+def win_pointer_x() -> "i32":
+    lp = u_getpos()
+    return lp % 65536
+
+def win_pointer_y() -> "i32":
+    lp = u_getpos()
+    return (lp // 65536) % 65536
+
+def win_key_down(vk: "i32") -> "i32":
+    k = u_gks(vk)
+    if k == 0:
+        return 0
+    return 1
+
+class X11Platform:
+    dummy: "i32"
+    def __init__(self, dummy):
+        self.dummy = dummy
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        hnd = 2001
+        print("X11 CreateWindow ARGB Visual stub handle=" + str(hnd))
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        print("X11 XPutImage " + str(surf.width) + "x" + str(surf.height))
+        return 1
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        print("X11 xdraw_points stub")
+        return 0
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        return 1
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        wh.alpha = alpha
+        return 1
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        print("X11 title stub " + title)
+        return 1
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        return 1
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        wh.handle = wh.handle - wh.handle
+        return 1
+    def poll_events(self) -> "i32":
+        return 0
+    def backend_name(self) -> "str":
+        return "x11"
+
+class CocoaPlatform:
+    dummy: "i32"
+    def __init__(self, dummy):
+        self.dummy = dummy
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        hnd = 3001
+        print("Cocoa NSPanel borderless stub handle=" + str(hnd))
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        print("Cocoa CGDataProvider present " + str(surf.width) + "x" + str(surf.height))
+        return 1
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        print("Cocoa CALayer stub")
+        return 0
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        return 1
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        wh.alpha = alpha
+        return 1
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        print("Cocoa title stub " + title)
+        return 1
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        return 1
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        wh.handle = wh.handle - wh.handle
+        return 1
+    def poll_events(self) -> "i32":
+        return 0
+    def backend_name(self) -> "str":
+        return "cocoa"
+
+__tkv_extern_pinvoke__ = [{"name": "android_native_window_from_surface", "dll": "android.dll", "symbol": "ANativeWindow_fromSurface", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "android_native_window_acquire", "dll": "android.dll", "symbol": "ANativeWindow_acquire", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "android_native_window_release", "dll": "android.dll", "symbol": "ANativeWindow_release", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "android_native_window_set_buffers_geometry", "dll": "android.dll", "symbol": "ANativeWindow_setBuffersGeometry", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "android_native_window_lock", "dll": "android.dll", "symbol": "ANativeWindow_lock", "convention": "stdcall", "params": ["i64", "i64", "i64"], "returns": "i32"}, {"name": "android_native_window_unlock_and_post", "dll": "android.dll", "symbol": "ANativeWindow_unlockAndPost", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "android_choreographer_get_instance", "dll": "android.dll", "symbol": "AChoreographer_getInstance", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "android_choreographer_post_frame_callback", "dll": "android.dll", "symbol": "AChoreographer_postFrameCallback", "convention": "stdcall", "params": ["i64", "i64", "i64"], "returns": "i32"}, {"name": "android_choreographer_post_frame_callback_delayed", "dll": "android.dll", "symbol": "AChoreographer_postFrameCallbackDelayed", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64"], "returns": "i32"}, {"name": "android_jni_copy_pixels", "dll": "tkvui-android.dll", "symbol": "Java_com_tokenvector_TkvUI_copyPixels", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i64"], "returns": "i32"}, {"name": "objc_get_class", "dll": "libobjc.dll", "symbol": "objc_getClass", "convention": "cdecl", "params": ["str"], "returns": "i64"}, {"name": "objc_msg_send", "dll": "libobjc.dll", "symbol": "objc_msgSend", "convention": "cdecl", "params": ["i64", "i64"], "returns": "i64"}, {"name": "objc_msg_send_f", "dll": "libobjc.dll", "symbol": "objc_msgSend_f", "convention": "cdecl", "params": ["i64", "i64", "f64"], "returns": "i64"}, {"name": "objc_msg_send_i", "dll": "libobjc.dll", "symbol": "objc_msgSend_i", "convention": "cdecl", "params": ["i64", "i64", "i32"], "returns": "i64"}, {"name": "objc_msg_send_pp", "dll": "libobjc.dll", "symbol": "objc_msgSend_pp", "convention": "cdecl", "params": ["i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "objc_register_class_pair", "dll": "libobjc.dll", "symbol": "objc_registerClassPair", "convention": "cdecl", "params": ["i64"], "returns": "i32"}, {"name": "sel_register_name", "dll": "libobjc.dll", "symbol": "sel_registerName", "convention": "cdecl", "params": ["str"], "returns": "i64"}, {"name": "ios_display_link_create", "dll": "libobjc.dll", "symbol": "CADisplayLink_create", "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i64"}, {"name": "ios_display_link_add_to_runloop", "dll": "libobjc.dll", "symbol": "CADisplayLink_addToRunLoop", "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"}, {"name": "ios_display_link_invalidate", "dll": "libobjc.dll", "symbol": "CADisplayLink_invalidate", "convention": "cdecl", "params": ["i64"], "returns": "i32"}, {"name": "ios_uiview_create", "dll": "libobjc.dll", "symbol": "UIView_create", "convention": "cdecl", "params": ["f64", "f64", "f64", "f64"], "returns": "i64"}, {"name": "ios_uiview_set_layer_contents", "dll": "libobjc.dll", "symbol": "UIView_setLayerContents", "convention": "cdecl", "params": ["i64", "i64", "i32", "i32", "i64"], "returns": "i32"}, {"name": "ios_uiview_set_frame", "dll": "libobjc.dll", "symbol": "UIView_setFrame", "convention": "cdecl", "params": ["i64", "f64", "f64", "f64", "f64"], "returns": "i32"}, {"name": "ios_uiview_get_layer", "dll": "libobjc.dll", "symbol": "UIView_getLayer", "convention": "cdecl", "params": ["i64"], "returns": "i64"}, {"name": "ios_calayer_create", "dll": "libobjc.dll", "symbol": "CALayer_create", "convention": "cdecl", "params": [], "returns": "i64"}, {"name": "ios_calayer_set_contents", "dll": "libobjc.dll", "symbol": "CALayer_setContents", "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"}, {"name": "ios_calayer_set_frame", "dll": "libobjc.dll", "symbol": "CALayer_setFrame", "convention": "cdecl", "params": ["i64", "f64", "f64", "f64", "f64"], "returns": "i32"}, {"name": "ios_cgcontext_create", "dll": "libobjc.dll", "symbol": "CGBitmapContextCreate", "convention": "cdecl", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32"], "returns": "i64"}, {"name": "ios_cgcontext_release", "dll": "libobjc.dll", "symbol": "CGContextRelease", "convention": "cdecl", "params": ["i64"], "returns": "i32"}, {"name": "ios_cgimage_create", "dll": "libobjc.dll", "symbol": "CGImageCreate", "convention": "cdecl", "params": ["i32", "i32", "i32", "i32", "i32", "i64", "i32", "i64", "i32", "i32", "i64"], "returns": "i64"}]
+
+def android_copy_pixels(env: "i64", dst_bits: "i64", dst_stride: "i32", dst_height: "i32", src_stride: "i32", src_buf: "i64") -> "i32":
+    return android_jni_copy_pixels(env, dst_bits, dst_stride, dst_height, src_stride, src_buf)
+
+class AndroidPlatform:
+    dummy: "i32"
+    window: "i64"
+    surface: "i64"
+    choreographer: "i64"
+    callback_ptr: "i64"
+    frame_pending: "i32"
+    width: "i32"
+    height: "i32"
+    stride: "i32"
+    dpi_scale: "f64"
+    jni_env: "i64"
+    frame_buf: "i64"
+    dst_bits: "i64"
+    def __init__(self, dummy):
+        self.dummy = dummy
+        self.window = 0
+        self.surface = 0
+        self.choreographer = 0
+        self.callback_ptr = 0
+        self.frame_pending = 0
+        self.width = 0
+        self.height = 0
+        self.stride = 0
+        self.dpi_scale = 1.0
+        self.jni_env = 0
+        self.frame_buf = 0
+        self.dst_bits = 0
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        self.width = w
+        self.height = h
+        self.stride = w
+        self.dpi_scale = dpi_scale_for_platform(5)
+        pid = detect_platform()
+        if pid != 5:
+            print("Android backend khong kha dung tren platform " + str(pid) + " - tra handle 0")
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        hnd = 5001
+        print("Android ANativeWindow create " + str(w) + "x" + str(h) + " dpi=" + str(self.dpi_scale))
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+    def set_surface(self, surface_ptr: "i64") -> "i32":
+        self.surface = surface_ptr
+        if surface_ptr != 0:
+            self.window = android_native_window_from_surface(0, surface_ptr)
+            if self.window != 0:
+                rc = android_native_window_acquire(self.window)
+                rc = android_native_window_set_buffers_geometry(self.window, self.width, self.height, 1)
+                self.choreographer = android_choreographer_get_instance()
+                print("Android ANativeWindow acquired: " + str(self.window) + " choreographer: " + str(self.choreographer))
+                return 1
+        return 0
+    def set_jni_env(self, env: "i64") -> "i32":
+        self.jni_env = env
+        return 1
+    def set_frame_buffer(self, ptr: "i64") -> "i32":
+        # Host (Kotlin/JNI) cap native ARGB buffer - library khong tu cap phat native memory
+        self.frame_buf = ptr
+        return 1
+    def set_dst_bits(self, ptr: "i64") -> "i32":
+        # ptr lay tu ANativeWindow_lock(...)->bits (host lock/unlock)
+        self.dst_bits = ptr
+        return 1
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        # P1.1: bo VirtualAlloc/wsprintf (API Windows) khoi duong Android.
+        # Contract: host phai goi set_jni_env(env) + set_frame_buffer(src) + set_dst_bits(bits).
+        if self.window == 0:
+            return 0
+        if self.jni_env == 0:
+            print("Android present: thieu set_jni_env(env) tu host")
+            return 0
+        if self.frame_buf == 0:
+            print("Android present: thieu set_frame_buffer(ptr) tu host")
+            return 0
+        rc = android_copy_pixels(self.jni_env, self.dst_bits, self.stride, self.height, surf.stride, self.frame_buf)
+        if rc != 0:
+            return 0 - 1
+        rc = android_native_window_unlock_and_post(self.window)
+        if rc != 0:
+            return 0 - 2
+        return 1
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        return self.present(buf, surf, wh)
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        if w != self.width or h != self.height:
+            self.width = w
+            self.height = h
+            self.stride = w
+            if self.window != 0:
+                rc = android_native_window_set_buffers_geometry(self.window, w, h, 1)
+        return 1
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        wh.alpha = alpha
+        return 1
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        print("Android title: " + title)
+        return 1
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        return 1
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        if self.window != 0:
+            rc = android_native_window_release(self.window)
+            self.window = 0
+        wh.handle = 0
+        return 1
+    def poll_events(self) -> "i32":
+        return 0
+    def post_frame_callback(self, callback: "i64", data: "i64") -> "i32":
+        if self.choreographer != 0:
+            self.callback_ptr = callback
+            self.frame_pending = 1
+            rc = android_choreographer_post_frame_callback(self.choreographer, callback, data)
+            return rc
+        return 0
+    def backend_name(self) -> "str":
+        return "android"
+
+def make_android_platform() -> "AndroidPlatform":
+    return AndroidPlatform(0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0)
+
+def ios_sel_register_name(name: "str") -> "i64":
+    return sel_register_name(name)
+
+def ios_objc_msg_send(receiver: "i64", selector: "i64") -> "i64":
+    return objc_msg_send(receiver, selector)
+
+def ios_objc_msg_send_f(receiver: "i64", selector: "i64", arg: "f64") -> "i64":
+    return objc_msg_send_f(receiver, selector, arg)
+
+def ios_objc_msg_send_i(receiver: "i64", selector: "i64", arg: "i32") -> "i64":
+    return objc_msg_send_i(receiver, selector, arg)
+
+def ios_objc_msg_send_pp(receiver: "i64", selector: "i64", arg1: "i64", arg2: "i64") -> "i64":
+    return objc_msg_send_pp(receiver, selector, arg1, arg2)
+
+class IOSPlatform:
+    dummy: "i32"
+    view: "i64"
+    layer: "i64"
+    display_link: "i64"
+    callback_target: "i64"
+    callback_selector: "i64"
+    frame_pending: "i32"
+    width: "i32"
+    height: "i32"
+    scale: "f64"
+    frame_buf: "i64"
+    def __init__(self, dummy):
+        self.dummy = dummy
+        self.view = 0
+        self.layer = 0
+        self.display_link = 0
+        self.callback_target = 0
+        self.callback_selector = 0
+        self.frame_pending = 0
+        self.width = 0
+        self.height = 0
+        self.scale = 2.0
+        self.frame_buf = 0
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        self.width = w
+        self.height = h
+        self.scale = dpi_scale_for_platform(6)
+        pid = detect_platform()
+        if pid != 6:
+            print("iOS backend khong kha dung tren platform " + str(pid) + " (can thiet bi iOS that) - tra handle 0")
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        uiview_class = objc_get_class("UIView")
+        self.view = ios_uiview_create(0.0, 0.0, float(w), float(h))
+        self.layer = ios_uiview_get_layer(self.view)
+        calayer_class = objc_get_class("CALayer")
+        hnd = 6001
+        print("iOS UIView create " + str(w) + "x" + str(h) + " scale=" + str(self.scale))
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+    def set_frame_buffer(self, ptr: "i64") -> "i32":
+        # Host (Swift/ObjC) cap buffer RGBA native; library KHONG tu cap phat native memory tren iOS
+        self.frame_buf = ptr
+        return 1
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        # P1.1 fix: ban cu ghi pixel vao chinh con tro CGContext (CGBitmapContextCreate voi data=NULL)
+        # -> ghi de vung nho cua CGContext. Nay duong upload do host dam nhiem; neu chua co buffer
+        # thi tra 0 (khong ghi vao vung nho la). Xem docs/TkvUI.Roadmap.md §8.
+        if self.view == 0:
+            return 0
+        if self.frame_buf == 0:
+            print("iOS present: can host goi set_frame_buffer(ptr) (upload RGBA do host lam)")
+            return 0
+        return 0
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        return self.present(buf, surf, wh)
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        if w != self.width or h != self.height:
+            self.width = w
+            self.height = h
+            if self.view != 0:
+                rc = ios_uiview_set_frame(self.view, float(x), float(y), float(w), float(h))
+        return 1
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        wh.alpha = alpha
+        if self.view != 0:
+            rc = ios_objc_msg_send_f(self.view, ios_sel_register_name("setAlpha:"), float(alpha) / 255.0)
+        return 1
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        print("iOS title: " + title)
+        return 1
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        if self.view != 0:
+            rc = ios_objc_msg_send(self.view, ios_sel_register_name("setHidden:"))
+        return 1
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        if self.display_link != 0:
+            rc = ios_display_link_invalidate(self.display_link)
+            self.display_link = 0
+        if self.view != 0:
+            rc = ios_objc_msg_send(self.view, ios_sel_register_name("removeFromSuperview"))
+            self.view = 0
+        wh.handle = 0
+        return 1
+    def poll_events(self) -> "i32":
+        return 0
+    def post_frame_callback(self, callback: "i64", data: "i64") -> "i32":
+        if self.display_link == 0:
+            self.callback_target = callback
+            self.callback_selector = data
+            cadisplaylink_class = objc_get_class("CADisplayLink")
+            self.display_link = ios_display_link_create(cadisplaylink_class, callback, data)
+            if self.display_link != 0:
+                nsrunloop_class = objc_get_class("NSRunLoop")
+                main_runloop = ios_objc_msg_send(nsrunloop_class, ios_sel_register_name("mainRunLoop"))
+                rc = ios_display_link_add_to_runloop(self.display_link, main_runloop, ios_sel_register_name("NSDefaultRunLoopMode"))
+                self.frame_pending = 1
+                print("iOS CADisplayLink created: " + str(self.display_link))
+                return 1
+        return 0
+    def backend_name(self) -> "str":
+        return "ios"
+
+def make_ios_platform() -> "IOSPlatform":
+    return IOSPlatform(0, 0, 0, 0, 0, 0, 0, 0, 0, 2.0, 0)
+
+# =========================================================
+# P1.1 SELFTEST - detect_platform + backend parity (headless)
+# =========================================================
+def platform_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def platform_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def platform_check_ge(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got >= lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want >= " + str(lo))
+    return 0
+
+def platform_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def platform_selftest() -> "str":
+    print("=== TkvUI.Platform selftest (P1.1) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    # --- probe runtime
+    pid = detect_platform()
+    name = detect_platform_id()
+    print("  detect_platform() = " + str(pid) + " (" + name + ")")
+    ok_range = 0
+    if pid >= 1:
+        if pid <= 6:
+            ok_range = 1
+    platform_check(acc, "detect_platform trong 1..6", ok_range)
+    platform_check_ge(acc, "detect_platform_id tra ten backend", len(name), 3)
+    platform_check_i(acc, "bien moi truong khong ton tai -> 0", tkv_has_env("TKVUI_KHONG_CO_BIEN_NAY"), 0)
+    platform_check_i(acc, "file probe khong ton tai -> 0", tkv_has_file("/tkvui/khong-ton-tai/file.txt"), 0)
+    if pid == 1:
+        platform_check_i(acc, "windows: co bien windir", tkv_has_env("windir"), 1)
+    # --- backend parity (khong mo cua so)
+    w32 = Win32Platform(0)
+    x11 = X11Platform(0)
+    coc = CocoaPlatform(0)
+    w32n = w32.backend_name()
+    x11n = x11.backend_name()
+    cocn = coc.backend_name()
+    platform_check_i(acc, "Win32Platform.backend_name = win32", platform_str_eq(w32n, "win32"), 1)
+    platform_check_i(acc, "X11Platform.backend_name = x11", platform_str_eq(x11n, "x11"), 1)
+    platform_check_i(acc, "CocoaPlatform.backend_name = cocoa", platform_str_eq(cocn, "cocoa"), 1)
+    # --- dpi
+    platform_check_f(acc, "dpi_scale android (5)", dpi_scale_for_platform(5), 2.0, 0.001)
+    platform_check_f(acc, "dpi_scale ios (6)", dpi_scale_for_platform(6), 2.0, 0.001)
+    platform_check_f(acc, "dpi_scale win32 (1)", dpi_scale_for_platform(1), 1.0, 0.001)
+    # --- handle 0: moi backend phai tra ve an toan, khong goi native
+    buf = []
+    surface_ensure_capacity(buf, 64)
+    surf = PixelSurface(8, 8, 8)
+    surface_clear(buf, surf, ColorRgba(0, 0, 0, 255))
+    wh0 = PlatformWindowHandle(0, 0, 0, 8, 8, 0, 0, 0, 0, 0, 255, 16711935, 0)
+    platform_check_i(acc, "Win32Platform.present handle 0 -> 0", w32.present(buf, surf, wh0), 0)
+    platform_check_i(acc, "Win32Platform.present_diff handle 0 -> 0", w32.present_diff(buf, buf, surf, wh0), 0)
+    # --- Android tren runtime khong phai Android -> handle 0, present 0 (khong crash DllNotFound)
+    ap = make_android_platform()
+    awh = ap.create(0, 0, 390, 844, 0)
+    if pid == 5:
+        platform_check_ge(acc, "android create tren Android tra handle", awh.handle, 1)
+    else:
+        platform_check_i(acc, "android create ngoai Android -> handle 0", awh.handle, 0)
+    platform_check_i(acc, "android present khong crash", ap.present(buf, surf, awh), 0)
+    platform_check_i(acc, "android post_frame_callback khong crash", ap.post_frame_callback(1, 2), 0)
+    platform_check_i(acc, "android set_pos tra 1", ap.set_pos(awh, 0, 0, 400, 850), 1)
+    platform_check_i(acc, "android set_frame_buffer tra 1", ap.set_frame_buffer(0), 1)
+    platform_check_i(acc, "android close_window tra 1", ap.close_window(awh), 1)
+    # --- iOS: truoc day crash DllNotFoundException libobjc.dll tren Windows
+    ip = make_ios_platform()
+    iwh = ip.create(0, 0, 390, 844, 0)
+    if pid == 6:
+        platform_check_ge(acc, "ios create tren iOS tra handle", iwh.handle, 1)
+    else:
+        platform_check_i(acc, "ios create ngoai iOS -> handle 0 (khong crash)", iwh.handle, 0)
+    platform_check_i(acc, "ios present khong ghi vao con tro CGContext", ip.present(buf, surf, iwh), 0)
+    platform_check_i(acc, "ios set_frame_buffer tra 1", ip.set_frame_buffer(0), 1)
+    platform_check_i(acc, "ios close_window tra 1", ip.close_window(iwh), 1)
+    # --- input poll: chi tren Windows
+    if pid == 1:
+        platform_check_ge(acc, "win_pointer_x khong am", win_pointer_x(), 0)
+    print("--- platform selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "PLATFORM_OK"
+    return "PLATFORM_FAIL"
+
+def platform_str_eq(s: "str", want: "str") -> "i32":
+    if s == want:
+        return 1
+    return 0

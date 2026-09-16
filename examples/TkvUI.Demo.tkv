@@ -1,0 +1,120 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Demo - desktop demo: notch pill + MetricRing lerp qua Spring + widget panel (P7)
+
+Build:  tkvc.exe build examples/TkvUI.Demo.tkv --entry run --out build/TkvUI.Demo.exe
+Chay:  hien cua so WS_EX_LAYERED (khong vien, luon noi) voi notch pill 720x220.
+Import tuong doi "../TokenVector.UI" (import resolve theo thu muc file nguon).
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+# Kich thuoc cua so (720x220). Luu y compiler: hang module KHONG dung duoc o
+# RHS cua phep gan local trong than ham (`n = DW * DH` -> KeyError) nen trong
+# ham dung literal so truc tiep (xem Roadmap muc rang buoc).
+
+def demo_alloc_surface(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def demo_draw_frame(buf: "list[i64]", surf: "PixelSurface") -> "i32":
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    # --- notch pill (Card notch) chua 2 MetricRing + sparkline
+    notch = make_card_notch(8.0, 8.0, 704.0, 84.0, "TokenVector.UI v2 - P7")
+    notch.render(buf, surf)
+    cpu = make_metric_ring(28.0, 24.0, 48.0, 48.0, "CPU", 80, 200, 120)
+    ram = make_metric_ring(96.0, 24.0, 48.0, 48.0, "RAM", 80, 160, 255)
+    cpu.set_value(72.0)
+    ram.set_value(45.0)
+    # 60 frame @16ms -> spring ve target (lerp)
+    f = int(0)
+    while f < 90:
+        cpu.step(0.016)
+        ram.step(0.016)
+        f = f + 1
+    cpu.render(buf, surf)
+    ram.render(buf, surf)
+    chart = make_sparkline(420.0, 22.0, 280.0, 58.0, 0.0, 100.0)
+    vals = widget_sample_values(32)
+    chart.render(buf, surf, vals, 32)
+    # --- panel duoi: button/progress/slider/switch/tabs xep bang Layout FLEX
+    panel = make_card(8.0, 96.0, 704.0, 116.0, "")
+    panel.render(buf, surf)
+    st = flex_style(TKV_DIR_ROW, 12.0, 0.0, TKV_ALIGN_CENTER, TKV_JUSTIFY_START)
+    cw = []
+    ch = []
+    cw.append(120.0)
+    ch.append(34.0)
+    cw.append(120.0)
+    ch.append(34.0)
+    cw.append(90.0)
+    ch.append(26.0)
+    cw.append(200.0)
+    ch.append(20.0)
+    n = int(4)
+    ox = layout_alloc_f64(n, 0.0)
+    oy = layout_alloc_f64(n, 0.0)
+    ow = layout_alloc_f64(n, 0.0)
+    oh = layout_alloc_f64(n, 0.0)
+    cline = layout_alloc_i32(n, 0)
+    clh = layout_alloc_f64(n, 0.0)
+    lines = layout_flex(st, 24.0, 110.0, 672.0, 40.0, cw, ch, n, cline, clh, ox, oy, ow, oh)
+    print("[demo] flex rows=" + str(lines) + " btn.x=" + str(ox[0]) + " switch.x=" + str(ox[2]))
+    b1 = make_button(ox[0], oy[0], ow[0], oh[0], "Apply")
+    b1.set_state(1, 0)
+    b1.render(buf, surf)
+    b2 = make_button_outline(ox[1], oy[1], ow[1], oh[1], "Cancel")
+    b2.render(buf, surf)
+    sw = make_switch(ox[2], oy[2], 52.0, 26.0, 1)
+    sw.step(0.2)
+    sw.step(0.2)
+    sw.render(buf, surf)
+    prog = make_progress(ox[3], oy[3], ow[3], 10.0, cpu.display_value / 100.0)
+    prog.render(buf, surf)
+    sld = make_slider(24.0, 186.0, 300.0, 18.0, 0.6)
+    sld.render(buf, surf)
+    tabs = make_tabs(360.0, 180.0, 340.0, 28.0, 3)
+    tabs.select(1)
+    labels = widget_row_labels()
+    tabs.render(buf, surf, labels, 3)
+    toast = make_toast(24.0, 150.0, 200.0, 30.0, "Saved", 0)
+    toast.render(buf, surf)
+    return 1
+
+def run() -> "str":
+    print("=== TkvUI.Demo (P7) version=" + tkvui_version() + " ===")
+    buf = demo_alloc_surface(720, 220)
+    surf = PixelSurface(720, 220, 720)
+    demo_draw_frame(buf, surf)
+    bg = theme_dark()
+    bgc = bg.surface
+    painted = 0
+    i = int(0)
+    n = 720 * 220
+    packed = bgc.to_uint32()
+    while i < n:
+        if buf[i] != packed:
+            painted = painted + 1
+        i = i + 1
+    print("[demo] painted=" + str(painted) + "/" + str(n) + " pixel[0]=" + str(buf[0]))
+    # Cua so that (Win32 ULW) - nut that de kiểm tra tren may that
+    print("[demo] platform=" + str(detect_platform()) + " winforms=" + wf_backend_name())
+    plat = Win32Platform(0)
+    wh = plat.create(60, 60, 720, 220, 1)
+    if wh.handle == 0:
+        print("[demo] tao cua so that bai -> chi render headless")
+        return "TKVUI_OK:P7_headless"
+    shown = demo_alloc_surface(720, 220)
+    d1 = plat.present(buf, surf, wh)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, 720, 220, 0, 0)
+    d2 = plat.present_diff(buf, shown, surf, wh)
+    print("[demo] present=" + str(d1) + " present_diff(same frame)=" + str(d2))
+    plat.set_title(wh, "TkvUI P7")
+    plat.close_window(wh)
+    print("=== TkvUI.Demo end ===")
+    return "TKVUI_OK:P7_demo"

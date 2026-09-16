@@ -1,0 +1,45 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Events - pointer event data types + hit-test result (Task 6)
+
+P5 (2026-09-15): module nay CHI giu DATA TYPE thuan (khong con EventDispatcher -
+router da chuyen sang `TkvUI.Input.tkv` vi `__tkv_import__` gop file va CAM
+trung ten class giua 2 module). Su phu thuoc: Core <- Events <- Input <- Widgets.
+"""
+__tkv_import__ = ["TkvUI.Core"]
+
+# Button codes (documentation; methods use literal numbers - module const
+# KHONG nhin thay duoc trong than method record, xem Roadmap muc rang buoc).
+TKV_BUTTON_NONE = 0
+TKV_BUTTON_LEFT = 1
+TKV_BUTTON_RIGHT = 2
+TKV_BUTTON_MIDDLE = 3
+
+def pointer_button_label(btn: "i32") -> "str":
+    if btn == 1:
+        return "left"
+    if btn == 2:
+        return "right"
+    if btn == 3:
+        return "middle"
+    return "none"
+
+class PointerEventArgs:
+    px: "f64"
+    py: "f64"
+    button: "i32"
+    is_down: "i32"
+    def __init__(self, px, py, button, is_down):
+        self.px = px
+        self.py = py
+        self.button = button
+        self.is_down = is_down
+
+class HitTestResult:
+    found: "i32"
+    target_id: "i32"
+    def __init__(self, found, target_id):
+        self.found = found
+        self.target_id = target_id
+
+def no_hit() -> "HitTestResult":
+    return HitTestResult(0, -1)

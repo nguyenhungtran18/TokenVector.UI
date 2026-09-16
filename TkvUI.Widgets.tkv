@@ -1,0 +1,1521 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Widgets - widget catalog (15), animation, invalidation, frame scheduler (P7)
+
+Phu thuoc: Core, Graphics, Text, Effects, Platform, Events, Input, Layout.
+P7: demo `run()`/`demo_build_surface()` da CHUYEN ra `examples/` (Roadmap 2.8).
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout"]
+
+# Variant codes (documentation - than method dung literal so)
+TKV_VARIANT_FILLED = 0
+TKV_VARIANT_OUTLINE = 1
+
+class SpringParams:
+    stiffness: "f64"
+    damping: "f64"
+    mass: "f64"
+    def __init__(self, stiffness, damping, mass):
+        self.stiffness = stiffness
+        self.damping = damping
+        self.mass = mass
+
+class SpringAnimation:
+    value: "f64"
+    target: "f64"
+    velocity: "f64"
+    params: "SpringParams"
+    is_rest: "i32"
+    def __init__(self, value, target, velocity, params, is_rest):
+        self.value = value
+        self.target = target
+        self.velocity = velocity
+        self.params = params
+        self.is_rest = is_rest
+    def step(self, dt: "f64") -> "i32":
+        # Semi-implicit Euler: a = (-k(x-target) - c*v) / m
+        p = self.params
+        k = p.stiffness
+        c = p.damping
+        m = p.mass
+        if m == 0.0:
+            m = 1.0
+        a = (0.0 - k * (self.value - self.target) - c * self.velocity) / m
+        self.velocity = self.velocity + a * dt
+        self.value = self.value + self.velocity * dt
+        diff = self.value - self.target
+        if diff < 0.0:
+            diff = 0.0 - diff
+        va = self.velocity
+        if va < 0.0:
+            va = 0.0 - va
+        if diff < 0.2:
+            if va < 0.2:
+                self.value = self.target
+                self.velocity = 0.0
+                self.is_rest = 1
+                return 1
+        self.is_rest = 0
+        return 0
+    def set_target(self, t: "f64") -> "i32":
+        self.target = t
+        self.is_rest = 0
+        return 0
+
+def spring_new(stiffness: "f64", damping: "f64", mass: "f64", value: "f64") -> "SpringAnimation":
+    return SpringAnimation(value, value, 0.0, SpringParams(stiffness, damping, mass), 1)
+
+# =========================================================
+# EASING + TWEEN (P7)
+# =========================================================
+def ease_linear(t: "f64") -> "f64":
+    return t
+
+def ease_out_cubic(t: "f64") -> "f64":
+    u = 1.0 - t
+    return 1.0 - u * u * u
+
+def ease_in_out_cubic(t: "f64") -> "f64":
+    if t < 0.5:
+        return 4.0 * t * t * t
+    u = 1.0 - t
+    return 1.0 - 4.0 * u * u * u
+
+def ease_out_back(t: "f64") -> "f64":
+    c1 = 1.70158
+    u = t - 1.0
+    return 1.0 + c1 * u * u * u + (c1 + 1.0) * u * u
+
+def ease_apply(kind: "i32", t: "f64") -> "f64":
+    if kind == 1:
+        return ease_out_cubic(t)
+    if kind == 2:
+        return ease_in_out_cubic(t)
+    if kind == 3:
+        return ease_out_back(t)
+    return ease_linear(t)
+
+class Tween:
+    from_v: "f64"
+    to_v: "f64"
+    duration: "f64"
+    elapsed: "f64"
+    easing: "i32"
+    done: "i32"
+    def __init__(self, from_v, to_v, duration, elapsed, easing, done):
+        self.from_v = from_v
+        self.to_v = to_v
+        self.duration = duration
+        self.elapsed = elapsed
+        self.easing = easing
+        self.done = done
+    def value(self) -> "f64":
+        if self.duration <= 0.0:
+            return self.to_v
+        t = self.elapsed / self.duration
+        if t > 1.0:
+            t = 1.0
+        e = ease_apply(self.easing, t)
+        return self.from_v + (self.to_v - self.from_v) * e
+    def step(self, dt: "f64") -> "i32":
+        self.elapsed = self.elapsed + dt
+        if self.elapsed >= self.duration:
+            self.elapsed = self.duration
+            self.done = 1
+            return 1
+        return 0
+    def restart(self, from_v: "f64", to_v: "f64") -> "i32":
+        self.from_v = from_v
+        self.to_v = to_v
+        self.elapsed = 0.0
+        self.done = 0
+        return 0
+
+def tween_to(from_v: "f64", to_v: "f64", duration: "f64", easing: "i32") -> "Tween":
+    return Tween(from_v, to_v, duration, 0.0, easing, 0)
+
+# =========================================================
+# INVALIDATION (dirty rect) + FRAME SCHEDULER (P7)
+# =========================================================
+class InvalidationManager:
+    pending: "i32"
+    dx0: "f64"
+    dy0: "f64"
+    dx1: "f64"
+    dy1: "f64"
+    regions: "i32"
+    full: "i32"
+    def __init__(self, pending, dx0, dy0, dx1, dy1, regions, full):
+        self.pending = pending
+        self.dx0 = dx0
+        self.dy0 = dy0
+        self.dx1 = dx1
+        self.dy1 = dy1
+        self.regions = regions
+        self.full = full
+    def invalidate(self, x: "f64", y: "f64", w: "f64", h: "f64") -> "i32":
+        x1 = x + w
+        y1 = y + h
+        if self.pending == 0:
+            self.dx0 = x
+            self.dy0 = y
+            self.dx1 = x1
+            self.dy1 = y1
+            self.regions = 1
+        else:
+            # Kiem tra roi vao vung da ban (co tolerance) -> coalesce, khong tang regions
+            inside = 0
+            if x >= self.dx0 - 1.0:
+                if y >= self.dy0 - 1.0:
+                    if x1 <= self.dx1 + 1.0:
+                        if y1 <= self.dy1 + 1.0:
+                            inside = 1
+            if inside == 0:
+                self.regions = self.regions + 1
+            if x < self.dx0:
+                self.dx0 = x
+            if y < self.dy0:
+                self.dy0 = y
+            if x1 > self.dx1:
+                self.dx1 = x1
+            if y1 > self.dy1:
+                self.dy1 = y1
+        self.pending = 1
+        return self.regions
+    def invalidate_all(self, w: "f64", h: "f64") -> "i32":
+        self.dx0 = 0.0
+        self.dy0 = 0.0
+        self.dx1 = w
+        self.dy1 = h
+        self.pending = 1
+        self.full = 1
+        self.regions = self.regions + 1
+        return 1
+    def dirty_rect(self) -> "Rect2D":
+        w = self.dx1 - self.dx0
+        h = self.dy1 - self.dy0
+        if w < 0.0:
+            w = 0.0
+        if h < 0.0:
+            h = 0.0
+        return Rect2D(self.dx0, self.dy0, w, h)
+    def needs_render(self) -> "i32":
+        return self.pending
+    def ack(self) -> "i32":
+        self.pending = 0
+        self.full = 0
+        return 1
+
+def make_invalidation() -> "InvalidationManager":
+    return InvalidationManager(0, 0.0, 0.0, 0.0, 0.0, 0, 0)
+
+class FrameScheduler:
+    target_fps: "i32"
+    last_ms: "f64"
+    frame: "i32"
+    dropped: "i32"
+    vsync: "i32"
+    def __init__(self, target_fps, last_ms, frame, dropped, vsync):
+        self.target_fps = target_fps
+        self.last_ms = last_ms
+        self.frame = frame
+        self.dropped = dropped
+        self.vsync = vsync
+    def frame_ms(self) -> "f64":
+        f = self.target_fps
+        if f < 1:
+            f = 60
+        return 1000.0 / float(f)
+    def begin(self, now_ms: "f64") -> "i32":
+        # 1 = du budget de ve frame moi; 0 = chua toi ky (bo qua, 0% CPU phan con lai)
+        if now_ms - self.last_ms >= self.frame_ms():
+            self.last_ms = now_ms
+            self.frame = self.frame + 1
+            return 1
+        self.dropped = self.dropped + 1
+        return 0
+    def end(self, now_ms: "f64") -> "f64":
+        return now_ms - self.last_ms
+    def set_target(self, fps: "i32") -> "i32":
+        self.target_fps = fps
+        return fps
+
+def make_frame_scheduler(fps: "i32") -> "FrameScheduler":
+    return FrameScheduler(fps, 0.0, 0, 0, 0)
+
+# =========================================================
+# UIElement (nen tang chung)
+# =========================================================
+class UIElement:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    is_hovered: "i32"
+    child_count: "i32"
+    def __init__(self, bx, by, bw, bh, is_hovered, child_count):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.is_hovered = is_hovered
+        self.child_count = child_count
+    def rect(self) -> "Rect2D":
+        return Rect2D(self.bx, self.by, self.bw, self.bh)
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if py < self.by:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        return 1
+    def measure(self) -> "TextMetrics":
+        return TextMetrics(self.bw, self.bh)
+    def layout(self, rect: "Rect2D") -> "i32":
+        self.bx = rect.x
+        self.by = rect.y
+        self.bw = rect.w
+        self.bh = rect.h
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = self.rect()
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(40, 40, 45, 230))
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        hit = self.contains(e.px, e.py)
+        if hit == 1:
+            self.is_hovered = 1
+        else:
+            self.is_hovered = 0
+        return hit
+
+# =========================================================
+# 1) BUTTON
+# =========================================================
+class ButtonWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    label: "str"
+    variant: "i32"
+    hover: "i32"
+    press: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, label, variant, hover, press, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.label = label
+        self.variant = variant
+        self.hover = hover
+        self.press = press
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_state(self, hovered: "i32", pressed: "i32") -> "i32":
+        self.hover = hovered
+        self.press = pressed
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        th = theme_dark()
+        fg = th.on_surface
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        base = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        if self.variant == 1:
+            stroke_round_rect(buf, surf, r, 10.0, 1.5, base)
+        else:
+            col = base
+            if self.hover == 1:
+                col = color_lerp(base, ColorRgba(255, 255, 255, 255), 0.18)
+            if self.press == 1:
+                col = color_lerp(base, ColorRgba(0, 0, 0, 255), 0.20)
+            fill_round_rect(buf, surf, r, 10.0, col)
+        tm = measure_string(self.label, 1.0)
+        tx = self.bx + (self.bw - tm.w) / 2.0
+        ty = self.by + (self.bh - tm.h) / 2.0
+        draw_string(buf, surf, self.label, tx, ty, 1.0, fg)
+        return 1
+
+def make_button(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "ButtonWidget":
+    return ButtonWidget(x, y, w, h, label, 0, 0, 0, 80, 160, 255, 255)
+
+def make_button_outline(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "ButtonWidget":
+    return ButtonWidget(x, y, w, h, label, 1, 0, 0, 120, 180, 255, 255)
+
+# =========================================================
+# 2) CARD (pill notch)
+# =========================================================
+class CardWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    radius: "f64"
+    title: "str"
+    notch: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, radius, title, notch, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.radius = radius
+        self.title = title
+        self.notch = notch
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        th = theme_dark()
+        fg = th.on_surface
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        draw_drop_shadow(buf, surf, r, self.radius, 4, 0.55)
+        fill_round_rect(buf, surf, r, self.radius, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        draw_specular_highlight(buf, surf, r, self.radius, 0.5)
+        if len(self.title) > 0:
+            draw_string(buf, surf, self.title, self.bx + 12.0, self.by + 10.0, 1.0, fg)
+        if self.notch == 1:
+            pw = self.bw / 3.0
+            if pw > 120.0:
+                pw = 120.0
+            px0 = self.bx + (self.bw - pw) / 2.0
+            pill = Rect2D(px0, self.by + 8.0, pw, 10.0)
+            fill_round_rect(buf, surf, pill, 5.0, ColorRgba(16, 16, 20, 255))
+        return 1
+
+def make_card(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "CardWidget":
+    return CardWidget(x, y, w, h, 14.0, title, 0, 38, 38, 46, 245)
+
+def make_card_notch(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "CardWidget":
+    return CardWidget(x, y, w, h, 16.0, title, 1, 30, 30, 38, 245)
+
+# =========================================================
+# 3) METRIC RING (notch pill status)
+# =========================================================
+class MetricRingWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    value: "f64"
+    display_value: "f64"
+    label: "str"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    spring: "SpringAnimation"
+    def __init__(self, bx, by, bw, bh, value, display_value, label, cr, cg, cb, ca, spring):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.value = value
+        self.display_value = display_value
+        self.label = label
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+        self.spring = spring
+    def set_value(self, v: "f64") -> "i32":
+        self.value = v
+        self.spring.set_target(v)
+        return 1
+    def step(self, dt: "f64") -> "i32":
+        s = self.spring
+        s.step(dt)
+        self.display_value = s.value
+        return s.is_rest
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        rad = self.bw / 2.0 - 6.0
+        if rad < 4.0:
+            rad = 4.0
+        draw_arc(buf, surf, cx, cy, rad, 4.0, 0.0, 360.0, ColorRgba(60, 60, 70, 255))
+        sweep = self.display_value * 2.7
+        if sweep < 0.0:
+            sweep = 0.0
+        if sweep > 270.0:
+            sweep = 270.0
+        col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        draw_arc(buf, surf, cx, cy, rad, 4.0, 270.0, sweep, col)
+        pct = str(int(self.display_value)) + "%"
+        tm = measure_string(pct, 1.0)
+        draw_string(buf, surf, pct, cx - tm.w / 2.0, cy - tm.h / 2.0, 1.0, ColorRgba(255, 255, 255, 255))
+        draw_string(buf, surf, self.label, self.bx, self.by + self.bh + 2.0, 1.0, ColorRgba(200, 200, 205, 255))
+        return 1
+
+def make_metric_ring(x: "f64", y: "f64", w: "f64", h: "f64", label: "str", cr: "i64", cg: "i64", cb: "i64") -> "MetricRingWidget":
+    return MetricRingWidget(x, y, w, h, 0.0, 0.0, label, cr, cg, cb, 255, spring_new(180.0, 12.0, 1.0, 0.0))
+
+# =========================================================
+# 4) PROGRESS BAR
+# =========================================================
+class ProgressBarWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    value: "f64"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, value, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.value = value
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, self.bh / 2.0, ColorRgba(50, 50, 58, 255))
+        v = self.value
+        if v < 0.0:
+            v = 0.0
+        if v > 1.0:
+            v = 1.0
+        fill_w = self.bw * v
+        if fill_w > 0.5:
+            fr = Rect2D(self.bx, self.by, fill_w, self.bh)
+            fill_round_rect(buf, surf, fr, self.bh / 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        return 1
+
+def make_progress(x: "f64", y: "f64", w: "f64", h: "f64", value: "f64") -> "ProgressBarWidget":
+    return ProgressBarWidget(x, y, w, h, value, 80, 200, 120, 255)
+
+# =========================================================
+# 5) SWITCH (toggle)
+# =========================================================
+class SwitchWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    on: "i32"
+    anim: "f64"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, on, anim, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.on = on
+        self.anim = anim
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def toggle(self) -> "i32":
+        if self.on == 1:
+            self.on = 0
+        else:
+            self.on = 1
+        return self.on
+    def step(self, dt: "f64") -> "i32":
+        tgt = 0.0
+        if self.on == 1:
+            tgt = 1.0
+        d = tgt - self.anim
+        if d > 0.0:
+            self.anim = self.anim + dt * 8.0
+            if self.anim > tgt:
+                self.anim = tgt
+        if d < 0.0:
+            self.anim = self.anim - dt * 8.0
+            if self.anim < tgt:
+                self.anim = tgt
+        if self.anim == tgt:
+            return 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        track = ColorRgba(60, 60, 68, 255)
+        if self.anim > 0.5:
+            track = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        fill_round_rect(buf, surf, r, self.bh / 2.0, track)
+        rad = self.bh / 2.0 - 3.0
+        cxx = self.bx + rad + 3.0 + (self.bw - rad * 2.0 - 6.0) * self.anim
+        cyy = self.by + self.bh / 2.0
+        draw_arc(buf, surf, cxx, cyy, rad, rad * 2.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+        return 1
+
+def make_switch(x: "f64", y: "f64", w: "f64", h: "f64", on: "i32") -> "SwitchWidget":
+    return SwitchWidget(x, y, w, h, on, 0.0, 80, 200, 120, 255)
+
+# =========================================================
+# 6) SLIDER
+# =========================================================
+class SliderWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    value: "f64"
+    min_v: "f64"
+    max_v: "f64"
+    dragging: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, value, min_v, max_v, dragging, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.value = value
+        self.min_v = min_v
+        self.max_v = max_v
+        self.dragging = dragging
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def ratio(self) -> "f64":
+        span = self.max_v - self.min_v
+        if span <= 0.0:
+            return 0.0
+        t = (self.value - self.min_v) / span
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        return t
+    def set_from_pointer(self, px: "f64") -> "f64":
+        t = (px - self.bx) / self.bw
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        self.value = self.min_v + (self.max_v - self.min_v) * t
+        return self.value
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        mid = self.by + self.bh / 2.0
+        track = Rect2D(self.bx, mid - 3.0, self.bw, 6.0)
+        fill_round_rect(buf, surf, track, 3.0, ColorRgba(55, 55, 62, 255))
+        t = self.ratio()
+        fw = self.bw * t
+        if fw > 1.0:
+            fr = Rect2D(self.bx, mid - 3.0, fw, 6.0)
+            fill_round_rect(buf, surf, fr, 3.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        rad = 7.0
+        if self.dragging == 1:
+            rad = 9.0
+        kx = self.bx + self.bw * t
+        draw_arc(buf, surf, kx, mid, rad, rad * 2.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+        return 1
+
+def make_slider(x: "f64", y: "f64", w: "f64", h: "f64", value: "f64") -> "SliderWidget":
+    return SliderWidget(x, y, w, h, value, 0.0, 1.0, 0, 80, 160, 255, 255)
+
+# =========================================================
+# 7) TEXT FIELD
+# =========================================================
+class TextFieldWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    text: "str"
+    placeholder: "str"
+    focused: "i32"
+    caret: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, text, placeholder, focused, caret, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.text = text
+        self.placeholder = placeholder
+        self.focused = focused
+        self.caret = caret
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def type_char(self, ch: "str") -> "str":
+        self.text = self.text + ch
+        self.caret = len(self.text)
+        return self.text
+    def backspace(self) -> "str":
+        n = len(self.text)
+        if n > 0:
+            self.text = self.text[0:n - 1]
+            self.caret = n - 1
+        return self.text
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(26, 26, 32, 255))
+        if self.focused == 1:
+            stroke_round_rect(buf, surf, r, 8.0, 1.5, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        else:
+            stroke_round_rect(buf, surf, r, 8.0, 1.0, ColorRgba(60, 60, 70, 255))
+        ty = self.by + (self.bh - 7.0) / 2.0
+        if len(self.text) > 0:
+            draw_string(buf, surf, self.text, self.bx + 10.0, ty, 1.0, ColorRgba(235, 235, 240, 255))
+        else:
+            draw_string(buf, surf, self.placeholder, self.bx + 10.0, ty, 1.0, ColorRgba(120, 120, 130, 255))
+        if self.focused == 1:
+            cx = self.bx + 10.0 + float(self.caret * 6)
+            if cx > self.bx + self.bw - 12.0:
+                cx = self.bx + self.bw - 12.0
+            draw_line(buf, surf, cx, self.by + 5.0, cx, self.by + self.bh - 5.0, 1.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        return 1
+
+def make_textfield(x: "f64", y: "f64", w: "f64", h: "f64", placeholder: "str") -> "TextFieldWidget":
+    return TextFieldWidget(x, y, w, h, "", placeholder, 0, 0, 80, 160, 255, 255)
+
+# =========================================================
+# 8) LIST VIEW (virtualized)
+# =========================================================
+class ListViewWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    item_h: "f64"
+    scroll: "f64"
+    item_count: "i32"
+    selected: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, item_h, scroll, item_count, selected, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.item_h = item_h
+        self.scroll = scroll
+        self.item_count = item_count
+        self.selected = selected
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def first_visible(self) -> "i32":
+        if self.item_h <= 0.0:
+            return 0
+        f = int(self.scroll / self.item_h)
+        if f < 0:
+            f = 0
+        return f
+    def visible_count(self) -> "i32":
+        if self.item_h <= 0.0:
+            return 0
+        v = int(self.bh / self.item_h) + 2
+        if v > self.item_count:
+            v = self.item_count
+        return v
+    def scroll_by(self, dy: "f64", total_h: "f64") -> "f64":
+        self.scroll = self.scroll + dy
+        if self.scroll < 0.0:
+            self.scroll = 0.0
+        mx = total_h - self.bh
+        if mx < 0.0:
+            mx = 0.0
+        if self.scroll > mx:
+            self.scroll = mx
+        return self.scroll
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        clip = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, clip, 10.0, ColorRgba(24, 24, 30, 255))
+        # Virtualization: CHI ve cac dong dang nhin thay (first..first+visible)
+        first = self.first_visible()
+        vc = self.visible_count()
+        alt = int(0)
+        i = int(0)
+        while i < vc:
+            idx = first + i
+            if idx < self.item_count:
+                y = self.by + float(idx) * self.item_h - self.scroll
+                if y + self.item_h > self.by:
+                    if y < self.by + self.bh:
+                        row = Rect2D(self.bx + 4.0, y, self.bw - 8.0, self.item_h - 2.0)
+                        if idx == self.selected:
+                            fill_round_rect(buf, surf, row, 6.0, ColorRgba(self.cr, self.cg, self.cb, 90))
+                        else:
+                            if alt == 0:
+                                fill_round_rect(buf, surf, row, 6.0, ColorRgba(32, 32, 40, 255))
+                        txt = "Item " + str(idx)
+                        draw_string(buf, surf, txt, self.bx + 12.0, y + (self.item_h - 7.0) / 2.0, 1.0, ColorRgba(225, 225, 232, 255))
+            alt = 1 - alt
+            i = i + 1
+        return 1
+
+def make_listview(x: "f64", y: "f64", w: "f64", h: "f64", item_h: "f64", item_count: "i32") -> "ListViewWidget":
+    return ListViewWidget(x, y, w, h, item_h, 0.0, item_count, -1, 80, 160, 255, 255)
+
+# =========================================================
+# 9) TABS
+# =========================================================
+class TabsWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    tab_count: "i32"
+    active: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, tab_count, active, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.tab_count = tab_count
+        self.active = active
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def select(self, idx: "i32") -> "i32":
+        if idx < 0:
+            return self.active
+        if idx >= self.tab_count:
+            return self.active
+        self.active = idx
+        return idx
+    def hit_tab(self, px: "f64") -> "i32":
+        if self.tab_count <= 0:
+            return -1
+        w = self.bw / float(self.tab_count)
+        idx = int((px - self.bx) / w)
+        if idx < 0:
+            idx = 0
+        if idx >= self.tab_count:
+            idx = self.tab_count - 1
+        return idx
+    def render(self, buf: "list[i64]", surf: "PixelSurface", labels: "list[str]", n: "i32") -> "i32":
+        fill_round_rect(buf, surf, Rect2D(self.bx, self.by, self.bw, self.bh), 10.0, ColorRgba(30, 30, 38, 255))
+        if self.tab_count <= 0:
+            return 1
+        w = self.bw / float(self.tab_count)
+        i = int(0)
+        while i < n:
+            if i < self.tab_count:
+                cell = Rect2D(self.bx + float(i) * w + 3.0, self.by + 3.0, w - 6.0, self.bh - 6.0)
+                txt = "Tab " + str(i)
+                if i < len(labels):
+                    txt = labels[i]
+                if i == self.active:
+                    fill_round_rect(buf, surf, cell, 8.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                    tm = measure_string(txt, 1.0)
+                    draw_string(buf, surf, txt, cell.x + (cell.w - tm.w) / 2.0, cell.y + (cell.h - tm.h) / 2.0, 1.0, ColorRgba(255, 255, 255, 255))
+                else:
+                    tm2 = measure_string(txt, 1.0)
+                    draw_string(buf, surf, txt, cell.x + (cell.w - tm2.w) / 2.0, cell.y + (cell.h - tm2.h) / 2.0, 1.0, ColorRgba(150, 150, 160, 255))
+            i = i + 1
+        return 1
+
+def make_tabs(x: "f64", y: "f64", w: "f64", h: "f64", tab_count: "i32") -> "TabsWidget":
+    return TabsWidget(x, y, w, h, tab_count, 0, 80, 160, 255, 255)
+
+# =========================================================
+# 10) DIALOG
+# =========================================================
+class DialogWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    title: "str"
+    visible: "i32"
+    hover_btn: "i32"
+    pressed_btn: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, title, visible, hover_btn, pressed_btn, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.title = title
+        self.visible = visible
+        self.hover_btn = hover_btn
+        self.pressed_btn = pressed_btn
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def show(self) -> "i32":
+        self.visible = 1
+        return 1
+    def hide(self) -> "i32":
+        self.visible = 0
+        return 1
+    def hit_button(self, px: "f64", py: "f64") -> "i32":
+        # 0 = OK, 1 = Cancel, -1 = khong nut nao
+        by2 = self.by + self.bh - 40.0
+        if py >= by2:
+            if py < by2 + 28.0:
+                half = self.bw / 2.0
+                if px >= self.bx + 8.0:
+                    if px < self.bx + half - 4.0:
+                        return 0
+                if px >= self.bx + half + 4.0:
+                    if px < self.bx + self.bw - 8.0:
+                        return 1
+        return -1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        if self.visible == 0:
+            return 0
+        # Backdrop mo (dim)
+        dr = Rect2D(0.0, 0.0, float(surf.width), float(surf.height))
+        fill_round_rect(buf, surf, dr, 0.0, ColorRgba(0, 0, 0, 120))
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        draw_drop_shadow(buf, surf, r, 16.0, 6, 0.7)
+        fill_round_rect(buf, surf, r, 16.0, ColorRgba(34, 34, 42, 252))
+        draw_string(buf, surf, self.title, self.bx + 16.0, self.by + 16.0, 1.0, ColorRgba(240, 240, 245, 255))
+        half = self.bw / 2.0
+        ok_r = Rect2D(self.bx + 8.0, self.by + self.bh - 40.0, half - 12.0, 28.0)
+        no_r = Rect2D(self.bx + half + 4.0, self.by + self.bh - 40.0, half - 12.0, 28.0)
+        okc = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        if self.pressed_btn == 0:
+            okc = color_lerp(okc, ColorRgba(0, 0, 0, 255), 0.2)
+        fill_round_rect(buf, surf, ok_r, 8.0, okc)
+        stroke_round_rect(buf, surf, no_r, 8.0, 1.0, ColorRgba(90, 90, 100, 255))
+        ok_txt = "OK"
+        tm = measure_string(ok_txt, 1.0)
+        draw_string(buf, surf, ok_txt, ok_r.x + (ok_r.w - tm.w) / 2.0, ok_r.y + (ok_r.h - tm.h) / 2.0, 1.0, ColorRgba(255, 255, 255, 255))
+        no_txt = "Cancel"
+        tm2 = measure_string(no_txt, 1.0)
+        draw_string(buf, surf, no_txt, no_r.x + (no_r.w - tm2.w) / 2.0, no_r.y + (no_r.h - tm2.h) / 2.0, 1.0, ColorRgba(210, 210, 218, 255))
+        return 1
+
+def make_dialog(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "DialogWidget":
+    return DialogWidget(x, y, w, h, title, 0, -1, -1, 80, 160, 255, 255)
+
+# =========================================================
+# 11) TOAST
+# =========================================================
+class ToastWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    text: "str"
+    alpha: "f64"
+    kind: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, text, alpha, kind, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.text = text
+        self.alpha = alpha
+        self.kind = kind
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def step(self, dt: "f64", hold: "f64") -> "f64":
+        self.alpha = self.alpha - dt / hold
+        if self.alpha < 0.0:
+            self.alpha = 0.0
+        return self.alpha
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        a = int(self.alpha * 255)
+        if a <= 0:
+            return 0
+        accent = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        if self.kind == 1:
+            accent = ColorRgba(240, 90, 90, 255)
+        if self.kind == 2:
+            accent = ColorRgba(240, 190, 80, 255)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        draw_drop_shadow(buf, surf, r, self.bh / 2.0, 3, 0.5)
+        body = ColorRgba(30, 30, 36, a)
+        fill_round_rect(buf, surf, r, self.bh / 2.0, body)
+        bar = Rect2D(self.bx + 6.0, self.by + 5.0, 4.0, self.bh - 10.0)
+        fill_round_rect(buf, surf, bar, 2.0, ColorRgba(accent.r, accent.g, accent.b, a))
+        ty = self.by + (self.bh - 7.0) / 2.0
+        draw_string(buf, surf, self.text, self.bx + 18.0, ty, 1.0, ColorRgba(235, 235, 240, a))
+        return 1
+
+def make_toast(x: "f64", y: "f64", w: "f64", h: "f64", text: "str", kind: "i32") -> "ToastWidget":
+    return ToastWidget(x, y, w, h, text, 1.0, kind, 80, 200, 120, 255)
+
+# =========================================================
+# 12) CHART SPARKLINE
+# =========================================================
+class ChartSparklineWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    min_v: "f64"
+    max_v: "f64"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, min_v, max_v, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.min_v = min_v
+        self.max_v = max_v
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def render(self, buf: "list[i64]", surf: "PixelSurface", vals: "list[f64]", n: "i32") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(24, 24, 30, 255))
+        if n < 2:
+            return 0
+        # Truc ngang (baseline)
+        draw_line(buf, surf, self.bx + 4.0, self.by + self.bh - 4.0, self.bx + self.bw - 4.0, self.by + self.bh - 4.0, 1.0, ColorRgba(60, 60, 70, 255))
+        span = self.max_v - self.min_v
+        if span <= 0.0:
+            span = 1.0
+        nseg = n - 1
+        col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        i = int(0)
+        while i < nseg:
+            v0 = vals[i]
+            v1 = vals[i + 1]
+            t0 = (v0 - self.min_v) / span
+            t1 = (v1 - self.min_v) / span
+            if t0 < 0.0:
+                t0 = 0.0
+            if t0 > 1.0:
+                t0 = 1.0
+            if t1 < 0.0:
+                t1 = 0.0
+            if t1 > 1.0:
+                t1 = 1.0
+            x0 = self.bx + 4.0 + float(i) * ((self.bw - 8.0) / float(nseg))
+            x1 = self.bx + 4.0 + float(i + 1) * ((self.bw - 8.0) / float(nseg))
+            y0 = self.by + self.bh - 4.0 - t0 * (self.bh - 8.0)
+            y1 = self.by + self.bh - 4.0 - t1 * (self.bh - 8.0)
+            draw_line(buf, surf, x0, y0, x1, y1, 1.6, col)
+            i = i + 1
+        return 1
+
+def make_sparkline(x: "f64", y: "f64", w: "f64", h: "f64", min_v: "f64", max_v: "f64") -> "ChartSparklineWidget":
+    return ChartSparklineWidget(x, y, w, h, min_v, max_v, 120, 200, 255, 255)
+
+# =========================================================
+# 13) BOTTOM SHEET
+# =========================================================
+class BottomSheetWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    open: "i32"
+    progress: "f64"
+    title: "str"
+    spring: "SpringAnimation"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, open, progress, title, spring, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.open = open
+        self.progress = progress
+        self.title = title
+        self.spring = spring
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_open(self, v: "i32") -> "i32":
+        self.open = v
+        tgt = 0.0
+        if v == 1:
+            tgt = 1.0
+        self.spring.set_target(tgt)
+        return v
+    def step(self, dt: "f64") -> "i32":
+        s = self.spring
+        s.step(dt)
+        self.progress = s.value
+        return s.is_rest
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        p = self.progress
+        if p <= 0.0:
+            return 0
+        if p > 1.0:
+            p = 1.0
+        y = self.by + self.bh * (1.0 - p)
+        r = Rect2D(self.bx, y, self.bw, self.bh)
+        draw_drop_shadow(buf, surf, r, 18.0, 6, 0.6)
+        fill_round_rect(buf, surf, r, 18.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        hw = 42.0
+        hx = self.bx + (self.bw - hw) / 2.0
+        handle = Rect2D(hx, y + 8.0, hw, 5.0)
+        fill_round_rect(buf, surf, handle, 2.0, ColorRgba(120, 120, 130, 255))
+        draw_string(buf, surf, self.title, self.bx + 16.0, y + 24.0, 1.0, ColorRgba(235, 235, 240, 255))
+        return 1
+
+def make_bottom_sheet(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "BottomSheetWidget":
+    return BottomSheetWidget(x, y, w, h, 0, 0.0, title, spring_new(160.0, 14.0, 1.0, 0.0), 34, 34, 42, 252)
+
+# =========================================================
+# 14) NAV BAR
+# =========================================================
+class NavBarWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    item_count: "i32"
+    active: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, item_count, active, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.item_count = item_count
+        self.active = active
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def select(self, idx: "i32") -> "i32":
+        if idx < 0:
+            return self.active
+        if idx >= self.item_count:
+            return self.active
+        self.active = idx
+        return idx
+    def hit_item(self, px: "f64") -> "i32":
+        if self.item_count <= 0:
+            return -1
+        w = self.bw / float(self.item_count)
+        return int((px - self.bx) / w)
+    def render(self, buf: "list[i64]", surf: "PixelSurface", labels: "list[str]", n: "i32") -> "i32":
+        fill_round_rect(buf, surf, Rect2D(self.bx, self.by, self.bw, self.bh), 0.0, ColorRgba(18, 18, 24, 250))
+        if self.item_count <= 0:
+            return 1
+        w = self.bw / float(self.item_count)
+        i = int(0)
+        while i < n:
+            if i < self.item_count:
+                txt = "Item " + str(i)
+                if i < len(labels):
+                    txt = labels[i]
+                cx = self.bx + float(i) * w + w / 2.0
+                tm = measure_string(txt, 1.0)
+                col = ColorRgba(130, 130, 140, 255)
+                if i == self.active:
+                    col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+                draw_string(buf, surf, txt, cx - tm.w / 2.0, self.by + self.bh - 14.0, 1.0, col)
+                # icon dot
+                draw_arc(buf, surf, cx, self.by + 14.0, 6.0, 12.0, 0.0, 360.0, col)
+            i = i + 1
+        return 1
+
+def make_navbar(x: "f64", y: "f64", w: "f64", h: "f64", item_count: "i32") -> "NavBarWidget":
+    return NavBarWidget(x, y, w, h, item_count, 0, 80, 160, 255, 255)
+
+# =========================================================
+# 15) SPLIT VIEW (pad / tablet)
+# =========================================================
+class SplitViewWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    ratio: "f64"
+    dir: "i32"
+    min_ratio: "f64"
+    dragging: "i32"
+    target_ratio: "f64"
+    spring: "SpringAnimation"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, ratio, dir, min_ratio, dragging, target_ratio, spring, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.ratio = ratio
+        self.dir = dir
+        self.min_ratio = min_ratio
+        self.dragging = dragging
+        self.target_ratio = target_ratio
+        self.spring = spring
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_ratio_from_pointer(self, px: "f64") -> "f64":
+        if self.dir == 0:
+            t = (px - self.bx) / self.bw
+        else:
+            t = (px - self.by) / self.bh
+        if t < self.min_ratio:
+            t = self.min_ratio
+        if t > 1.0 - self.min_ratio:
+            t = 1.0 - self.min_ratio
+        self.target_ratio = t
+        self.spring.set_target(t)
+        return t
+    def step(self, dt: "f64") -> "i32":
+        s = self.spring
+        s.step(dt)
+        self.ratio = s.value
+        return s.is_rest
+    def pane_a(self) -> "Rect2D":
+        if self.dir == 1:
+            return Rect2D(self.bx, self.by, self.bw, self.bh * self.ratio)
+        return Rect2D(self.bx, self.by, self.bw * self.ratio, self.bh)
+    def pane_b(self) -> "Rect2D":
+        if self.dir == 1:
+            return Rect2D(self.bx, self.by + self.bh * self.ratio, self.bw, self.bh * (1.0 - self.ratio))
+        return Rect2D(self.bx + self.bw * self.ratio, self.by, self.bw * (1.0 - self.ratio), self.bh)
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        a = self.pane_a()
+        b = self.pane_b()
+        fill_round_rect(buf, surf, a, 12.0, ColorRgba(28, 28, 34, 250))
+        fill_round_rect(buf, surf, b, 12.0, ColorRgba(22, 22, 28, 250))
+        # divider + drag handle
+        if self.dir == 1:
+            dy = a.y + a.h
+            draw_line(buf, surf, self.bx, dy, self.bx + self.bw, dy, 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            hw = 42.0
+            handle = Rect2D(self.bx + (self.bw - hw) / 2.0, dy - 3.0, hw, 6.0)
+            fill_round_rect(buf, surf, handle, 3.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        else:
+            dx = a.x + a.w
+            draw_line(buf, surf, dx, self.by, dx, self.by + self.bh, 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            hh = 42.0
+            handle = Rect2D(dx - 3.0, self.by + (self.bh - hh) / 2.0, 6.0, hh)
+            fill_round_rect(buf, surf, handle, 3.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        return 1
+
+def make_split_view(x: "f64", y: "f64", w: "f64", h: "f64", ratio: "f64", dir: "i32") -> "SplitViewWidget":
+    return SplitViewWidget(x, y, w, h, ratio, dir, 0.2, 0, ratio, spring_new(220.0, 22.0, 1.0, ratio), 80, 160, 255, 255)
+
+# =========================================================
+# RENDER LOOP (60fps, idle -> 0% CPU)
+# =========================================================
+class RenderLoop:
+    fps: "i32"
+    needs_render: "i32"
+    frame_count: "i32"
+    idle_frames: "i32"
+    def __init__(self, fps, needs_render, frame_count, idle_frames):
+        self.fps = fps
+        self.needs_render = needs_render
+        self.frame_count = frame_count
+        self.idle_frames = idle_frames
+    def request_invalidate(self) -> "i32":
+        self.needs_render = 1
+        self.idle_frames = 0
+        return 1
+    def tick(self, dt: "f64", springs: "list[int]", has_input: "i32" = 0) -> "i32":
+        animating = 0
+        i = int(0)
+        while i < len(springs):
+            if springs[i] == 0:
+                animating = 1
+            i = i + 1
+        if has_input == 1:
+            self.needs_render = 1
+            self.idle_frames = 0
+        if animating == 1:
+            self.needs_render = 1
+            self.idle_frames = 0
+        else:
+            if self.needs_render == 0:
+                self.idle_frames = self.idle_frames + 1
+        if self.idle_frames > 30:
+            return 0
+        if self.needs_render == 1:
+            self.frame_count = self.frame_count + 1
+            self.needs_render = 0
+            return 1
+        return 0
+
+def make_render_loop(fps: "i32") -> "RenderLoop":
+    return RenderLoop(fps, 0, 0, 0)
+
+# =========================================================
+# WIDGET HELPERS
+# =========================================================
+def widget_row_labels() -> "list[str]":
+    out = []
+    out.append("Home")
+    out.append("Stats")
+    out.append("Settings")
+    return out
+
+def widget_sample_values(n: "i32") -> "list[f64]":
+    out = []
+    i = int(0)
+    while i < n:
+        # Song hinh sin don gian (khong dung extern) de demo sparkline
+        v = float((i * 7) % 23) * 4.0
+        out.append(v)
+        i = i + 1
+    return out
+
+def widget_count_non_bg(buf: "list[i64]", surf: "PixelSurface", bg: "i64") -> "i32":
+    n = int(0)
+    total = surf.width * surf.height
+    i = int(0)
+    while i < total:
+        if buf[i] != bg:
+            n = n + 1
+        i = i + 1
+    return n
+
+def widget_count_changed(cur: "list[i64]", before: "list[i64]", n: "i32") -> "i32":
+    c = int(0)
+    i = int(0)
+    while i < n:
+        if cur[i] != before[i]:
+            c = c + 1
+        i = i + 1
+    return c
+
+# =========================================================
+# P7 SELFTEST - catalog 15 + animation + invalidation + scheduler (headless)
+# =========================================================
+def widget_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def widget_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def widget_check_ge(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got >= lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " (" + str(got) + ")")
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want >= " + str(lo))
+    return 0
+
+def widget_selftest() -> "str":
+    print("=== TkvUI.Widgets selftest (P7) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    W = 480
+    H = 360
+    buf = []
+    i = int(0)
+    total = W * H
+    while i < total:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(W, H, W)
+    bg = ColorRgba(14, 14, 18, 255)
+    surface_clear(buf, surf, bg)
+    bgp = bg.to_uint32()
+    # --- 15 widget trong catalog
+    card = make_card_notch(8.0, 8.0, 464.0, 120.0, "Metrics")
+    btn = make_button(20.0, 150.0, 120.0, 34.0, "Apply")
+    btn_o = make_button_outline(150.0, 150.0, 120.0, 34.0, "Cancel")
+    prog = make_progress(20.0, 196.0, 250.0, 10.0, 0.62)
+    sw = make_switch(300.0, 192.0, 52.0, 26.0, 0)
+    sld = make_slider(20.0, 224.0, 250.0, 20.0, 0.35)
+    tf = make_textfield(300.0, 218.0, 160.0, 30.0, "Search...")
+    lv = make_listview(20.0, 256.0, 200.0, 90.0, 18.0, 5000)
+    tabs = make_tabs(236.0, 256.0, 224.0, 30.0, 3)
+    dlg = make_dialog(140.0, 80.0, 200.0, 120.0, "Confirm")
+    toast = make_toast(140.0, 320.0, 200.0, 32.0, "Saved!", 0)
+    chart = make_sparkline(236.0, 292.0, 224.0, 56.0, 0.0, 100.0)
+    sheet = make_bottom_sheet(0.0, 160.0, 480.0, 200.0, "Details")
+    navbar = make_navbar(0.0, 0.0, 480.0, 40.0, 3)
+    split = make_split_view(0.0, 40.0, 480.0, 100.0, 0.4, 0)
+    ring = make_metric_ring(40.0, 40.0, 60.0, 60.0, "CPU", 80, 200, 120)
+    ring.set_value(72.0)
+    st = 0
+    while st < 120:
+        ring.step(0.016)
+        st = st + 1
+    # render tat ca
+    card.render(buf, surf)
+    ring.render(buf, surf)
+    btn.render(buf, surf)
+    btn_o.render(buf, surf)
+    prog.render(buf, surf)
+    sw.render(buf, surf)
+    sld.render(buf, surf)
+    tf.render(buf, surf)
+    lv.render(buf, surf)
+    labels = widget_row_labels()
+    tabs.render(buf, surf, labels, 3)
+    toast.render(buf, surf)
+    vals = widget_sample_values(24)
+    chart.render(buf, surf, vals, 24)
+    sheet.set_open(1)
+    sk = int(0)
+    while sk < 16:
+        sheet.step(0.016)
+        sk = sk + 1
+    sheet.render(buf, surf)
+    navbar.render(buf, surf, labels, 3)
+    split.step(0.016)
+    split.render(buf, surf)
+    painted = widget_count_non_bg(buf, surf, bgp)
+    widget_check_ge(acc, "14 widget ve truoc dialog (painted)", painted, 2000)
+    # Snapshot truoc dialog de do SO PIXEL THAY DOI (doc lap voi mau nen)
+    before = []
+    bi = int(0)
+    while bi < total:
+        before.append(0)
+        bi = bi + 1
+    bsurf = PixelSurface(W, H, W)
+    surface_fast_blit(before, bsurf, buf, surf, 0, 0, W, H, 0, 0)
+    dlg.show()
+    dlg.render(buf, surf)
+    changed = widget_count_changed(buf, before, total)
+    widget_check_ge(acc, "dialog + backdrop doi pixel", changed, 50000)
+    # --- Spring lerp den target
+    rs = ring.spring
+    widget_check_i(acc, "spring rest sau 120 frame", rs.is_rest, 1)
+    dv = ring.display_value
+    widget_check_ge(acc, "spring display ~ 72 (int)", int(dv), 71)
+    # --- Tween
+    tw = tween_to(0.0, 100.0, 1.0, 2)
+    k = int(0)
+    while k < 200:
+        tw.step(0.016)
+        k = k + 1
+    widget_check_i(acc, "tween done", tw.done, 1)
+    tvi = int(tw.value())
+    widget_check_ge(acc, "tween value ~ 100", tvi, 99)
+    # --- Switch + Slider + TextField tuong tac
+    widget_check_i(acc, "switch toggle on", sw.toggle(), 1)
+    sw.step(0.1)
+    sw.step(0.1)
+    sanim = int(sw.anim * 100.0)
+    widget_check_ge(acc, "switch anim ve 1 (x100)", sanim, 99)
+    sld.set_from_pointer(145.0)
+    sv = int(sld.value * 100.0)
+    widget_check_ge(acc, "slider value ~ 0.5 (x100)", sv, 49)
+    tf.type_char("a")
+    tf.type_char("b")
+    widget_check_i(acc, "textfield len sau 2 ky tu", len(tf.text), 2)
+    tf.backspace()
+    widget_check_i(acc, "textfield len sau backspace", len(tf.text), 1)
+    # --- ListView virtualization (5000 dong)
+    widget_check_i(acc, "listview first_visible ban dau", lv.first_visible(), 0)
+    lv.scroll_by(900.0, 5000.0 * 18.0)
+    fv = lv.first_visible()
+    vc = lv.visible_count()
+    print("  listview scroll=" + str(lv.scroll) + " first=" + str(fv) + " visible=" + str(vc) + "/" + str(lv.item_count))
+    widget_check_ge(acc, "virtualization first_visible > 0", fv, 1)
+    widget_check_ge(acc, "virtualization: 5000 - visible_count", lv.item_count - vc, 1)
+    # --- Tabs / NavBar hit
+    widget_check_i(acc, "tabs hit giua -> tab 1", tabs.hit_tab(348.0), 1)
+    tabs.select(1)
+    widget_check_i(acc, "tabs active sau select", tabs.active, 1)
+    widget_check_i(acc, "navbar hit item 2", navbar.hit_item(400.0), 2)
+    # --- Dialog buttons
+    widget_check_i(acc, "dialog hit OK", dlg.hit_button(190.0, 175.0), 0)
+    widget_check_i(acc, "dialog hit Cancel", dlg.hit_button(290.0, 175.0), 1)
+    # --- SplitView pane
+    pa = split.pane_a()
+    pb = split.pane_b()
+    width_sum = int(pa.w + pb.w)
+    widget_check_i(acc, "split pane_a.w + pane_b.w = bw", width_sum, 480)
+    # --- InvalidationManager coalescing
+    iv = make_invalidation()
+    widget_check_i(acc, "invalidate dau tien -> 1 region", iv.invalidate(10.0, 10.0, 50.0, 50.0), 1)
+    iv.invalidate(20.0, 20.0, 10.0, 10.0)
+    widget_check_i(acc, "nam trong vung cu -> van 1 region", iv.regions, 1)
+    iv.invalidate(200.0, 200.0, 30.0, 30.0)
+    widget_check_i(acc, "roi ra ngoai -> 2 region", iv.regions, 2)
+    dr = iv.dirty_rect()
+    drw = int(dr.w)
+    widget_check_ge(acc, "dirty rect bao trum 2 vung (w)", drw, 220)
+    iv.ack()
+    widget_check_i(acc, "ack -> khong con pending", iv.needs_render(), 0)
+    # --- FrameScheduler 60fps
+    fs = make_frame_scheduler(60)
+    f = int(0)
+    drawn = int(0)
+    now = 0.0
+    while f < 60:
+        r = fs.begin(now)
+        if r == 1:
+            drawn = drawn + 1
+        now = now + 5.0
+        f = f + 1
+    print("  scheduler: drawn=" + str(drawn) + "/60 @5ms step, dropped=" + str(fs.dropped) + ", budget=" + str(fs.frame_ms()) + "ms")
+    widget_check_i(acc, "scheduler 300ms @60fps -> 14 frame", drawn, 14)
+    # --- RenderLoop idle -> 0% CPU
+    rl = make_render_loop(60)
+    springs = []
+    springs.append(1)
+    springs.append(1)
+    rl.request_invalidate()
+    idle_hits = int(0)
+    f2 = int(0)
+    while f2 < 40:
+        v = rl.tick(0.016, springs)
+        if v == 0:
+            idle_hits = idle_hits + 1
+        f2 = f2 + 1
+    widget_check_ge(acc, "render loop idle -> 0 CPU (idle hits)", idle_hits, 11)
+    print("--- widgets selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "WIDGETS_OK"
+    return "WIDGETS_FAIL"

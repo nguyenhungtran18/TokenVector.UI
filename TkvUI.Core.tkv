@@ -1,0 +1,594 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Core - Foundation types, math, PixelSurface (Task 1)"""
+# TASK 1: CORE - Types & PixelSurface
+# =========================================================
+class ColorRgba:
+    r: "i64"
+    g: "i64"
+    b: "i64"
+    a: "i64"
+    def __init__(self, r, g, b, a):
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a
+    def to_uint32(self) -> "i64":
+        return self.a * 16777216 + self.r * 65536 + self.g * 256 + self.b
+
+def color_from_rgb(r: "i64", g: "i64", b: "i64") -> "ColorRgba":
+    return ColorRgba(r, g, b, 255)
+
+def hex_char_to_val(ch: "str") -> "i64":
+    if ch == "0":
+        return 0
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    if ch == "6":
+        return 6
+    if ch == "7":
+        return 7
+    if ch == "8":
+        return 8
+    if ch == "9":
+        return 9
+    if ch == "a" or ch == "A":
+        return 10
+    if ch == "b" or ch == "B":
+        return 11
+    if ch == "c" or ch == "C":
+        return 12
+    if ch == "d" or ch == "D":
+        return 13
+    if ch == "e" or ch == "E":
+        return 14
+    if ch == "f" or ch == "F":
+        return 15
+    return 0
+
+def hex_pair_to_int(hi: "str", lo: "str") -> "i64":
+    return hex_char_to_val(hi) * 16 + hex_char_to_val(lo)
+
+def color_from_hex(hex_str: "str") -> "ColorRgba":
+    s = hex_str
+    if len(s) == 0:
+        return ColorRgba(0, 0, 0, 255)
+    if s[0] == "#":
+        tmp = ""
+        for i in range(1, len(s)):
+            tmp = tmp + s[i]
+        s = tmp
+    if len(s) == 6:
+        r = hex_pair_to_int(s[0], s[1])
+        g = hex_pair_to_int(s[2], s[3])
+        b = hex_pair_to_int(s[4], s[5])
+        return ColorRgba(r, g, b, 255)
+    if len(s) == 8:
+        a = hex_pair_to_int(s[0], s[1])
+        r = hex_pair_to_int(s[2], s[3])
+        g = hex_pair_to_int(s[4], s[5])
+        b = hex_pair_to_int(s[6], s[7])
+        return ColorRgba(r, g, b, a)
+    return ColorRgba(0, 0, 0, 255)
+
+def color_lerp(c1: "ColorRgba", c2: "ColorRgba", t: "f64") -> "ColorRgba":
+    dr = c2.r - c1.r
+    dg = c2.g - c1.g
+    db = c2.b - c1.b
+    da = c2.a - c1.a
+    nr = int(float(c1.r) + float(dr) * t)
+    ng = int(float(c1.g) + float(dg) * t)
+    nb = int(float(c1.b) + float(db) * t)
+    na = int(float(c1.a) + float(da) * t)
+    if nr < 0:
+        nr = 0
+    if nr > 255:
+        nr = 255
+    if ng < 0:
+        ng = 0
+    if ng > 255:
+        ng = 255
+    if nb < 0:
+        nb = 0
+    if nb > 255:
+        nb = 255
+    if na < 0:
+        na = 0
+    if na > 255:
+        na = 255
+    return ColorRgba(nr, ng, nb, na)
+
+class Point2D:
+    x: "f64"
+    y: "f64"
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+class Rect2D:
+    x: "f64"
+    y: "f64"
+    w: "f64"
+    h: "f64"
+    def __init__(self, x, y, w, h):
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+    def contains(self, pt: "Point2D") -> "i32":
+        if pt.x < self.x:
+            return 0
+        if pt.y < self.y:
+            return 0
+        if pt.x >= self.x + self.w:
+            return 0
+        if pt.y >= self.y + self.h:
+            return 0
+        return 1
+    def right(self) -> "f64":
+        return self.x + self.w
+    def bottom(self) -> "f64":
+        return self.y + self.h
+
+class Matrix3x2:
+    m11: "f64"
+    m12: "f64"
+    m21: "f64"
+    m22: "f64"
+    m31: "f64"
+    m32: "f64"
+    def __init__(self, m11, m12, m21, m22, m31, m32):
+        self.m11 = m11
+        self.m12 = m12
+        self.m21 = m21
+        self.m22 = m22
+        self.m31 = m31
+        self.m32 = m32
+
+def matrix_identity() -> "Matrix3x2":
+    return Matrix3x2(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+def matrix_translate(tx: "f64", ty: "f64") -> "Matrix3x2":
+    return Matrix3x2(1.0, 0.0, 0.0, 1.0, tx, ty)
+
+def matrix_scale(sx: "f64", sy: "f64") -> "Matrix3x2":
+    return Matrix3x2(sx, 0.0, 0.0, sy, 0.0, 0.0)
+
+def matrix_transform_point(m: "Matrix3x2", pt: "Point2D") -> "Point2D":
+    nx = pt.x * m.m11 + pt.y * m.m21 + m.m31
+    ny = pt.x * m.m12 + pt.y * m.m22 + m.m32
+    return Point2D(nx, ny)
+
+class PixelSurface:
+    width: "i32"
+    height: "i32"
+    stride: "i32"
+    def __init__(self, width, height, stride):
+        self.width = width
+        self.height = height
+        self.stride = stride
+
+def surface_clear(buf: "list[i64]", surf: "PixelSurface", color: "ColorRgba") -> "i32":
+    packed = color.to_uint32()
+    n = surf.width * surf.height
+    for i in range(n):
+        buf[i] = packed
+    return n
+
+def surface_blend_pixel(buf: "list[i64]", surf: "PixelSurface", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
+    if x < 0:
+        return 0
+    if y < 0:
+        return 0
+    if x >= surf.width:
+        return 0
+    if y >= surf.height:
+        return 0
+    idx = y * surf.stride + x
+    sa = color.a
+    if sa == 0:
+        return 0
+    if sa == 255:
+        buf[idx] = color.to_uint32()
+        return 1
+    dst = buf[idx]
+    da = dst // 16777216
+    rem = dst % 16777216
+    dr = rem // 65536
+    rem2 = rem % 65536
+    dg = rem2 // 256
+    db = rem2 % 256
+    sr = color.r
+    sg = color.g
+    sb = color.b
+    inv = 255 - sa
+    nr = (sr * sa + dr * inv) // 255
+    ng = (sg * sa + dg * inv) // 255
+    nb = (sb * sa + db * inv) // 255
+    na = sa + (da * inv) // 255
+    if na > 255:
+        na = 255
+    buf[idx] = na * 16777216 + nr * 65536 + ng * 256 + nb
+    return 1
+
+def surface_set_pixel(buf: "list[i64]", surf: "PixelSurface", x: "i32", y: "i32", packed: "i64") -> "i32":
+    if x < 0:
+        return 0
+    if y < 0:
+        return 0
+    if x >= surf.width:
+        return 0
+    if y >= surf.height:
+        return 0
+    idx = y * surf.stride + x
+    buf[idx] = packed
+    return 1
+
+def surface_fast_blit(dst_buf: "list[i64]", dst: "PixelSurface", src_buf: "list[i64]", src: "PixelSurface", srcX: "i32", srcY: "i32", srcW: "i32", srcH: "i32", dstX: "i32", dstY: "i32") -> "i32":
+    for row in range(srcH):
+        sy = srcY + row
+        dy = dstY + row
+        if sy < 0:
+            continue
+        if sy >= src.height:
+            continue
+        if dy < 0:
+            continue
+        if dy >= dst.height:
+            continue
+        for col in range(srcW):
+            sx = srcX + col
+            dx = dstX + col
+            if sx < 0:
+                continue
+            if sx >= src.width:
+                continue
+            if dx < 0:
+                continue
+            if dx >= dst.width:
+                continue
+            s_idx = sy * src.stride + sx
+            d_idx = dy * dst.stride + dx
+            dst_buf[d_idx] = src_buf[s_idx]
+    return 1
+
+# =========================================================
+# TASK 1b: FOUNDATION v2 - HSL, Theme, Insets, DPI, Pool
+# =========================================================
+class ColorHsla:
+    h: "f64"
+    s: "f64"
+    l: "f64"
+    a: "i64"
+    def __init__(self, h, s, l, a):
+        self.h = h
+        self.s = s
+        self.l = l
+        self.a = a
+
+def hue_wrap(t: "f64") -> "f64":
+    w = t
+    while w < 0.0:
+        w = w + 1.0
+    while w > 1.0:
+        w = w - 1.0
+    return w
+
+def hue_channel(p: "f64", q: "f64", t: "f64") -> "f64":
+    tt = hue_wrap(t)
+    if tt < 1.0 / 6.0:
+        return p + (q - p) * 6.0 * tt
+    if tt < 0.5:
+        return q
+    if tt < 2.0 / 3.0:
+        return p + (q - p) * (2.0 / 3.0 - tt) * 6.0
+    return p
+
+def color_from_hsla(h: "f64", s: "f64", l: "f64", a: "i64") -> "ColorRgba":
+    hh = h
+    while hh < 0.0:
+        hh = hh + 360.0
+    while hh >= 360.0:
+        hh = hh - 360.0
+    ss = s
+    if ss < 0.0:
+        ss = 0.0
+    if ss > 1.0:
+        ss = 1.0
+    ll = l
+    if ll < 0.0:
+        ll = 0.0
+    if ll > 1.0:
+        ll = 1.0
+    if ss == 0.0:
+        gr = int(ll * 255)
+        return ColorRgba(gr, gr, gr, a)
+    q = ll * (1.0 + ss)
+    if ll >= 0.5:
+        q = ll + ss - ll * ss
+    p = 2.0 * ll - q
+    hk = hh / 360.0
+    r = hue_channel(p, q, hk + 1.0 / 3.0)
+    g = hue_channel(p, q, hk)
+    b = hue_channel(p, q, hk - 1.0 / 3.0)
+    return ColorRgba(int(r * 255), int(g * 255), int(b * 255), a)
+
+def color_to_hsla(c: "ColorRgba") -> "ColorHsla":
+    r = float(c.r) / 255.0
+    g = float(c.g) / 255.0
+    b = float(c.b) / 255.0
+    mx = r
+    if g > mx:
+        mx = g
+    if b > mx:
+        mx = b
+    mn = r
+    if g < mn:
+        mn = g
+    if b < mn:
+        mn = b
+    l = (mx + mn) / 2.0
+    if mx == mn:
+        return ColorHsla(0.0, 0.0, l, c.a)
+    d = mx - mn
+    s = d / (2.0 - mx - mn)
+    if l <= 0.5:
+        s = d / (mx + mn)
+    h = 0.0
+    if mx == r:
+        h = (g - b) / d
+        if g < b:
+            h = h + 6.0
+    else:
+        if mx == g:
+            h = (b - r) / d + 2.0
+        else:
+            h = (r - g) / d + 4.0
+    h = h * 60.0
+    return ColorHsla(h, s, l, c.a)
+
+class ThemeToken:
+    primary: "ColorRgba"
+    surface: "ColorRgba"
+    on_surface: "ColorRgba"
+    accent: "ColorRgba"
+    radius: "f64"
+    elevation: "i32"
+    def __init__(self, primary, surface, on_surface, accent, radius, elevation):
+        self.primary = primary
+        self.surface = surface
+        self.on_surface = on_surface
+        self.accent = accent
+        self.radius = radius
+        self.elevation = elevation
+
+def theme_default() -> "ThemeToken":
+    return ThemeToken(ColorRgba(80, 160, 255, 255), ColorRgba(38, 38, 46, 245), ColorRgba(220, 220, 230, 255), ColorRgba(80, 200, 120, 255), 12.0, 2)
+
+def theme_dark() -> "ThemeToken":
+    return ThemeToken(ColorRgba(120, 180, 255, 255), ColorRgba(18, 18, 22, 255), ColorRgba(240, 240, 245, 255), ColorRgba(100, 220, 140, 255), 16.0, 4)
+
+def theme_light() -> "ThemeToken":
+    return ThemeToken(ColorRgba(40, 110, 230, 255), ColorRgba(250, 250, 252, 250), ColorRgba(28, 28, 34, 255), ColorRgba(40, 170, 110, 255), 12.0, 2)
+
+def theme_accent(t: "ThemeToken", r: "i64", g: "i64", b: "i64", a: "i64") -> "ThemeToken":
+    # Tra ve 1 ThemeToken MOI voi mau primary thay the (token goc giu nguyen)
+    return ThemeToken(ColorRgba(r, g, b, a), t.surface, t.on_surface, t.accent, t.radius, t.elevation)
+
+def theme_radius(t: "ThemeToken", radius: "f64") -> "ThemeToken":
+    return ThemeToken(t.primary, t.surface, t.on_surface, t.accent, radius, t.elevation)
+
+class Insets:
+    left: "f64"
+    top: "f64"
+    right: "f64"
+    bottom: "f64"
+    def __init__(self, left, top, right, bottom):
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+    def horizontal(self) -> "f64":
+        return self.left + self.right
+    def vertical(self) -> "f64":
+        return self.top + self.bottom
+
+class CornerRadius:
+    tl: "f64"
+    tr: "f64"
+    bl: "f64"
+    br: "f64"
+    def __init__(self, tl, tr, bl, br):
+        self.tl = tl
+        self.tr = tr
+        self.bl = bl
+        self.br = br
+
+def corner_uniform(r: "f64") -> "CornerRadius":
+    return CornerRadius(r, r, r, r)
+
+def dp_to_px(dp: "f64", dpi: "f64") -> "f64":
+    return dp * dpi / 96.0
+
+def px_to_dp(px: "f64", dpi: "f64") -> "f64":
+    if dpi == 0.0:
+        return px
+    return px * 96.0 / dpi
+
+def dpi_scale_for_platform(pid: "i32") -> "f64":
+    if pid == 5:
+        return 2.0
+    if pid == 6:
+        return 2.0
+    return 1.0
+
+def surface_ensure_capacity(buf: "list[i64]", need: "i32") -> "i32":
+    n = len(buf)
+    while n < need:
+        buf.append(0)
+        n = n + 1
+    return n
+
+class SurfacePoolStats:
+    acquired: "i32"
+    hits: "i32"
+    misses: "i32"
+    def __init__(self, acquired, hits, misses):
+        self.acquired = acquired
+        self.hits = hits
+        self.misses = misses
+
+def pool_note_acquire(pool: "SurfacePoolStats", buf: "list[i64]", need: "i32") -> "i32":
+    pool.acquired = pool.acquired + 1
+    if len(buf) >= need:
+        pool.hits = pool.hits + 1
+    else:
+        pool.misses = pool.misses + 1
+    return surface_ensure_capacity(buf, need)
+
+# =========================================================
+# P1 SELFTEST - foundation types (headless, khong tao cua so)
+# =========================================================
+def core_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def core_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def core_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def core_selftest() -> "str":
+    print("=== TkvUI.Core selftest (P1) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    # --- color_from_hex
+    c = color_from_hex("#FF8000")
+    core_check_i(acc, "hex #FF8000 -> r", int(c.r), 255)
+    core_check_i(acc, "hex #FF8000 -> g", int(c.g), 128)
+    core_check_i(acc, "hex #FF8000 -> b", int(c.b), 0)
+    core_check_i(acc, "hex mac dinh -> a=255", int(c.a), 255)
+    c2 = color_from_hex("00FF00")
+    core_check_i(acc, "hex khong dau # -> g", int(c2.g), 255)
+    core_check_i(acc, "to_uint32 ARGB", int(c2.to_uint32()), 4278255360)
+    c3 = color_from_hex("#fff")
+    core_check_i(acc, "hex sai do dai -> den (tai lieu hoa)", int(c3.r) + int(c3.g) + int(c3.b), 0)
+    # --- color_lerp
+    blk = color_from_rgb(0, 0, 0)
+    wht = color_from_rgb(255, 255, 255)
+    mid = color_lerp(blk, wht, 0.5)
+    core_check_i(acc, "lerp 0..255 @0.5", int(mid.r), 127)
+    core_check_i(acc, "lerp giu alpha", int(mid.a), 255)
+    cn1 = color_lerp(blk, wht, 1.0)
+    core_check_i(acc, "lerp @1.0 = dich", int(cn1.r), 255)
+    # --- HSL
+    red = color_from_hsla(0.0, 1.0, 0.5, 255)
+    core_check_i(acc, "hsla(0,1,0.5) -> r", int(red.r), 255)
+    core_check_i(acc, "hsla(0,1,0.5) -> g", int(red.g), 0)
+    hs = color_to_hsla(red)
+    core_check_f(acc, "hsla round trip h", hs.h, 0.0, 1.0)
+    core_check_f(acc, "hsla round trip s", hs.s, 1.0, 0.01)
+    # --- Theme
+    th = theme_dark()
+    core_check_f(acc, "theme_dark radius", th.radius, 16.0, 0.001)
+    ta = theme_accent(th, 1, 2, 3, 4)
+    tap = ta.primary
+    core_check_i(acc, "theme_accent doi primary", int(tap.r), 1)
+    tas = ta.surface
+    ths = th.surface
+    core_check_i(acc, "theme_accent giu surface", int(tas.r), int(ths.r))
+    tr = theme_radius(th, 4.0)
+    core_check_f(acc, "theme_radius doi radius", tr.radius, 4.0, 0.001)
+    # --- DPI + Insets + Corner
+    core_check_f(acc, "dp_to_px 24 @144dpi", dp_to_px(24.0, 144.0), 36.0, 0.001)
+    core_check_f(acc, "px_to_dp 36 @144dpi", px_to_dp(36.0, 144.0), 24.0, 0.001)
+    core_check_f(acc, "dpi_scale android (5)", dpi_scale_for_platform(5), 2.0, 0.001)
+    core_check_f(acc, "dpi_scale win32 (1)", dpi_scale_for_platform(1), 1.0, 0.001)
+    ins = Insets(4.0, 2.0, 6.0, 8.0)
+    core_check_f(acc, "insets horizontal", ins.horizontal(), 10.0, 0.001)
+    core_check_f(acc, "insets vertical", ins.vertical(), 10.0, 0.001)
+    ccr = corner_uniform(8.0)
+    core_check_f(acc, "corner_uniform 8 -> br", ccr.br, 8.0, 0.001)
+    # --- Matrix / Point / Rect
+    pt0 = matrix_transform_point(matrix_identity(), Point2D(3.0, 4.0))
+    core_check_f(acc, "identity transform x", pt0.x, 3.0, 0.001)
+    pt1 = matrix_transform_point(matrix_translate(5.0, 6.0), Point2D(3.0, 4.0))
+    core_check_f(acc, "translate transform x", pt1.x, 8.0, 0.001)
+    pt2 = matrix_transform_point(matrix_scale(2.0, 3.0), Point2D(3.0, 4.0))
+    core_check_f(acc, "scale transform y", pt2.y, 12.0, 0.001)
+    r2 = Rect2D(10.0, 10.0, 20.0, 20.0)
+    core_check_i(acc, "rect contains trong", r2.contains(Point2D(15.0, 15.0)), 1)
+    core_check_i(acc, "rect contains bien phai (exclusive)", r2.contains(Point2D(30.0, 15.0)), 0)
+    core_check_f(acc, "rect right + bottom", r2.right() + r2.bottom(), 60.0, 0.001)
+    # --- PixelSurface: caller cap phat buffer (ngoai record)
+    buf = []
+    n = surface_ensure_capacity(buf, 16)
+    surf = PixelSurface(4, 4, 4)
+    core_check_i(acc, "ensure capacity 16", n, 16)
+    surface_clear(buf, surf, ColorRgba(0, 0, 0, 255))
+    core_check_i(acc, "clear -> ARGB den duc", int(buf[5]), 4278190080)
+    rc = surface_blend_pixel(buf, surf, 0, 0, ColorRgba(255, 255, 255, 128))
+    core_check_i(acc, "blend SrcOver tra 1", rc, 1)
+    dst0 = buf[0]
+    core_check_i(acc, "blend 128/255 -> kenh r", int((dst0 // 65536) % 256), 128)
+    core_check_i(acc, "blend -> alpha ket qua", int(dst0 // 16777216), 255)
+    surface_blend_pixel(buf, surf, 1, 0, ColorRgba(10, 20, 30, 255))
+    opaque_pix = buf[1]
+    core_check_i(acc, "blend alpha 255 ghi de (r)", int((opaque_pix // 65536) % 256), 10)
+    core_check_i(acc, "blend alpha 255 ghi de (g)", int((opaque_pix // 256) % 256), 20)
+    core_check_i(acc, "blend alpha 255 ghi de (b)", int(opaque_pix % 256), 30)
+    core_check_i(acc, "blend ngoai bien -> 0", surface_blend_pixel(buf, surf, 0 - 1, 0, wht), 0)
+    core_check_i(acc, "set_pixel ngoai bien -> 0", surface_set_pixel(buf, surf, 9, 9, 1), 0)
+    # --- blit
+    sbuf = []
+    surface_ensure_capacity(sbuf, 4)
+    ssurf = PixelSurface(2, 2, 2)
+    surface_clear(sbuf, ssurf, ColorRgba(1, 2, 3, 255))
+    dbuf = []
+    surface_ensure_capacity(dbuf, 16)
+    dsurf = PixelSurface(4, 4, 4)
+    surface_clear(dbuf, dsurf, ColorRgba(0, 0, 0, 255))
+    surface_fast_blit(dbuf, dsurf, sbuf, ssurf, 0, 0, 2, 2, 1, 1)
+    core_check_i(acc, "fast_blit tai (2,2)", int(dbuf[2 * 4 + 2]), int(sbuf[0]))
+    core_check_i(acc, "fast_blit khong ghi ngoai vung", int(dbuf[0]), 4278190080)
+    # --- SurfacePool
+    pool = SurfacePoolStats(0, 0, 0)
+    pool_note_acquire(pool, buf, 8)
+    core_check_i(acc, "pool hit khi du capacity", pool.hits, 1)
+    pool_note_acquire(pool, buf, 64)
+    core_check_i(acc, "pool miss khi thieu capacity", pool.misses, 1)
+    core_check_i(acc, "pool acquired", pool.acquired, 2)
+    core_check_i(acc, "pool grow buffer", len(buf) >= 64, 1)
+    print("--- core selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "CORE_OK"
+    return "CORE_FAIL"

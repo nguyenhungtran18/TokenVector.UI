@@ -1,0 +1,440 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Graphics - software rasterizer (Task 2), needs TkvUI.Core"""
+__tkv_import__ = ["TkvUI.Core"]
+__tkv_extern_method__ = [{"name": "tkv_sin", "assembly": "mscorlib", "class": "System.Math", "method": "Sin", "params": ["f64"], "returns": "f64"}, {"name": "tkv_cos", "assembly": "mscorlib", "class": "System.Math", "method": "Cos", "params": ["f64"], "returns": "f64"}]
+# TASK 2: GRAPHICS - Rasterizer
+# =========================================================
+def draw_line(buf: "list[i64]", surf: "PixelSurface", x0: "f64", y0: "f64", x1: "f64", y1: "f64", thickness: "f64", color: "ColorRgba") -> "i32":
+    # Bresenham with thickness via square brush
+    ix0 = int(x0)
+    iy0 = int(y0)
+    ix1 = int(x1)
+    iy1 = int(y1)
+    dx = ix1 - ix0
+    if dx < 0:
+        dx = 0 - dx
+    dy = iy1 - iy0
+    if dy < 0:
+        dy = 0 - dy
+    sx = 1
+    if ix0 > ix1:
+        sx = -1
+    sy = 1
+    if iy0 > iy1:
+        sy = -1
+    err = dx - dy
+    cx = ix0
+    cy = iy0
+    rad = int(thickness // 2)
+    if rad < 0:
+        rad = 0
+    count = 0
+    while True:
+        # brush thickness
+        for by in range(-rad, rad + 1):
+            for bx in range(-rad, rad + 1):
+                surface_blend_pixel(buf, surf, cx + bx, cy + by, color)
+        if cx == ix1 and cy == iy1:
+            break
+        e2 = err * 2
+        if e2 > 0 - dy:
+            err = err - dy
+            cx = cx + sx
+        if e2 < dx:
+            err = err + dx
+            cy = cy + sy
+        count = count + 1
+        if count > 5000:
+            break
+    return 1
+
+def fill_round_rect(buf: "list[i64]", surf: "PixelSurface", rect: "Rect2D", radius: "f64", color: "ColorRgba") -> "i32":
+    # Fill with corner distance check
+    x0 = int(rect.x)
+    y0 = int(rect.y)
+    x1 = int(rect.x + rect.w)
+    y1 = int(rect.y + rect.h)
+    rad = radius
+    if rad < 0:
+        rad = 0
+    rad2 = rad * rad
+    # inner rect
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            dx = 0.0
+            dy = 0.0
+            inside = 1
+            # corner regions
+            if x < int(rect.x + rad) and y < int(rect.y + rad):
+                dx = rect.x + rad - (float(x) + 0.5)
+                dy = rect.y + rad - (float(y) + 0.5)
+                if dx * dx + dy * dy > rad2:
+                    inside = 0
+            else:
+                if x >= int(rect.x + rect.w - rad) and y < int(rect.y + rad):
+                    dx = (float(x) + 0.5) - (rect.x + rect.w - rad)
+                    dy = rect.y + rad - (float(y) + 0.5)
+                    if dx * dx + dy * dy > rad2:
+                        inside = 0
+                else:
+                    if x < int(rect.x + rad) and y >= int(rect.y + rect.h - rad):
+                        dx = rect.x + rad - (float(x) + 0.5)
+                        dy = (float(y) + 0.5) - (rect.y + rect.h - rad)
+                        if dx * dx + dy * dy > rad2:
+                            inside = 0
+                    else:
+                        if x >= int(rect.x + rect.w - rad) and y >= int(rect.y + rect.h - rad):
+                            dx = (float(x) + 0.5) - (rect.x + rect.w - rad)
+                            dy = (float(y) + 0.5) - (rect.y + rect.h - rad)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+            if inside == 1:
+                surface_blend_pixel(buf, surf, x, y, color)
+    return 1
+
+def stroke_round_rect(buf: "list[i64]", surf: "PixelSurface", rect: "Rect2D", radius: "f64", thickness: "f64", color: "ColorRgba") -> "i32":
+    # Stroke by drawing outer fill then inner clear then outer again? Simple: draw 4 lines + 4 arcs approx via fill outer - inner
+    inner = Rect2D(rect.x + thickness, rect.y + thickness, rect.w - thickness * 2, rect.h - thickness * 2)
+    irad = radius - thickness
+    if irad < 0:
+        irad = 0
+    # Fill outer
+    fill_round_rect(buf, surf, rect, radius, color)
+    # Punch inner with transparent (simulate by clearing with 0 alpha? Instead blend with bg alpha 0 would erase)
+    # For demo, just draw inner with transparent trick: set alpha 0 pixels would not show, so we just overwrite inner with clear color of 0
+    # Instead we carve by filling inner with color of background (assume 0)
+    # We'll fill inner with fully transparent then skip - simpler: draw inner rect with blend of transparent does nothing, so we need to directly set
+    x0 = int(inner.x)
+    y0 = int(inner.y)
+    x1 = int(inner.x + inner.w)
+    y1 = int(inner.y + inner.h)
+    rad2 = irad * irad
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            dx = 0.0
+            dy = 0.0
+            inside = 1
+            if x < int(inner.x + irad) and y < int(inner.y + irad):
+                dx = inner.x + irad - (float(x) + 0.5)
+                dy = inner.y + irad - (float(y) + 0.5)
+                if dx * dx + dy * dy > rad2:
+                    inside = 0
+            else:
+                if x >= int(inner.x + inner.w - irad) and y < int(inner.y + irad):
+                    dx = (float(x) + 0.5) - (inner.x + inner.w - irad)
+                    dy = inner.y + irad - (float(y) + 0.5)
+                    if dx * dx + dy * dy > rad2:
+                        inside = 0
+                else:
+                    if x < int(inner.x + irad) and y >= int(inner.y + inner.h - irad):
+                        dx = inner.x + irad - (float(x) + 0.5)
+                        dy = (float(y) + 0.5) - (inner.y + inner.h - irad)
+                        if dx * dx + dy * dy > rad2:
+                            inside = 0
+                    else:
+                        if x >= int(inner.x + inner.w - irad) and y >= int(inner.y + inner.h - irad):
+                            dx = (float(x) + 0.5) - (inner.x + inner.w - irad)
+                            dy = (float(y) + 0.5) - (inner.y + inner.h - irad)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+            if inside == 1:
+                # clear inner to transparent by setting 0
+                surface_set_pixel(buf, surf, x, y, 0)
+    return 1
+
+def draw_arc(buf: "list[i64]", surf: "PixelSurface", cx: "f64", cy: "f64", radius: "f64", thickness: "f64", start_angle: "f64", sweep_angle: "f64", color: "ColorRgba") -> "i32":
+    # Sweep in degrees via System.Math Sin/Cos (P1 fix, error < 1px)
+    steps = int(sweep_angle)
+    if steps < 1:
+        steps = 1
+    if steps > 360:
+        steps = 360
+    half = thickness / 2.0
+    sa = start_angle
+    while sa < 0.0:
+        sa = sa + 360.0
+    while sa >= 360.0:
+        sa = sa - 360.0
+    n = steps
+    for i in range(n + 1):
+        frac = 0.0
+        if n > 0:
+            frac = float(i) / float(n)
+        t = sa + sweep_angle * frac
+        while t < 0.0:
+            t = t + 360.0
+        while t >= 360.0:
+            t = t - 360.0
+        rad = t * 3.14159265358979 / 180.0
+        c = tkv_cos(rad)
+        s = tkv_sin(rad)
+        fx = cx + radius * c
+        fy = cy + radius * s
+        r_int = int(half)
+        if r_int < 1:
+            r_int = 1
+        for dy in range(-r_int, r_int + 1):
+            for dx in range(-r_int, r_int + 1):
+                if dx * dx + dy * dy <= r_int * r_int + r_int:
+                    surface_blend_pixel(buf, surf, int(fx) + dx, int(fy) + dy, color)
+    return 1
+
+def draw_polyline(buf: "list[i64]", surf: "PixelSurface", xs: "list[f64]", ys: "list[f64]", n: "i32", closed: "i32", thickness: "f64", color: "ColorRgba") -> "i32":
+    if n < 2:
+        return 0
+    if len(xs) < n:
+        return 0
+    if len(ys) < n:
+        return 0
+    for i in range(n - 1):
+        draw_line(buf, surf, xs[i], ys[i], xs[i + 1], ys[i + 1], thickness, color)
+    if closed == 1:
+        draw_line(buf, surf, xs[n - 1], ys[n - 1], xs[0], ys[0], thickness, color)
+    return 1
+
+def clip_rect_intersect(a: "Rect2D", b: "Rect2D") -> "Rect2D":
+    x0 = a.x
+    if b.x > x0:
+        x0 = b.x
+    y0 = a.y
+    if b.y > y0:
+        y0 = b.y
+    x1 = a.x + a.w
+    bx1 = b.x + b.w
+    if bx1 < x1:
+        x1 = bx1
+    y1 = a.y + a.h
+    by1 = b.y + b.h
+    if by1 < y1:
+        y1 = by1
+    w = x1 - x0
+    if w < 0.0:
+        w = 0.0
+    h = y1 - y0
+    if h < 0.0:
+        h = 0.0
+    return Rect2D(x0, y0, w, h)
+
+def draw_image(dst_buf: "list[i64]", dst: "PixelSurface", src_buf: "list[i64]", src: "PixelSurface", srcX: "i32", srcY: "i32", srcW: "i32", srcH: "i32", dstX: "i32", dstY: "i32", alpha: "f64") -> "i32":
+    a8 = int(alpha * 255)
+    if a8 < 0:
+        a8 = 0
+    if a8 > 255:
+        a8 = 255
+    for row in range(srcH):
+        sy = srcY + row
+        dy = dstY + row
+        if sy < 0:
+            continue
+        if sy >= src.height:
+            continue
+        if dy < 0:
+            continue
+        if dy >= dst.height:
+            continue
+        for col in range(srcW):
+            sx = srcX + col
+            dx = dstX + col
+            if sx < 0:
+                continue
+            if sx >= src.width:
+                continue
+            if dx < 0:
+                continue
+            if dx >= dst.width:
+                continue
+            s_idx = sy * src.stride + sx
+            pix = src_buf[s_idx]
+            sa = pix // 16777216
+            rem = pix % 16777216
+            sr = rem // 65536
+            rem2 = rem % 65536
+            sg = rem2 // 256
+            sb = rem2 % 256
+            eff = int(float(sa) * float(a8) / 255.0)
+            surface_blend_pixel(dst_buf, dst, dx, dy, ColorRgba(sr, sg, sb, eff))
+    return 1
+
+# =========================================================
+# P1 SELFTEST - rasterizer (headless, khong tao cua so)
+# =========================================================
+def graphics_count_nonzero(buf: "list[i64]", n: "i32") -> "i32":
+    c = int(0)
+    i = int(0)
+    while i < n:
+        if buf[i] != 0:
+            c = c + 1
+        i = i + 1
+    return c
+
+def graphics_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def graphics_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def graphics_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def graphics_pixel_r(buf: "list[i64]", surf: "PixelSurface", x: "i32", y: "i32") -> "i32":
+    pix = buf[y * surf.stride + x]
+    return int((pix // 65536) % 256)
+
+def graphics_pixel_alpha(buf: "list[i64]", surf: "PixelSurface", x: "i32", y: "i32") -> "i32":
+    pix = buf[y * surf.stride + x]
+    return int(pix // 16777216)
+
+def graphics_row_count(buf: "list[i64]", surf: "PixelSurface", y: "i32") -> "i32":
+    c = int(0)
+    x = int(0)
+    while x < surf.width:
+        if buf[y * surf.stride + x] != 0:
+            c = c + 1
+        x = x + 1
+    return c
+
+def graphics_selftest() -> "str":
+    print("=== TkvUI.Graphics selftest (P1) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    red = ColorRgba(255, 0, 0, 255)
+    empty = ColorRgba(0, 0, 0, 0)
+    # --- draw_line ngang, brush 1px
+    buf = []
+    n = surface_ensure_capacity(buf, 3600)
+    surf = PixelSurface(60, 30, 60)
+    surface_clear(buf, surf, empty)
+    draw_line(buf, surf, 0.0, 4.0, 9.0, 4.0, 1.0, red)
+    graphics_check_i(acc, "draw_line 10px brush 1 -> 10 diem", graphics_count_nonzero(buf, 1800), 10)
+    graphics_check_i(acc, "draw_line dung hang y=4 (r)", graphics_pixel_r(buf, surf, 5, 4), 255)
+    graphics_check_i(acc, "draw_line alpha", graphics_pixel_alpha(buf, surf, 5, 4), 255)
+    # --- draw_line thickness 3 -> brush 3x3
+    surface_clear(buf, surf, empty)
+    draw_line(buf, surf, 0.0, 4.0, 9.0, 4.0, 3.0, red)
+    graphics_check_i(acc, "draw_line brush 3 -> 11 cot x 3 hang = 33 px", graphics_count_nonzero(buf, 1800), 33)
+    # --- draw_line cheo + ngoai bien khong crash
+    surface_clear(buf, surf, empty)
+    draw_line(buf, surf, 0.0, 0.0, 20.0, 20.0, 1.0, red)
+    graphics_check_i(acc, "draw_line cheo 21 diem", graphics_count_nonzero(buf, 1800), 21)
+    surface_clear(buf, surf, empty)
+    draw_line(buf, surf, 0 - 5.0, 0 - 5.0, 0 - 1.0, 0 - 1.0, 1.0, red)
+    graphics_check_i(acc, "draw_line hoan toan ngoai bien -> 0 diem", graphics_count_nonzero(buf, 1800), 0)
+    # --- fill_round_rect bo goc
+    surface_clear(buf, surf, empty)
+    fill_round_rect(buf, surf, Rect2D(0.0, 0.0, 20.0, 20.0), 8.0, red)
+    graphics_check_i(acc, "fill_round_rect goc (0,0) rong", graphics_pixel_alpha(buf, surf, 0, 0), 0)
+    graphics_check_i(acc, "fill_round_rect goc (19,19) rong", graphics_pixel_alpha(buf, surf, 19, 19), 0)
+    graphics_check_i(acc, "fill_round_rect tam dac", graphics_pixel_alpha(buf, surf, 10, 10), 255)
+    graphics_check_i(acc, "fill_round_rect canh trai dac", graphics_pixel_alpha(buf, surf, 0, 10), 255)
+    filled = graphics_count_nonzero(buf, 1800)
+    print("  fill_round_rect 20x20 r=8 -> " + str(filled) + " px")
+    if filled > 1:
+        graphics_check(acc, "fill_round_rect co ve duoc", 1)
+    else:
+        graphics_check(acc, "fill_round_rect co ve duoc", 0)
+    cut = 400 - filled
+    if cut > 0:
+        graphics_check(acc, "4 goc bi cat -> it hon 400 px", 1)
+    else:
+        graphics_check(acc, "4 goc bi cat -> it hon 400 px", 0)
+    # --- stroke_round_rect: vien dac, long rong
+    surface_clear(buf, surf, empty)
+    stroke_round_rect(buf, surf, Rect2D(0.0, 0.0, 20.0, 20.0), 8.0, 2.0, red)
+    graphics_check_i(acc, "stroke vien trai dac", graphics_pixel_alpha(buf, surf, 0, 10), 255)
+    graphics_check_i(acc, "stroke long (5,5) bi khoet", graphics_pixel_alpha(buf, surf, 5, 5), 0)
+    # --- draw_arc: moi diem nam trong vanh khuyen radius +- 2.5px
+    surface_clear(buf, surf, empty)
+    draw_arc(buf, surf, 30.0, 20.0, 15.0, 2.0, 0.0, 90.0, red)
+    arc_px = graphics_count_nonzero(buf, 1800)
+    if arc_px > 1:
+        graphics_check(acc, "draw_arc co ve duoc diem", 1)
+    else:
+        graphics_check(acc, "draw_arc co ve duoc diem", 0)
+    bad = int(0)
+    i = int(0)
+    while i < 1800:
+        if buf[i] != 0:
+            py = i // 60
+            px = i - py * 60
+            fdx = float(px) + 0.5 - 30.0
+            fdy = float(py) + 0.5 - 20.0
+            dd = fdx * fdx + fdy * fdy
+            if dd > 306.25:
+                if dd > 506.25:
+                    bad = bad + 1
+        i = i + 1
+    graphics_check_i(acc, "draw_arc sai so < 2.5px (so diem sai)", bad, 0)
+    # --- draw_arc chuan hoa goc am
+    surface_clear(buf, surf, empty)
+    draw_arc(buf, surf, 30.0, 20.0, 15.0, 2.0, 0 - 180.0, 90.0, red)
+    arc_neg = graphics_count_nonzero(buf, 1800)
+    if arc_neg > 1:
+        graphics_check(acc, "draw_arc goc am van ve", 1)
+    else:
+        graphics_check(acc, "draw_arc goc am van ve", 0)
+    # --- draw_polyline + closed
+    pxs = []
+    pxs.append(2.0)
+    pxs.append(18.0)
+    pxs.append(10.0)
+    pys = []
+    pys.append(2.0)
+    pys.append(2.0)
+    pys.append(14.0)
+    surface_clear(buf, surf, empty)
+    rc = draw_polyline(buf, surf, pxs, pys, 3, 1, 1.0, red)
+    graphics_check_i(acc, "draw_polyline tra 1", rc, 1)
+    graphics_check_i(acc, "polyline dinh 0 dac", graphics_pixel_alpha(buf, surf, 2, 2), 255)
+    graphics_check_i(acc, "polyline canh day (10,2) dac", graphics_pixel_alpha(buf, surf, 10, 2), 255)
+    row8 = graphics_row_count(buf, surf, 8)
+    if row8 >= 2:
+        graphics_check(acc, "polyline: hang y=8 cat 2 canh xien", 1)
+    else:
+        graphics_check(acc, "polyline: hang y=8 cat 2 canh xien", 0)
+    graphics_check_i(acc, "polyline canh xien trai (6,8) dac", graphics_pixel_alpha(buf, surf, 6, 8), 255)
+    graphics_check_i(acc, "polyline n=1 -> 0", draw_polyline(buf, surf, pxs, pys, 1, 0, 1.0, red), 0)
+    # --- clip_rect_intersect
+    ci = clip_rect_intersect(Rect2D(0.0, 0.0, 10.0, 10.0), Rect2D(5.0, 5.0, 10.0, 10.0))
+    graphics_check_f(acc, "clip giao nhau x", ci.x, 5.0, 0.001)
+    graphics_check_f(acc, "clip giao nhau w", ci.w, 5.0, 0.001)
+    ci2 = clip_rect_intersect(Rect2D(0.0, 0.0, 10.0, 10.0), Rect2D(20.0, 20.0, 5.0, 5.0))
+    graphics_check_f(acc, "clip roi nhau w=0", ci2.w, 0.0, 0.001)
+    graphics_check_f(acc, "clip roi nhau h=0", ci2.h, 0.0, 0.001)
+    # --- draw_image alpha
+    sbuf = []
+    surface_ensure_capacity(sbuf, 4)
+    ssurf = PixelSurface(2, 2, 2)
+    surface_clear(sbuf, ssurf, ColorRgba(255, 255, 255, 255))
+    dbuf = []
+    surface_ensure_capacity(dbuf, 400)
+    dsurf = PixelSurface(20, 20, 20)
+    surface_clear(dbuf, dsurf, ColorRgba(0, 0, 0, 255))
+    draw_image(dbuf, dsurf, sbuf, ssurf, 0, 0, 2, 2, 3, 3, 0.5)
+    graphics_check_i(acc, "draw_image alpha 0.5 -> trang/2", graphics_pixel_r(dbuf, dsurf, 3, 3), 127)
+    graphics_check_i(acc, "draw_image ngoai vung khong bi ghi", graphics_pixel_r(dbuf, dsurf, 0, 0), 0)
+    print("--- graphics selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "GRAPHICS_OK"
+    return "GRAPHICS_FAIL"

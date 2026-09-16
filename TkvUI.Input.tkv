@@ -1,0 +1,577 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Input - input router: pointer + touch + gesture + widget-tree hit-test (P5)
+
+Tach ra tu `TkvUI.Events.tkv` (Roadmap 2.6). Phu thuoc: Core <- Events <- Input.
+Cay widget duoc bieu dien bang cac DANH SACH SONG SONG truyen vao method
+(record KHONG duoc chua field `list` - Roadmap muc rang buoc):
+  ids   : "list[i32]"  - id widget (topmost = phan tu CUOI)
+  xs/ys : "list[f64]"  - goc trai-tren
+  ws/hs : "list[f64]"  - kich thuoc
+  flags : "list[i32]"  - 0 = hit duoc; KHAC 0 = bo qua (an/disabled)
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Events"]
+__tkv_extern_method__ = [{"name": "tkv_sqrt", "assembly": "mscorlib", "class": "System.Math", "method": "Sqrt", "params": ["f64"], "returns": "f64"}]
+
+# Event codes (chi de lam tai lieu - trong than METHOD record phai dung
+# literal so, xem Roadmap muc rang buoc ve hang module).
+TKV_EVT_NONE = 0
+TKV_EVT_ENTER = 1
+TKV_EVT_LEAVE = 2
+TKV_EVT_DOWN = 3
+TKV_EVT_UP = 4
+TKV_EVT_CLICK = 5
+TKV_EVT_TOUCH_START = 6
+TKV_EVT_TOUCH_MOVE = 7
+TKV_EVT_TOUCH_END = 8
+TKV_EVT_GESTURE = 9
+
+# Gesture codes
+TKV_GESTURE_NONE = 0
+TKV_GESTURE_TAP = 1
+TKV_GESTURE_PAN = 2
+TKV_GESTURE_PINCH = 3
+
+# Nguong di chuyen (px) de phan biet tap vs pan.
+TKV_TAP_SLOP = 6.0
+
+def input_event_name(code: "i32") -> "str":
+    if code == 1:
+        return "OnMouseEnter"
+    if code == 2:
+        return "OnMouseLeave"
+    if code == 3:
+        return "OnMouseDown"
+    if code == 4:
+        return "OnMouseUp"
+    if code == 5:
+        return "OnClick"
+    if code == 6:
+        return "OnTouchStart"
+    if code == 7:
+        return "OnTouchMove"
+    if code == 8:
+        return "OnTouchEnd"
+    if code == 9:
+        return "OnGesture"
+    return "None"
+
+def gesture_name(gtype: "i32") -> "str":
+    if gtype == 1:
+        return "tap"
+    if gtype == 2:
+        return "pan"
+    if gtype == 3:
+        return "pinch"
+    return "none"
+
+def input_dist(ax: "f64", ay: "f64", bx: "f64", by: "f64") -> "f64":
+    dx = ax - bx
+    dy = ay - by
+    r = tkv_sqrt(dx * dx + dy * dy)
+    return r
+
+def hit_test_tree(x: "f64", y: "f64", ids: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", count: "i32") -> "HitTestResult":
+    # Duyet TU CUOI (topmost) ve dau - widget dau tien hit duoc thang.
+    i = count - 1
+    while i >= 0:
+        if int(flags[i]) == 0:
+            if x >= xs[i]:
+                if y >= ys[i]:
+                    if x < xs[i] + ws[i]:
+                        if y < ys[i] + hs[i]:
+                            return HitTestResult(1, int(ids[i]))
+        i = i - 1
+    return HitTestResult(0, -1)
+
+def hit_test_rect(x: "f64", y: "f64", rect: "Rect2D", target_id: "i32") -> "HitTestResult":
+    if x < rect.x:
+        return HitTestResult(0, -1)
+    if y < rect.y:
+        return HitTestResult(0, -1)
+    if x >= rect.x + rect.w:
+        return HitTestResult(0, -1)
+    if y >= rect.y + rect.h:
+        return HitTestResult(0, -1)
+    return HitTestResult(1, target_id)
+
+class TouchEventArgs:
+    touch_id: "i32"
+    px: "f64"
+    py: "f64"
+    pressure: "f64"
+    radius: "f64"
+    def __init__(self, touch_id, px, py, pressure, radius):
+        self.touch_id = touch_id
+        self.px = px
+        self.py = py
+        self.pressure = pressure
+        self.radius = radius
+
+def make_touch(touch_id: "i32", px: "f64", py: "f64") -> "TouchEventArgs":
+    return TouchEventArgs(touch_id, px, py, 1.0, 4.0)
+
+class GestureEvent:
+    gtype: "i32"
+    scale: "f64"
+    dx: "f64"
+    dy: "f64"
+    def __init__(self, gtype, scale, dx, dy):
+        self.gtype = gtype
+        self.scale = scale
+        self.dx = dx
+        self.dy = dy
+
+class GestureRecognizer:
+    active: "i32"
+    p1_id: "i32"
+    p2_id: "i32"
+    p1x: "f64"
+    p1y: "f64"
+    p2x: "f64"
+    p2y: "f64"
+    start_dist: "f64"
+    last_dist: "f64"
+    last_mid_x: "f64"
+    last_mid_y: "f64"
+    scale: "f64"
+    pan_dx: "f64"
+    pan_dy: "f64"
+    moved: "f64"
+    gtype: "i32"
+    def __init__(self, active, p1_id, p2_id, p1x, p1y, p2x, p2y, start_dist, last_dist, last_mid_x, last_mid_y, scale, pan_dx, pan_dy, moved, gtype):
+        self.active = active
+        self.p1_id = p1_id
+        self.p2_id = p2_id
+        self.p1x = p1x
+        self.p1y = p1y
+        self.p2x = p2x
+        self.p2y = p2y
+        self.start_dist = start_dist
+        self.last_dist = last_dist
+        self.last_mid_x = last_mid_x
+        self.last_mid_y = last_mid_y
+        self.scale = scale
+        self.pan_dx = pan_dx
+        self.pan_dy = pan_dy
+        self.moved = moved
+        self.gtype = gtype
+    def touch_down(self, t: "TouchEventArgs") -> "i32":
+        self.gtype = 0
+        self.pan_dx = 0.0
+        self.pan_dy = 0.0
+        if self.active == 0:
+            self.active = 1
+            self.p1_id = t.touch_id
+            self.p1x = t.px
+            self.p1y = t.py
+            self.last_mid_x = t.px
+            self.last_mid_y = t.py
+            self.moved = 0.0
+            self.scale = 1.0
+            return 0
+        if self.active == 1:
+            self.active = 2
+            self.p2_id = t.touch_id
+            self.p2x = t.px
+            self.p2y = t.py
+            d = input_dist(self.p1x, self.p1y, self.p2x, self.p2y)
+            self.start_dist = d
+            self.last_dist = d
+            self.last_mid_x = (self.p1x + self.p2x) / 2.0
+            self.last_mid_y = (self.p1y + self.p2y) / 2.0
+            self.scale = 1.0
+            return 0
+        return 0
+    def touch_move(self, t: "TouchEventArgs") -> "i32":
+        self.gtype = 0
+        if self.active == 1:
+            if t.touch_id == self.p1_id:
+                dx = t.px - self.p1x
+                dy = t.py - self.p1y
+                self.p1x = t.px
+                self.p1y = t.py
+                self.pan_dx = dx
+                self.pan_dy = dy
+                mv = self.moved + input_dist(0.0, 0.0, dx, dy)
+                self.moved = mv
+                if mv > 6.0:
+                    self.gtype = 2
+                    return 2
+            return 0
+        if self.active == 2:
+            if t.touch_id == self.p1_id:
+                self.p1x = t.px
+                self.p1y = t.py
+            else:
+                if t.touch_id == self.p2_id:
+                    self.p2x = t.px
+                    self.p2y = t.py
+            d = input_dist(self.p1x, self.p1y, self.p2x, self.p2y)
+            mx = (self.p1x + self.p2x) / 2.0
+            my = (self.p1y + self.p2y) / 2.0
+            self.pan_dx = mx - self.last_mid_x
+            self.pan_dy = my - self.last_mid_y
+            self.last_mid_x = mx
+            self.last_mid_y = my
+            if self.start_dist > 0.0:
+                sc = d / self.start_dist
+                self.scale = sc
+            self.last_dist = d
+            self.gtype = 3
+            return 3
+        return 0
+    def touch_up(self, t: "TouchEventArgs") -> "i32":
+        tap = 0
+        self.gtype = 0
+        if self.active == 1:
+            if t.touch_id == self.p1_id:
+                if self.moved <= 6.0:
+                    tap = 1
+                    self.gtype = 1
+            self.active = 0
+            self.p1_id = -1
+            return tap
+        if self.active == 2:
+            if t.touch_id == self.p1_id:
+                self.active = 1
+                self.p1_id = self.p2_id
+                self.p1x = self.p2x
+                self.p1y = self.p2y
+                self.p2_id = -1
+                self.moved = 0.0
+            else:
+                if t.touch_id == self.p2_id:
+                    self.active = 1
+                    self.p2_id = -1
+                    self.moved = 0.0
+            return 0
+        return 0
+    def to_event(self) -> "GestureEvent":
+        return GestureEvent(self.gtype, self.scale, self.pan_dx, self.pan_dy)
+    def reset(self) -> "i32":
+        self.active = 0
+        self.p1_id = -1
+        self.p2_id = -1
+        self.moved = 0.0
+        self.scale = 1.0
+        self.pan_dx = 0.0
+        self.pan_dy = 0.0
+        self.gtype = 0
+        return 1
+
+def make_gesture_recognizer() -> "GestureRecognizer":
+    return GestureRecognizer(0, -1, -1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0)
+
+class EventDispatcher:
+    last_x: "f64"
+    last_y: "f64"
+    hover_id: "i32"
+    down_id: "i32"
+    last_event: "i32"
+    last_target: "i32"
+    prev_event: "i32"
+    prev_target: "i32"
+    press_x: "f64"
+    press_y: "f64"
+    drag_dx: "f64"
+    drag_dy: "f64"
+    def __init__(self, last_x, last_y, hover_id, down_id, last_event, last_target, prev_event, prev_target, press_x, press_y, drag_dx, drag_dy):
+        self.last_x = last_x
+        self.last_y = last_y
+        self.hover_id = hover_id
+        self.down_id = down_id
+        self.last_event = last_event
+        self.last_target = last_target
+        self.prev_event = prev_event
+        self.prev_target = prev_target
+        self.press_x = press_x
+        self.press_y = press_y
+        self.drag_dx = drag_dx
+        self.drag_dy = drag_dy
+    def push_event(self, code: "i32", target: "i32") -> "i32":
+        self.prev_event = self.last_event
+        self.prev_target = self.last_target
+        self.last_event = code
+        self.last_target = target
+        return code
+    def update_hover(self, hid: "i32", px: "f64", py: "f64") -> "i32":
+        # Pointer capture: dang giu chuot -> hover BAO NGUYEN widget da nhan down
+        # (khong ban leave/enter khi keo ra ngoai).
+        target = hid
+        if self.down_id != -1:
+            target = self.down_id
+        self.last_event = 0
+        self.last_target = -1
+        if target != self.hover_id:
+            if self.hover_id != -1:
+                self.push_event(2, self.hover_id)
+            if target != -1:
+                self.push_event(1, target)
+            self.hover_id = target
+        self.last_x = px
+        self.last_y = py
+        return target
+    def dispatch_move(self, e: "PointerEventArgs", ids: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", n: "i32") -> "i32":
+        hit = hit_test_tree(e.px, e.py, ids, xs, ys, ws, hs, flags, n)
+        hid = -1
+        if hit.found == 1:
+            hid = hit.target_id
+        self.update_hover(hid, e.px, e.py)
+        if self.down_id != -1:
+            self.drag_dx = e.px - self.press_x
+            self.drag_dy = e.py - self.press_y
+        return hid
+    def dispatch_down(self, e: "PointerEventArgs", ids: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", n: "i32") -> "i32":
+        hit = hit_test_tree(e.px, e.py, ids, xs, ys, ws, hs, flags, n)
+        hid = -1
+        if hit.found == 1:
+            hid = hit.target_id
+        self.down_id = hid
+        self.press_x = e.px
+        self.press_y = e.py
+        self.drag_dx = 0.0
+        self.drag_dy = 0.0
+        self.update_hover(hid, e.px, e.py)
+        self.push_event(3, hid)
+        return hid
+    def dispatch_up(self, e: "PointerEventArgs", ids: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", n: "i32") -> "i32":
+        hit = hit_test_tree(e.px, e.py, ids, xs, ys, ws, hs, flags, n)
+        raw = -1
+        if hit.found == 1:
+            raw = hit.target_id
+        did = self.down_id
+        clicked = -1
+        if did != -1:
+            if raw == did:
+                clicked = did
+        self.down_id = -1
+        self.drag_dx = 0.0
+        self.drag_dy = 0.0
+        self.update_hover(raw, e.px, e.py)
+        self.push_event(4, raw)
+        if clicked != -1:
+            self.push_event(5, clicked)
+        return clicked
+    def cancel(self) -> "i32":
+        self.down_id = -1
+        self.drag_dx = 0.0
+        self.drag_dy = 0.0
+        self.push_event(0, -1)
+        return 1
+    def event_name(self) -> "str":
+        return input_event_name(self.last_event)
+
+def make_dispatcher() -> "EventDispatcher":
+    return EventDispatcher(0.0, 0.0, -1, -1, 0, -1, 0, -1, 0.0, 0.0, 0.0, 0.0)
+
+# =========================================================
+# P5 SELFTEST - headless, khong tao cua so
+# =========================================================
+def input_check(name: "str", got: "i32", want: "i32") -> "i32":
+    if got == want:
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def input_check_str(name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def input_check_f(name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    if d <= tol:
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def input_selftest() -> "str":
+    print("=== TkvUI.Input selftest (P5) ===")
+    ok = int(0)
+    total = int(0)
+    ids = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    fl = []
+    # 0: Card (nen), 1: nut OK, 2: nut Cancel, 3: dialog an (flags=1), 4: disabled (flags=2)
+    ids.append(1)
+    xs.append(10.0)
+    ys.append(10.0)
+    ws.append(200.0)
+    hs.append(120.0)
+    fl.append(0)
+    ids.append(2)
+    xs.append(30.0)
+    ys.append(60.0)
+    ws.append(80.0)
+    hs.append(28.0)
+    fl.append(0)
+    ids.append(3)
+    xs.append(120.0)
+    ys.append(60.0)
+    ws.append(80.0)
+    hs.append(28.0)
+    fl.append(0)
+    ids.append(4)
+    xs.append(30.0)
+    ys.append(60.0)
+    ws.append(80.0)
+    hs.append(28.0)
+    fl.append(1)
+    ids.append(5)
+    xs.append(260.0)
+    ys.append(10.0)
+    ws.append(100.0)
+    hs.append(40.0)
+    fl.append(2)
+    # Layered order (topmost = index 4 -> 0)
+    d = make_dispatcher()
+    e = PointerEventArgs(40.0, 70.0, 1, 0)
+    # 1) hit-test xuyen qua widget AN (id 4) xuong nut OK (id 2)
+    h = hit_test_tree(40.0, 70.0, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("hit(hidden->ok)", h.target_id, 2)
+    # 2) khong hit widget disabled
+    h2 = hit_test_tree(280.0, 20.0, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("hit(disabled skipped).found", h2.found, 0)
+    # 3) khong hit ngoai vung
+    h3 = hit_test_tree(500.0, 500.0, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("hit(outside).found", h3.found, 0)
+    # 4) enter event
+    hv = d.dispatch_move(e, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("move -> hover", hv, 2)
+    total = total + 1
+    ok = ok + input_check("enter event", d.last_event, TKV_EVT_ENTER)
+    total = total + 1
+    ok = ok + input_check("enter target", d.last_target, 2)
+    # 5) down
+    idv = d.dispatch_down(e, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("down target", idv, 2)
+    total = total + 1
+    ok = ok + input_check("down event", d.last_event, TKV_EVT_DOWN)
+    # 6) up -> click DUNG ID
+    clk = d.dispatch_up(e, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("OnClick id", clk, 2)
+    total = total + 1
+    ok = ok + input_check("click event", d.last_event, TKV_EVT_CLICK)
+    total = total + 1
+    ok = ok + input_check("click prev = up", d.prev_event, TKV_EVT_UP)
+    # 7) down tren 1 nut, up tren nut khac -> KHONG click
+    e2 = PointerEventArgs(140.0, 70.0, 1, 1)
+    d.dispatch_down(e, ids, xs, ys, ws, hs, fl, 5)
+    clk2 = d.dispatch_up(e2, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("no click cross-widget", clk2, -1)
+    # 8) leave khi roi khoi widget + enter lai widget khac
+    e3 = PointerEventArgs(500.0, 500.0, 0, 0)
+    d.dispatch_move(e3, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("leave event", d.last_event, TKV_EVT_LEAVE)
+    total = total + 1
+    ok = ok + input_check("leave target", d.last_target, 3)
+    total = total + 1
+    ok = ok + input_check("hover cleared", d.hover_id, -1)
+    e3b = PointerEventArgs(20.0, 20.0, 0, 0)
+    d.dispatch_move(e3b, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("enter card", d.last_event, TKV_EVT_ENTER)
+    total = total + 1
+    ok = ok + input_check("enter card target", d.last_target, 1)
+    # 8b) 1 lan move di tu widget 1 sang widget 3 -> ban CA leave va enter trong cung 1 call
+    e3c = PointerEventArgs(140.0, 70.0, 0, 0)
+    d.dispatch_move(e3c, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("transition: enter", d.last_event, TKV_EVT_ENTER)
+    total = total + 1
+    ok = ok + input_check("transition: enter target", d.last_target, 3)
+    total = total + 1
+    ok = ok + input_check("transition: prev = leave", d.prev_event, TKV_EVT_LEAVE)
+    total = total + 1
+    ok = ok + input_check("transition: leave target", d.prev_target, 1)
+    # 9) pointer capture: dang giu chuot, keo ra NGOAI nut -> hover giu nguyen, khong ban leave
+    d.dispatch_down(e, ids, xs, ys, ws, hs, fl, 5)
+    e4 = PointerEventArgs(60.0, 90.0, 1, 1)
+    d.dispatch_move(e4, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("capture keeps hover", d.hover_id, 2)
+    total = total + 1
+    ok = ok + input_check("capture: move = no new event", d.last_event, TKV_EVT_NONE)
+    total = total + 1
+    ok = ok + input_check("capture: prev = enter (KHONG co leave)", d.prev_event, TKV_EVT_ENTER)
+    total = total + 1
+    ok = ok + input_check_f("drag_dx", d.drag_dx, 20.0, 0.001)
+    total = total + 1
+    ok = ok + input_check_f("drag_dy", d.drag_dy, 20.0, 0.001)
+    clk_out = d.dispatch_up(e4, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("release outside -> no click", clk_out, -1)
+    # 9b) keo roi tha TRONG nut -> click
+    d.dispatch_down(e, ids, xs, ys, ws, hs, fl, 5)
+    e5 = PointerEventArgs(50.0, 75.0, 1, 1)
+    d.dispatch_move(e5, ids, xs, ys, ws, hs, fl, 5)
+    clk_in = d.dispatch_up(e5, ids, xs, ys, ws, hs, fl, 5)
+    total = total + 1
+    ok = ok + input_check("release inside -> click", clk_in, 2)
+    total = total + 1
+    ok = ok + input_check_str("event_name", d.event_name(), "OnClick")
+    total = total + 1
+    ok = ok + input_check_str("gesture_name", gesture_name(3), "pinch")
+    # 10) touch + gesture: pinch 100px -> 200px = scale 2.0
+    g = make_gesture_recognizer()
+    t1 = make_touch(1, 100.0, 100.0)
+    t2 = make_touch(2, 200.0, 100.0)
+    g.touch_down(t1)
+    g.touch_down(t2)
+    total = total + 1
+    ok = ok + input_check("two fingers active", g.active, 2)
+    total = total + 1
+    ok = ok + input_check_f("start_dist", g.start_dist, 100.0, 0.001)
+    t2b = make_touch(2, 300.0, 100.0)
+    gt = g.touch_move(t2b)
+    total = total + 1
+    ok = ok + input_check("pinch type", gt, TKV_GESTURE_PINCH)
+    total = total + 1
+    ok = ok + input_check_f("pinch scale", g.scale, 2.0, 0.001)
+    total = total + 1
+    ok = ok + input_check_f("pinch pan dx (mid 150->200)", g.pan_dx, 50.0, 0.001)
+    ge = g.to_event()
+    total = total + 1
+    ok = ok + input_check("gesture event type", ge.gtype, TKV_GESTURE_PINCH)
+    # 11) tap vs pan 1 ngon
+    g2 = make_gesture_recognizer()
+    a1 = make_touch(7, 10.0, 10.0)
+    g2.touch_down(a1)
+    a2 = make_touch(7, 11.0, 11.0)
+    tap = g2.touch_up(a2)
+    total = total + 1
+    ok = ok + input_check("tap detected", tap, 1)
+    total = total + 1
+    ok = ok + input_check("tap gtype", g2.gtype, TKV_GESTURE_TAP)
+    g3 = make_gesture_recognizer()
+    b1 = make_touch(8, 10.0, 10.0)
+    g3.touch_down(b1)
+    b2 = make_touch(8, 30.0, 10.0)
+    pm = g3.touch_move(b2)
+    total = total + 1
+    ok = ok + input_check("pan type", pm, TKV_GESTURE_PAN)
+    total = total + 1
+    ok = ok + input_check_f("pan dx", g3.pan_dx, 20.0, 0.001)
+    total = total + 1
+    ok = ok + input_check("pan not tap", g3.touch_up(b2), 0)
+    print("--- input selftest: " + str(ok) + "/" + str(total) + " PASS ---")
+    if ok == total:
+        return "INPUT_OK"
+    return "INPUT_FAIL"

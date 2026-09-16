@@ -1,0 +1,53 @@
+{
+  "name": "TokenVector.UI",
+  "alias": "TkvUI",
+  "version": "2.2.0",
+  "description": "Thư viện UI đa nền tảng 100% TokenVector (.tkv) - zero dependency: rasterizer, font bitmap, effects, layout flex/grid, 15 widget, cửa sổ native Win32.",
+  "license": "MIT",
+  "repository": "https://github.com/nguyenhungtran18/TokenVector",
+  "toolchain": {
+    "compiler": "tkvc.exe",
+    "tested_with": "D:\\TokenVector\\3.code\\dist\\tkvc.exe (2026-09)",
+    "runtime": ".NET / Mono (CIL)"
+  },
+  "entry": "TokenVector.UI",
+  "main_entry_function": "main",
+  "modules": [
+    { "name": "TkvUI.Core",     "file": "TkvUI.Core.tkv",     "imports": [],                                       "summary": "ColorRgba/ColorHsla, Point2D, Rect2D, Matrix3x2, PixelSurface (list[i64]), Theme, Insets/CornerRadius, DPI, SurfacePool-lite", "selftest": "core_selftest" },
+    { "name": "TkvUI.Graphics", "file": "TkvUI.Graphics.tkv", "imports": ["TkvUI.Core"],                           "summary": "draw_line (Bresenham), fill/stroke_round_rect, draw_arc (Sin/Cos), draw_polyline, clip_rect_intersect, draw_image", "selftest": "graphics_selftest" },
+    { "name": "TkvUI.Text",     "file": "TkvUI.Text.tkv",     "imports": ["TkvUI.Core"],                           "summary": "Font bitmap 5x7 (95 glyph + box fallback), glyph atlas pre-baked (text_atlas_draw_string), char_code, measure_string, draw_string (align/tracking/scale), wrap + ellipsis", "selftest": "text_selftest" },
+    { "name": "TkvUI.Effects",  "file": "TkvUI.Effects.tkv",  "imports": ["TkvUI.Core", "TkvUI.Graphics"],          "summary": "box_blur, kawase_blur 3-pass, backdrop_blur (glass), specular highlight, drop shadow", "selftest": "effects_selftest" },
+    { "name": "TkvUI.Platform", "file": "TkvUI.Platform.tkv", "imports": ["TkvUI.Core"],                           "summary": "detect_platform() thật (probe runtime), Win32 ULW thật, X11/Cocoa stub, Android/iOS host-driven contract", "selftest": "platform_selftest" },
+    { "name": "TkvUI.Events",   "file": "TkvUI.Events.tkv",   "imports": ["TkvUI.Core"],                           "summary": "PointerEventArgs, HitTestResult, pointer_button_label, no_hit", "selftest": null },
+    { "name": "TkvUI.Input",    "file": "TkvUI.Input.tkv",    "imports": ["TkvUI.Core", "TkvUI.Events"],            "summary": "hit_test_tree topmost-first, EventDispatcher (pointer capture), TouchEventArgs, GestureRecognizer (tap/pan/pinch)", "selftest": "input_selftest" },
+    { "name": "TkvUI.Layout",   "file": "TkvUI.Layout.tkv",   "imports": ["TkvUI.Core"],                           "summary": "FlexStyle/GridStyle/Constraint, flex row/col wrap + cross-align + justify, stack, grid + span, DPI, validator", "selftest": "layout_selftest" },
+    { "name": "TkvUI.Widgets",  "file": "TkvUI.Widgets.tkv",  "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Effects","TkvUI.Platform","TkvUI.Events","TkvUI.Input","TkvUI.Layout"], "summary": "UIElement + 15 widget, Spring/Tween, InvalidationManager, FrameScheduler, RenderLoop", "selftest": "widget_selftest" }
+  ],
+  "umbrella": {
+    "file": "TokenVector.UI.tkv",
+    "imports_all": true,
+    "selftest": "tkvui_selftest",
+    "default_entry": "main"
+  },
+  "verify": {
+    "script": "tools/verify.sh",
+    "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
+    "last_result": "12 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK)"
+  },
+  "package": {
+    "script": "tools/package.sh",
+    "output": "dist/TokenVector.UI-<version>.tkvpkg (+ .sha256)",
+    "verify_flag": "--verify",
+    "contents": ["TokenVector.UI.tkv", "TkvUI.*.tkv", "tkvui.pkg.json", "README.md", "LICENSE", "CHANGELOG.md", "docs/", "tools/", "examples/"]
+  },
+  "integration_guide": "docs/INTEGRATION.md",
+  "platforms": {
+    "win32":   "thật (CreateWindowExW + WS_EX_LAYERED + UpdateLayeredWindow, present_diff)",
+    "x11":     "stub (chờ tkvc cho pinvoke libX11.so)",
+    "wayland": "chưa có (cùng ràng buộc .so)",
+    "cocoa":   "stub (WinForms wf_* làm vehicle)",
+    "android": "host-driven contract: set_jni_env + set_frame_buffer + set_dst_bits, cần shim JNI",
+    "ios":     "host-driven contract: set_frame_buffer, upload RGBA do host (Swift/ObjC) đảm nhiệm"
+  },
+  "constraints": "docs/TkvUI.Roadmap.md §0 - ràng buộc compiler bắt buộc khi viết .tkv (không bitwise, không bool, record không chứa list, import resolve theo thư mục file nguồn...)"
+}

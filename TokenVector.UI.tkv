@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""TokenVector.UI - umbrella library, imports all TkvUI modules (v2 P7 + P1.1 hardening)
+
+Entry mac dinh 'main' = chay toan bo selftest cua thu vien (headless, khong mo cua so):
+  tkvc.exe build TokenVector.UI.tkv --out build/tkvui_suite.exe && build/tkvui_suite.exe
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Widgets"]
+
+def tkvui_version() -> "str":
+    return "2.2.0"
+
+def tkvui_selftest() -> "str":
+    # Chay TAT CA selftest cua thu vien va gop ket qua. Moi selftest tra ve "<MODULE>_OK"
+    # hoac "<MODULE>_FAIL" (xem quy uoc o tung module).
+    print("=== TokenVector.UI selftest suite v" + tkvui_version() + " ===")
+    r1 = core_selftest()
+    r2 = graphics_selftest()
+    r3 = text_selftest()
+    r4 = effects_selftest()
+    r5 = platform_selftest()
+    r6 = input_selftest()
+    r7 = layout_selftest()
+    r8 = widget_selftest()
+    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " ===")
+    bad = int(0)
+    if r1 != "CORE_OK":
+        bad = bad + 1
+    if r2 != "GRAPHICS_OK":
+        bad = bad + 1
+    if r3 != "TEXT_OK":
+        bad = bad + 1
+    if r4 != "EFFECTS_OK":
+        bad = bad + 1
+    if r5 != "PLATFORM_OK":
+        bad = bad + 1
+    if r6 != "INPUT_OK":
+        bad = bad + 1
+    if r7 != "LAYOUT_OK":
+        bad = bad + 1
+    if r8 != "WIDGETS_OK":
+        bad = bad + 1
+    if bad == 0:
+        print("TKVUI_OK")
+        return "TKVUI_OK"
+    print("TKVUI_FAIL (" + str(bad) + " module loi)")
+    return "TKVUI_FAIL"
+
+def main() -> "str":
+    return tkvui_selftest()

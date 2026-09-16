@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>TokenVector.UI</id>
+    <version>2.2.0</version>
+    <title>TokenVector.UI (TkvUI)</title>
+    <authors>Nguyen Hung Tran</authors>
+    <owners>nguyenhungtran18</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/nguyenhungtran18/TokenVector</projectUrl>
+    <readme>README.md</readme>
+    <description>TokenVector.UI (TkvUI) - Thu vien UI da nen tang 100% TokenVector (.tkv), zero dependency: software rasterizer, bitmap font, effects (Kawase blur/glass), flex/grid layout, 15 widget + Spring animation, cua so native Win32 (UpdateLayeredWindow). Danh cho tkvc.exe (TokenVector compiler).</description>
+    <summary>UI library for the TokenVector compiler: rasterizer, layout, widgets, native windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
+    <releaseNotes>2.2.0: glyph atlas cho tat ca 9 module (271 check), detect_platform() probe runtime that, iOS/Android gate theo platform (het crash DllNotFoundException), sua bug ghi de bo nho IOSPlatform.present, umbrella co main() chay ca suite, them tools/package.sh + docs/INTEGRATION.md.</releaseNotes>
+    <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
+    <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform</tags>
+    <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
+  </metadata>
+  <files>
+    <file src="README.md" target="README.md" />
+    <file src="LICENSE" target="LICENSE" />
+    <file src="CHANGELOG.md" target="CHANGELOG.md" />
+    <file src="tkvui.pkg.json" target="tkvui.pkg.json" />
+    <!-- Source thu vien: import bang tkvc -->
+    <file src="TokenVector.UI.tkv" target="tkv\TokenVector.UI.tkv" />
+    <file src="TkvUI.Core.tkv" target="tkv\TkvUI.Core.tkv" />
+    <file src="TkvUI.Graphics.tkv" target="tkv\TkvUI.Graphics.tkv" />
+    <file src="TkvUI.Text.tkv" target="tkv\TkvUI.Text.tkv" />
+    <file src="TkvUI.Effects.tkv" target="tkv\TkvUI.Effects.tkv" />
+    <file src="TkvUI.Platform.tkv" target="tkv\TkvUI.Platform.tkv" />
+    <file src="TkvUI.Events.tkv" target="tkv\TkvUI.Events.tkv" />
+    <file src="TkvUI.Input.tkv" target="tkv\TkvUI.Input.tkv" />
+    <file src="TkvUI.Layout.tkv" target="tkv\TkvUI.Layout.tkv" />
+    <file src="TkvUI.Widgets.tkv" target="tkv\TkvUI.Widgets.tkv" />
+    <!-- Tools + docs + examples -->
+    <file src="build\nupkgstage\TokenVector.UI.dll" target="runtimes\any\native\TokenVector.UI.dll" />
+    <file src="tools\verify.sh" target="tools\verify.sh" />
+    <file src="tools\package.sh" target="tools\package.sh" />
+    <file src="docs\TkvUI.Roadmap.md" target="docs\TkvUI.Roadmap.md" />
+    <file src="docs\INTEGRATION.md" target="docs\INTEGRATION.md" />
+    <file src="examples\*.tkv" target="examples\" />
+  </files>
+</package>

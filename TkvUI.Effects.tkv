@@ -1,0 +1,741 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Effects - blur, specular, shadow (Task 4), needs Core+Graphics"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics"]
+# P2.2: pinvoke GetTickCount de do benchmark blur (cung ky thuat voi TkvUI.Text)
+__tkv_extern_pinvoke__ = [{"name": "effects_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+# TASK 4: EFFECTS - Blur, Specular, Shadow
+# =========================================================
+def apply_box_blur(buf: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "i32") -> "i32":
+    if radius < 1:
+        return 0
+    if radius > 8:
+        radius = 8
+    x0 = int(bounds.x)
+    y0 = int(bounds.y)
+    x1 = int(bounds.x + bounds.w)
+    y1 = int(bounds.y + bounds.h)
+    if x0 < 0:
+        x0 = 0
+    if y0 < 0:
+        y0 = 0
+    if x1 > surf.width:
+        x1 = surf.width
+    if y1 > surf.height:
+        y1 = surf.height
+    # horizontal pass using temp buffer copy of region
+    tmp = []
+    total = surf.width * surf.height
+    for i in range(total):
+        tmp.append(buf[i])
+    # horizontal blur O(N*r)
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            sum_a = 0
+            sum_r = 0
+            sum_g = 0
+            sum_b = 0
+            cnt = 0
+            for k in range(-radius, radius + 1):
+                sx = x + k
+                if sx < x0:
+                    continue
+                if sx >= x1:
+                    continue
+                idx = y * surf.stride + sx
+                pix = tmp[idx]
+                a = pix // 16777216
+                rem = pix % 16777216
+                r = rem // 65536
+                rem2 = rem % 65536
+                g = rem2 // 256
+                b = rem2 % 256
+                sum_a = sum_a + a
+                sum_r = sum_r + r
+                sum_g = sum_g + g
+                sum_b = sum_b + b
+                cnt = cnt + 1
+            if cnt > 0:
+                na = sum_a // cnt
+                nr = sum_r // cnt
+                ng = sum_g // cnt
+                nb = sum_b // cnt
+                idx2 = y * surf.stride + x
+                buf[idx2] = na * 16777216 + nr * 65536 + ng * 256 + nb
+    # copy to tmp for vertical
+    for i in range(total):
+        tmp[i] = buf[i]
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            sum_a = 0
+            sum_r = 0
+            sum_g = 0
+            sum_b = 0
+            cnt = 0
+            for k in range(-radius, radius + 1):
+                sy = y + k
+                if sy < y0:
+                    continue
+                if sy >= y1:
+                    continue
+                idx = sy * surf.stride + x
+                pix = tmp[idx]
+                a = pix // 16777216
+                rem = pix % 16777216
+                r = rem // 65536
+                rem2 = rem % 65536
+                g = rem2 // 256
+                b = rem2 % 256
+                sum_a = sum_a + a
+                sum_r = sum_r + r
+                sum_g = sum_g + g
+                sum_b = sum_b + b
+                cnt = cnt + 1
+            if cnt > 0:
+                na = sum_a // cnt
+                nr = sum_r // cnt
+                ng = sum_g // cnt
+                nb = sum_b // cnt
+                idx2 = y * surf.stride + x
+                buf[idx2] = na * 16777216 + nr * 65536 + ng * 256 + nb
+    return 1
+
+def draw_specular_highlight(buf: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "f64", intensity: "f64") -> "i32":
+    # thin highlight on top edge
+    alpha = int(80 * intensity)
+    if alpha < 0:
+        alpha = 0
+    if alpha > 120:
+        alpha = 120
+    col = ColorRgba(255, 255, 255, alpha)
+    x0 = int(bounds.x + radius)
+    x1 = int(bounds.x + bounds.w - radius)
+    y = int(bounds.y + 1)
+    for x in range(x0, x1):
+        surface_blend_pixel(buf, surf, x, y, col)
+    return 1
+
+def draw_drop_shadow(buf: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "f64", blurSize: "i32", opacity: "f64") -> "i32":
+    alpha = int(90 * opacity)
+    if alpha < 0:
+        alpha = 0
+    if alpha > 160:
+        alpha = 160
+    col = ColorRgba(0, 0, 0, alpha)
+    # offset shadow 4px down
+    shadow_rect = Rect2D(bounds.x, bounds.y + 4, bounds.w, bounds.h)
+    fill_round_rect(buf, surf, shadow_rect, radius, col)
+    if blurSize > 0:
+        apply_box_blur(buf, surf, shadow_rect, blurSize)
+    return 1
+
+# [P2.2 perf] box_blur_pass: sliding window O(1)/pixel + hoist row index ra khoi
+# vong trong + tang chi so lien tuc o pass doc (bo phep nhan stride moi pixel).
+# Ban tham chieu (logic goc, cham hon) giu lai o box_blur_pass_ref de benchmark.
+def box_blur_pass_ref(src_buf: "list[i64]", dst_buf: "list[i64]", surf: "PixelSurface", x0: "i32", y0: "i32", x1: "i32", y1: "i32", radius: "i32", horizontal: "i32") -> "i32":
+    rad = radius
+    if rad < 1:
+        rad = 1
+    if rad > 16:
+        rad = 16
+    if horizontal == 1:
+        for y in range(y0, y1):
+            sa = 0
+            sr = 0
+            sg = 0
+            sb = 0
+            cnt = 0
+            k = 0 - rad
+            while k <= rad:
+                sx = x0 + k
+                if sx >= x0:
+                    if sx < x1:
+                        pix = src_buf[y * surf.stride + sx]
+                        sa = sa + pix // 16777216
+                        rem = pix % 16777216
+                        sr = sr + rem // 65536
+                        rem2 = rem % 65536
+                        sg = sg + rem2 // 256
+                        sb = sb + rem2 % 256
+                        cnt = cnt + 1
+                k = k + 1
+            for x in range(x0, x1):
+                na = 0
+                nr = 0
+                ng = 0
+                nb = 0
+                if cnt > 0:
+                    na = sa // cnt
+                    nr = sr // cnt
+                    ng = sg // cnt
+                    nb = sb // cnt
+                dst_buf[y * surf.stride + x] = na * 16777216 + nr * 65536 + ng * 256 + nb
+                out_x = x - rad
+                if out_x >= x0:
+                    if out_x < x1:
+                        opix = src_buf[y * surf.stride + out_x]
+                        sa = sa - opix // 16777216
+                        orem = opix % 16777216
+                        sr = sr - orem // 65536
+                        orem2 = orem % 65536
+                        sg = sg - orem2 // 256
+                        sb = sb - orem2 % 256
+                        cnt = cnt - 1
+                in_x = x + rad + 1
+                if in_x >= x0:
+                    if in_x < x1:
+                        ipix = src_buf[y * surf.stride + in_x]
+                        sa = sa + ipix // 16777216
+                        irem = ipix % 16777216
+                        sr = sr + irem // 65536
+                        irem2 = irem % 65536
+                        sg = sg + irem2 // 256
+                        sb = sb + irem2 % 256
+                        cnt = cnt + 1
+    else:
+        for x in range(x0, x1):
+            sa = 0
+            sr = 0
+            sg = 0
+            sb = 0
+            cnt = 0
+            k = 0 - rad
+            while k <= rad:
+                sy = y0 + k
+                if sy >= y0:
+                    if sy < y1:
+                        pix = src_buf[sy * surf.stride + x]
+                        sa = sa + pix // 16777216
+                        rem = pix % 16777216
+                        sr = sr + rem // 65536
+                        rem2 = rem % 65536
+                        sg = sg + rem2 // 256
+                        sb = sb + rem2 % 256
+                        cnt = cnt + 1
+                k = k + 1
+            for y in range(y0, y1):
+                na = 0
+                nr = 0
+                ng = 0
+                nb = 0
+                if cnt > 0:
+                    na = sa // cnt
+                    nr = sr // cnt
+                    ng = sg // cnt
+                    nb = sb // cnt
+                dst_buf[y * surf.stride + x] = na * 16777216 + nr * 65536 + ng * 256 + nb
+                out_y = y - rad
+                if out_y >= y0:
+                    if out_y < y1:
+                        opix = src_buf[out_y * surf.stride + x]
+                        sa = sa - opix // 16777216
+                        orem = opix % 16777216
+                        sr = sr - orem // 65536
+                        orem2 = orem % 65536
+                        sg = sg - orem2 // 256
+                        sb = sb - orem2 % 256
+                        cnt = cnt - 1
+                in_y = y + rad + 1
+                if in_y >= y0:
+                    if in_y < y1:
+                        ipix = src_buf[in_y * surf.stride + x]
+                        sa = sa + ipix // 16777216
+                        irem = ipix % 16777216
+                        sr = sr + irem // 65536
+                        irem2 = irem % 65536
+                        sg = sg + irem2 // 256
+                        sb = sb + irem2 % 256
+                        cnt = cnt + 1
+    return 1
+
+def box_blur_pass(src_buf: "list[i64]", dst_buf: "list[i64]", surf: "PixelSurface", x0: "i32", y0: "i32", x1: "i32", y1: "i32", radius: "i32", horizontal: "i32") -> "i32":
+    rad = radius
+    if rad < 1:
+        rad = 1
+    if rad > 16:
+        rad = 16
+    stride = surf.stride
+    if horizontal == 1:
+        for y in range(y0, y1):
+            row = y * stride
+            sa = 0
+            sr = 0
+            sg = 0
+            sb = 0
+            cnt = 0
+            k = 0 - rad
+            while k <= rad:
+                sx = x0 + k
+                if sx >= x0:
+                    if sx < x1:
+                        pix = src_buf[row + sx]
+                        sa = sa + pix // 16777216
+                        rem = pix % 16777216
+                        sr = sr + rem // 65536
+                        rem2 = rem % 65536
+                        sg = sg + rem2 // 256
+                        sb = sb + rem2 % 256
+                        cnt = cnt + 1
+                k = k + 1
+            idx = row + x0
+            for x in range(x0, x1):
+                na = 0
+                nr = 0
+                ng = 0
+                nb = 0
+                if cnt > 0:
+                    na = sa // cnt
+                    nr = sr // cnt
+                    ng = sg // cnt
+                    nb = sb // cnt
+                dst_buf[idx] = na * 16777216 + nr * 65536 + ng * 256 + nb
+                idx = idx + 1
+                out_x = x - rad
+                if out_x >= x0:
+                    if out_x < x1:
+                        opix = src_buf[row + out_x]
+                        sa = sa - opix // 16777216
+                        orem = opix % 16777216
+                        sr = sr - orem // 65536
+                        orem2 = orem % 65536
+                        sg = sg - orem2 // 256
+                        sb = sb - orem2 % 256
+                        cnt = cnt - 1
+                in_x = x + rad + 1
+                if in_x >= x0:
+                    if in_x < x1:
+                        ipix = src_buf[row + in_x]
+                        sa = sa + ipix // 16777216
+                        irem = ipix % 16777216
+                        sr = sr + irem // 65536
+                        irem2 = irem % 65536
+                        sg = sg + irem2 // 256
+                        sb = sb + irem2 % 256
+                        cnt = cnt + 1
+    else:
+        # pass doc: chi so di chuyen theo stride giua cac pixel cung cot
+        for x in range(x0, x1):
+            sa = 0
+            sr = 0
+            sg = 0
+            sb = 0
+            cnt = 0
+            k = 0 - rad
+            while k <= rad:
+                sy = y0 + k
+                if sy >= y0:
+                    if sy < y1:
+                        pix = src_buf[sy * stride + x]
+                        sa = sa + pix // 16777216
+                        rem = pix % 16777216
+                        sr = sr + rem // 65536
+                        rem2 = rem % 65536
+                        sg = sg + rem2 // 256
+                        sb = sb + rem2 % 256
+                        cnt = cnt + 1
+                k = k + 1
+            idx = y0 * stride + x
+            step = stride
+            for y in range(y0, y1):
+                na = 0
+                nr = 0
+                ng = 0
+                nb = 0
+                if cnt > 0:
+                    na = sa // cnt
+                    nr = sr // cnt
+                    ng = sg // cnt
+                    nb = sb // cnt
+                dst_buf[idx] = na * 16777216 + nr * 65536 + ng * 256 + nb
+                idx = idx + step
+                out_y = y - rad
+                if out_y >= y0:
+                    if out_y < y1:
+                        opix = src_buf[out_y * stride + x]
+                        sa = sa - opix // 16777216
+                        orem = opix % 16777216
+                        sr = sr - orem // 65536
+                        orem2 = orem % 65536
+                        sg = sg - orem2 // 256
+                        sb = sb - orem2 % 256
+                        cnt = cnt - 1
+                in_y = y + rad + 1
+                if in_y >= y0:
+                    if in_y < y1:
+                        ipix = src_buf[in_y * stride + x]
+                        sa = sa + ipix // 16777216
+                        irem = ipix % 16777216
+                        sr = sr + irem // 65536
+                        irem2 = irem % 65536
+                        sg = sg + irem2 // 256
+                        sb = sb + irem2 % 256
+                        cnt = cnt + 1
+    return 1
+
+def kawase_blur(buf: "list[i64]", scratch: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "i32") -> "i32":
+    if radius < 1:
+        return 0
+    rad = radius
+    if rad > 16:
+        rad = 16
+    x0 = int(bounds.x)
+    y0 = int(bounds.y)
+    x1 = int(bounds.x + bounds.w)
+    y1 = int(bounds.y + bounds.h)
+    if x0 < 0:
+        x0 = 0
+    if y0 < 0:
+        y0 = 0
+    if x1 > surf.width:
+        x1 = surf.width
+    if y1 > surf.height:
+        y1 = surf.height
+    if x1 <= x0:
+        return 0
+    if y1 <= y0:
+        return 0
+    surface_ensure_capacity(scratch, surf.width * surf.height)
+    r2 = rad // 2
+    if r2 < 1:
+        r2 = 1
+    r3 = rad // 4
+    if r3 < 1:
+        r3 = 1
+    box_blur_pass(buf, scratch, surf, x0, y0, x1, y1, rad, 1)
+    box_blur_pass(scratch, buf, surf, x0, y0, x1, y1, rad, 0)
+    box_blur_pass(buf, scratch, surf, x0, y0, x1, y1, r2, 1)
+    box_blur_pass(scratch, buf, surf, x0, y0, x1, y1, r2, 0)
+    box_blur_pass(buf, scratch, surf, x0, y0, x1, y1, r3, 1)
+    box_blur_pass(scratch, buf, surf, x0, y0, x1, y1, r3, 0)
+    return 1
+
+# [P2.3] half_res_blur: giam 4x so pixel (downsample 2x) -> blur o nua do phan
+# -> upsample bang nearest-neighbor. Radius duoc scale /2 de giu do mo tuong duong.
+# Yeu cau: scratch bufs da co it nrat w*h/4 phan tu (dung surface_ensure_capacity).
+def half_res_blur(buf: "list[i64]", small_buf: "list[i64]", small_scratch: "list[i64]", surf: "PixelSurface", x0: "i32", y0: "i32", x1: "i32", y1: "i32", radius: "i32") -> "i32":
+    w = x1 - x0
+    h = y1 - y0
+    if w < 2:
+        return 0
+    if h < 2:
+        return 0
+    sw = w // 2
+    sh = h // 2
+    stride = surf.stride
+    if sw < 1:
+        sw = 1
+    if sh < 1:
+        sh = 1
+    # --- downsample: trung binh khoi 2x2, de chong alias
+    sy = 0
+    while sy < sh:
+        sx = 0
+        row_a = (y0 + sy * 2) * stride + x0
+        row_b = row_a + stride
+        while sx < sw:
+            p00 = buf[row_a + sx * 2]
+            p01 = buf[row_a + sx * 2 + 1]
+            p10 = buf[row_b + sx * 2]
+            p11 = buf[row_b + sx * 2 + 1]
+            a4 = p00 // 16777216 + p01 // 16777216 + p10 // 16777216 + p11 // 16777216
+            r4 = p00 % 16777216 // 65536 + p01 % 16777216 // 65536 + p10 % 16777216 // 65536 + p11 % 16777216 // 65536
+            g4 = p00 % 65536 // 256 + p01 % 65536 // 256 + p10 % 65536 // 256 + p11 % 65536 // 256
+            b4 = p00 % 256 + p01 % 256 + p10 % 256 + p11 % 256
+            small_buf[sy * sw + sx] = (a4 // 4) * 16777216 + (r4 // 4) * 65536 + (g4 // 4) * 256 + b4 // 4
+            sx = sx + 1
+        sy = sy + 1
+    # --- blur nho (radius /2, giu do mo tuong duong)
+    r2 = radius // 2
+    if r2 < 1:
+        r2 = 1
+    small_surf = PixelSurface(sw, sh, sw)
+    box_blur_pass(small_buf, small_scratch, small_surf, 0, 0, sw, sh, r2, 1)
+    box_blur_pass(small_scratch, small_buf, small_surf, 0, 0, sw, sh, r2, 0)
+    # --- upsample nearest-neighbor: nhung chi vung blur (bo bien 1 px tranh noise)
+    sy = 0
+    while sy < sh * 2 and sy < h:
+        srow = (sy // 2) * sw
+        drow = (y0 + sy) * stride + x0
+        sx = 0
+        while sx < sw * 2 and sx < w:
+            buf[drow + sx] = small_buf[srow + sx // 2]
+            sx = sx + 1
+        sy = sy + 1
+    return 1
+
+def backdrop_blur(buf: "list[i64]", scratch: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "i32", tint_alpha: "i32") -> "i32":
+    kawase_blur(buf, scratch, surf, bounds, radius)
+    ta = tint_alpha
+    if ta < 0:
+        ta = 0
+    if ta > 64:
+        ta = 64
+    x0 = int(bounds.x)
+    y0 = int(bounds.y)
+    x1 = int(bounds.x + bounds.w)
+    y1 = int(bounds.y + bounds.h)
+    if x0 < 0:
+        x0 = 0
+    if y0 < 0:
+        y0 = 0
+    if x1 > surf.width:
+        x1 = surf.width
+    if y1 > surf.height:
+        y1 = surf.height
+    tint = ColorRgba(255, 255, 255, ta)
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            surface_blend_pixel(buf, surf, x, y, tint)
+    return 1
+
+# =========================================================
+# P2 SELFTEST - blur / specular / shadow (headless)
+# =========================================================
+def effects_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def effects_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def effects_check_gt(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got > lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want > " + str(lo))
+    return 0
+
+def effects_pixel_r(buf: "list[i64]", surf: "PixelSurface", x: "i32", y: "i32") -> "i32":
+    pix = buf[y * surf.stride + x]
+    return int((pix // 65536) % 256)
+
+def effects_count_bright(buf: "list[i64]", surf: "PixelSurface", lo: "i32") -> "i32":
+    c = int(0)
+    n = surf.width * surf.height
+    i = int(0)
+    while i < n:
+        pix = buf[i]
+        r = int((pix // 65536) % 256)
+        if r > lo:
+            c = c + 1
+        i = i + 1
+    return c
+
+def effects_selftest() -> "str":
+    print("=== TkvUI.Effects selftest (P2) ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    white = ColorRgba(255, 255, 255, 255)
+    black = ColorRgba(0, 0, 0, 255)
+    gray = ColorRgba(128, 128, 128, 255)
+    buf = []
+    scratch = []
+    surface_ensure_capacity(buf, 2400)
+    surface_ensure_capacity(scratch, 2400)
+    surf = PixelSurface(60, 40, 60)
+    # --- apply_box_blur: khuech tan ra ngoai vung goc
+    surface_clear(buf, surf, black)
+    fill_round_rect(buf, surf, Rect2D(25.0, 15.0, 10.0, 10.0), 0.0, white)
+    sharp = effects_count_bright(buf, surf, 200)
+    effects_check_i(acc, "khung trang sach 10x10 = 100 px", sharp, 100)
+    rc0 = apply_box_blur(buf, surf, Rect2D(15.0, 5.0, 30.0, 30.0), 0)
+    effects_check_i(acc, "blur radius 0 -> khong lam gi", rc0, 0)
+    rc1 = apply_box_blur(buf, surf, Rect2D(15.0, 5.0, 30.0, 30.0), 99)
+    effects_check_i(acc, "blur radius 99 bi clamp -> tra 1", rc1, 1)
+    spread = effects_count_bright(buf, surf, 40)
+    effects_check_gt(acc, "blur lam lan mau ra ngoai 100 px", spread, 100)
+    center_r = effects_pixel_r(buf, surf, 30, 20)
+    # radius 99 bi clamp ve 8 -> khung 10x10 lan vao 17x17 nen tam chi con ~88
+    effects_check_gt(acc, "tam sau blur van sang hon nen", center_r, 40)
+    far_r = effects_pixel_r(buf, surf, 16, 6)
+    if center_r > far_r:
+        effects_check(acc, "tam sang hon vung xa trong cung bounds", 1)
+    else:
+        effects_check(acc, "tam sang hon vung xa trong cung bounds", 0)
+    corner_r = effects_pixel_r(buf, surf, 1, 1)
+    effects_check_i(acc, "ngoai bounds blur khong bi cham", corner_r, 0)
+    # --- box_blur_pass: vung mau deu giu nguyen gia tri
+    surface_clear(buf, surf, ColorRgba(100, 100, 100, 255))
+    surface_clear(scratch, surf, black)
+    rc2 = box_blur_pass(buf, scratch, surf, 10, 10, 50, 30, 2, 1)
+    effects_check_i(acc, "box_blur_pass ngang tra 1", rc2, 1)
+    effects_check_i(acc, "vung deu -> trung binh khong doi", effects_pixel_r(scratch, surf, 30, 20), 100)
+    surface_clear(scratch, surf, black)
+    box_blur_pass(buf, scratch, surf, 10, 10, 50, 30, 2, 0)
+    effects_check_i(acc, "box_blur_pass doc -> trung binh khong doi", effects_pixel_r(scratch, surf, 30, 20), 100)
+    # --- kawase_blur
+    rc3 = kawase_blur(buf, scratch, surf, Rect2D(0.0, 0.0, 60.0, 40.0), 0)
+    effects_check_i(acc, "kawase radius 0 -> 0", rc3, 0)
+    rc4 = kawase_blur(buf, scratch, surf, Rect2D(0.0, 0.0, 60.0, 40.0), 3)
+    effects_check_i(acc, "kawase radius 3 -> 1", rc4, 1)
+    c_after = effects_pixel_r(buf, surf, 30, 20)
+    effects_check_i(acc, "kawase tren vung deu giu mau", c_after, 100)
+    # --- backdrop_blur (kinh mo: blur + tint)
+    surface_clear(buf, surf, gray)
+    surface_clear(scratch, surf, black)
+    rc5 = backdrop_blur(buf, scratch, surf, Rect2D(0.0, 0.0, 60.0, 40.0), 4, 32)
+    effects_check_i(acc, "backdrop_blur tra 1", rc5, 1)
+    # tint trang alpha 32 tren nen xam 128 -> (255*32 + 128*223)//255 = 143
+    effects_check_i(acc, "backdrop tint sang hon nen xam", effects_pixel_r(buf, surf, 30, 20), 143)
+    # --- draw_specular_highlight: chi 1 hang sat mep tren, tu x0+radius
+    surface_clear(buf, surf, black)
+    rc6 = draw_specular_highlight(buf, surf, Rect2D(0.0, 0.0, 60.0, 40.0), 4.0, 1.0)
+    effects_check_i(acc, "specular tra 1", rc6, 1)
+    # alpha = int(80*1.0) = 80 -> trang 80 tren nen den = 80
+    effects_check_i(acc, "specular alpha 80 -> r=80", effects_pixel_r(buf, surf, 10, 1), 80)
+    effects_check_i(acc, "specular chi 1 hang", effects_pixel_r(buf, surf, 10, 2), 0)
+    effects_check_i(acc, "specular khong cham vao goc (x < radius)", effects_pixel_r(buf, surf, 1, 1), 0)
+    # --- draw_drop_shadow: lech xuong 4px, alpha 90*opacity
+    surface_clear(buf, surf, gray)
+    rc7 = draw_drop_shadow(buf, surf, Rect2D(10.0, 5.0, 20.0, 10.0), 0.0, 0, 1.0)
+    effects_check_i(acc, "drop_shadow tra 1", rc7, 1)
+    # (0*90 + 128*165)//255 = 82
+    effects_check_i(acc, "bong alpha 90 tren xam -> r=82", effects_pixel_r(buf, surf, 15, 12), 82)
+    effects_check_i(acc, "phan tren bounds khong bi bong", effects_pixel_r(buf, surf, 15, 6), 128)
+    surface_clear(buf, surf, gray)
+    draw_drop_shadow(buf, surf, Rect2D(10.0, 5.0, 20.0, 10.0), 0.0, 0, 0.5)
+    # (0*45 + 128*210)//255 = 105
+    effects_check_i(acc, "bong alpha 45 (opacity 0.5) -> r=105", effects_pixel_r(buf, surf, 15, 12), 105)
+    surface_clear(buf, surf, gray)
+    draw_drop_shadow(buf, surf, Rect2D(10.0, 5.0, 20.0, 10.0), 8.0, 2, 1.0)
+    mixed = int(0)
+    i = int(0)
+    while i < 2400:
+        pix = buf[i]
+        rr = int((pix // 65536) % 256)
+        if rr != 128:
+            if rr != 82:
+                mixed = mixed + 1
+        i = i + 1
+    effects_check_ge_int(acc, "bong bo goc + blur -> co diem trung gian", mixed, 1)
+    # --- [P2.2] benchmark box_blur_pass toi uu vs tham chieu + so khop ket qua
+    bench = []
+    bench_scratch = []
+    bref_scratch = []
+    surface_ensure_capacity(bench, 640000)
+    surface_ensure_capacity(bench_scratch, 640000)
+    surface_ensure_capacity(bref_scratch, 640000)
+    bsurf = PixelSurface(800, 200, 800)
+    surface_clear(bench, bsurf, gray)
+    fill_round_rect(bench, bsurf, Rect2D(100.0, 50.0, 300.0, 100.0), 0.0, white)
+    fill_round_rect(bench, bsurf, Rect2D(450.0, 80.0, 200.0, 80.0), 0.0, ColorRgba(255, 0, 0, 255))
+    # copy giong buffer ref (gan theo index - buffer da co capacity)
+    i = int(0)
+    n_bench = 160000
+    while i < n_bench:
+        bench_scratch[i] = bench[i]
+        bref_scratch[i] = bench[i]
+        i = i + 1
+    t0 = effects_ticks()
+    lap = int(0)
+    while lap < 10:
+        box_blur_pass_ref(bench_scratch, bref_scratch, bsurf, 0, 0, 800, 200, 4, 1)
+        box_blur_pass_ref(bref_scratch, bench_scratch, bsurf, 0, 0, 800, 200, 4, 0)
+        lap = lap + 1
+    t1 = effects_ticks()
+    # ref lap cuoi ghi vao bench_scratch -> snapshot lam baseline de so khop
+    i = int(0)
+    while i < n_bench:
+        bref_scratch[i] = bench_scratch[i]
+        i = i + 1
+    t2 = effects_ticks()
+    lap = int(0)
+    while lap < 10:
+        box_blur_pass(bench, bench_scratch, bsurf, 0, 0, 800, 200, 4, 1)
+        box_blur_pass(bench_scratch, bench, bsurf, 0, 0, 800, 200, 4, 0)
+        lap = lap + 1
+    t3 = effects_ticks()
+    t_ref = t1 - t0
+    t_opt = t3 - t2
+    print("bench blur: ref=" + str(t_ref) + "ms opt=" + str(t_opt) + "ms (10 lap 800x200 r=4)")
+    if t_opt > 0:
+        speed = (t_ref * 10) // t_opt
+        print("blur speedup ~" + str(speed // 10) + "." + str(speed % 10) + "x")
+    # ket qua 2 ban phai giong het nhau (quy trinh giong: ref bench_scratch->..., opt bench->...)
+    mismatch = int(0)
+    i = int(0)
+    while i < n_bench:
+        if bench[i] != bref_scratch[i]:
+            mismatch = mismatch + 1
+        i = i + 1
+    effects_check_i(acc, "blur opt == ref (pixel-exact)", mismatch, 0)
+    # phep do ~2s moi ben, nhieu GetTickCount + scheduler ±4% -> cho phep opt cham den 15%
+    if t_opt * 20 <= t_ref * 23:
+        effects_check(acc, "blur opt khong cham hon ref qua 15%", 1)
+    else:
+        effects_check(acc, "blur opt khong cham hon ref qua 15%", 0)
+    # --- [P2.3] half-res blur: dung + benchmark vs full-res
+    # buffer nho: sw*sh = 400*100 = 40000
+    small_buf = []
+    small_scratch = []
+    surface_ensure_capacity(small_buf, 40000)
+    surface_ensure_capacity(small_scratch, 40000)
+    # copy lai scene goc (bench bi blur roi) -> dung buffer doc lap
+    scene = []
+    surface_ensure_capacity(scene, 160000)
+    fill_round_rect(scene, bsurf, Rect2D(100.0, 50.0, 300.0, 100.0), 0.0, white)
+    fill_round_rect(scene, bsurf, Rect2D(450.0, 80.0, 200.0, 80.0), 0.0, ColorRgba(255, 0, 0, 255))
+    # benchmark full-res: 5 lap H+V r=8
+    surface_clear(bench_scratch, bsurf, black)
+    i = int(0)
+    while i < n_bench:
+        bench_scratch[i] = scene[i]
+        i = i + 1
+    t4 = effects_ticks()
+    lap = int(0)
+    while lap < 5:
+        box_blur_pass(scene, bench_scratch, bsurf, 0, 0, 800, 200, 8, 1)
+        box_blur_pass(bench_scratch, scene, bsurf, 0, 0, 800, 200, 8, 0)
+        lap = lap + 1
+    t5 = effects_ticks()
+    # benchmark half-res: 5 lap (downsample + blur r=4 + upsample)
+    t6 = effects_ticks()
+    lap = int(0)
+    while lap < 5:
+        i = int(0)
+        while i < n_bench:
+            bench[i] = scene[i]
+            i = i + 1
+        half_res_blur(bench, small_buf, small_scratch, bsurf, 0, 0, 800, 200, 8)
+        lap = lap + 1
+    t7 = effects_ticks()
+    t_full = t5 - t4
+    t_half = t7 - t6
+    print("bench blur full=" + str(t_full) + "ms half=" + str(t_half) + "ms (5 lap 800x200 r=8, half ke ca copy)")
+    if t_half > 0:
+        sp = (t_full * 10) // t_half
+        print("half-res speedup ~" + str(sp // 10) + "." + str(sp % 10) + "x")
+    # correctness: blur tren vung deu khong doi gia tri
+    surface_clear(buf, surf, ColorRgba(100, 100, 100, 255))
+    rc8 = half_res_blur(buf, small_buf, small_scratch, surf, 0, 0, 60, 40, 4)
+    effects_check_i(acc, "half_res_blur tra 1", rc8, 1)
+    # 60x40 -> small 30x20; upsample phu 60x40; vung deu -> r van 100
+    effects_check_i(acc, "half_res tren vung deu giu mau", effects_pixel_r(buf, surf, 30, 20), 100)
+    # half-res nhanh hon full-res (full phai do dai hon half)
+    effects_check_gt(acc, "half-res nhanh hon full-res", t_full - t_half, 0)
+    print("--- effects selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "EFFECTS_OK"
+    return "EFFECTS_FAIL"
+
+def effects_check_ge_int(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got >= lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want >= " + str(lo))
+    return 0

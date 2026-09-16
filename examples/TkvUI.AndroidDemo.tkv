@@ -1,0 +1,51 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.AndroidDemo - demo Android platform (P8)
+
+Headless test of AndroidPlatform interface
+Build:
+  tkvc.exe build examples/TkvUI.AndroidDemo.tkv --entry run --out build/TkvUI.AndroidDemo.exe
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+def run() -> "str":
+    print("=== TkvUI.AndroidDemo (P8) ===")
+    print("[android] detect_platform=" + str(detect_platform()) + " (" + detect_platform_id() + ")")
+    plat = make_android_platform()
+    wh = plat.create(0, 0, 390, 844, 0)
+    print("[android] create: handle=" + str(wh.handle) + " w=" + str(wh.w) + " h=" + str(wh.h))
+    print("[android] backend=" + plat.backend_name())
+    print("[android] dpi_scale=" + str(plat.dpi_scale))
+    if wh.handle == 0:
+        print("[android] backend khong kha dung tren may nay - bo qua phan present")
+        return "ANDROID_DEMO_SKIPPED"
+    # Simulate surface creation (would be called from Java/Kotlin)
+    # plat.set_surface(surface_ptr)
+    # plat.set_jni_env(jni_env)
+    # Present frame
+    buf = []
+    i = 0
+    n = 390 * 844
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(390, 844, 390)
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    # Draw a simple card
+    card = make_card_notch(0.0, 0.0, 390.0, 120.0, "Android P8")
+    card.render(buf, surf)
+    rc = plat.present(buf, surf, wh)
+    print("[android] present result=" + str(rc))
+    # Test set_pos (resize)
+    rc = plat.set_pos(wh, 0, 0, 400, 850)
+    print("[android] set_pos result=" + str(rc) + " new w=" + str(wh.w) + " h=" + str(wh.h))
+    # Test frame callback
+    cb = 12345
+    data = 67890
+    rc = plat.post_frame_callback(cb, data)
+    print("[android] post_frame_callback=" + str(rc))
+    # Cleanup
+    plat.close_window(wh)
+    print("[android] closed")
+    return "ANDROID_DEMO_OK"

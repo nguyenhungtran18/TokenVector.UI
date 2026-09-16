@@ -1,0 +1,185 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.DemoMobile - demo mobile/tablet: phone 390x844 + preview pad 1024x768 (P7)
+
+Headless (khong tao cua so): ve ra PixelSurface roi do pixel + do chi so
+virtualization/gesture. Build:
+  tkvc.exe build examples/TkvUI.DemoMobile.tkv --entry run --out build/TkvUI.DemoMobile.exe
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+def mobile_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def mobile_painted(buf: "list[i64]", surf: "PixelSurface", packed: "i64") -> "i32":
+    c = int(0)
+    n = surf.width * surf.height
+    i = int(0)
+    while i < n:
+        if buf[i] != packed:
+            c = c + 1
+        i = i + 1
+    return c
+
+def mobile_draw_phone(buf: "list[i64]", surf: "PixelSurface", lv: "ListViewWidget", sheet: "BottomSheetWidget", chart: "ChartSparklineWidget", vals: "list[f64]", zoom: "f64") -> "i32":
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    # Notch card tren cung
+    notch = make_card_notch(0.0, 0.0, 390.0, 96.0, "Phone 390x844")
+    notch.render(buf, surf)
+    ring = make_metric_ring(24.0, 18.0, 52.0, 52.0, "CPU", 80, 200, 120)
+    ring.set_value(64.0)
+    f = int(0)
+    while f < 90:
+        ring.step(0.016)
+        f = f + 1
+    ring.render(buf, surf)
+    chart.render(buf, surf, vals, 24)
+    # List 10000 dong (virtualized)
+    lv.render(buf, surf)
+    tabs = make_tabs(12.0, 528.0, 366.0, 30.0, 3)
+    tabs.select(1)
+    labels = widget_row_labels()
+    tabs.render(buf, surf, labels, 3)
+    prog = make_progress(12.0, 568.0, 366.0, 8.0, lv.scroll / (10000.0 * 18.0 - 460.0))
+    prog.render(buf, surf)
+    # FAB
+    fab = make_button(310.0, 590.0, 64.0, 64.0, "New")
+    fab.set_state(1, 1)
+    fab.render(buf, surf)
+    sheet.render(buf, surf)
+    navbar = make_navbar(0.0, 780.0, 390.0, 64.0, 3)
+    navbar.select(1)
+    navbar.render(buf, surf, labels, 3)
+    print("[phone] zoom=" + str(zoom) + " list.first=" + str(lv.first_visible()) + " visible=" + str(lv.visible_count()))
+    return 1
+
+def mobile_draw_pad(buf: "list[i64]", surf: "PixelSurface", sv: "SplitViewWidget", lv: "ListViewWidget", chart: "ChartSparklineWidget", vals: "list[f64]") -> "i32":
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    sv.render(buf, surf)
+    pa = sv.pane_a()
+    pb = sv.pane_b()
+    draw_string(buf, surf, "Pane A - master", pa.x + 12.0, pa.y + 10.0, 1.0, ColorRgba(230, 230, 238, 255))
+    lv.render(buf, surf)
+    draw_string(buf, surf, "Pane B - detail", pb.x + 12.0, pb.y + 10.0, 1.0, ColorRgba(230, 230, 238, 255))
+    chart.render(buf, surf, vals, 24)
+    navbar = make_navbar(0.0, 704.0, 1024.0, 64.0, 4)
+    navbar.select(2)
+    labels = widget_row_labels()
+    navbar.render(buf, surf, labels, 3)
+    print("[pad] split ratio=" + str(sv.ratio) + " pane_a.w=" + str(pa.w) + " pane_b.w=" + str(pb.w))
+    return 1
+
+def run() -> "str":
+    print("=== TkvUI.DemoMobile (P7) version=" + tkvui_version() + " ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    # ---------- PHONE 390x844 ----------
+    buf = mobile_alloc(390, 844)
+    surf = PixelSurface(390, 844, 390)
+    lv = make_listview(12.0, 300.0, 366.0, 220.0, 18.0, 10000)
+    sheet = make_bottom_sheet(0.0, 560.0, 390.0, 284.0, "Details")
+    chart = make_sparkline(24.0, 96.0, 342.0, 90.0, 0.0, 100.0)
+    vals = widget_sample_values(24)
+    # --- Touch #1: PINCH 2 ngon (100px -> 200px = scale 2.0) => zoom chart
+    g = make_gesture_recognizer()
+    t1 = make_touch(1, 150.0, 500.0)
+    t2 = make_touch(2, 250.0, 500.0)
+    g.touch_down(t1)
+    g.touch_down(t2)
+    t2b = make_touch(2, 350.0, 500.0)
+    gt = g.touch_move(t2b)
+    zoom = g.scale
+    print("[touch] pinch gesture=" + gesture_name(gt) + " scale=" + str(zoom) + " pan_dx=" + str(g.pan_dx))
+    g.touch_up(t2b)
+    g.touch_up(t1)
+    # --- Touch #2: PAN 1 ngon => scroll list
+    g2 = make_gesture_recognizer()
+    p1 = make_touch(3, 200.0, 400.0)
+    g2.touch_down(p1)
+    before = lv.first_visible()
+    k = int(0)
+    while k < 6:
+        py = 400.0 - float(k) * 12.0
+        pe = make_touch(3, 200.0, py)
+        gp = g2.touch_move(pe)
+        if gp == 2:
+            lv.scroll_by(0.0 - g2.pan_dy, 10000.0 * 18.0)
+        k = k + 1
+    pu = make_touch(3, 200.0, 328.0)
+    g2.touch_up(pu)
+    print("[touch] pan gesture=" + gesture_name(gp) + " scroll " + str(before) + " -> " + str(lv.first_visible()))
+    # --- Touch #3: TAP => mo BottomSheet
+    g3 = make_gesture_recognizer()
+    q1 = make_touch(4, 200.0, 700.0)
+    g3.touch_down(q1)
+    q2 = make_touch(4, 201.0, 701.0)
+    tap = g3.touch_up(q2)
+    print("[touch] tap=" + str(tap) + " gesture=" + gesture_name(g3.gtype))
+    if tap == 1:
+        sheet.set_open(1)
+    s = int(0)
+    while s < 30:
+        sheet.step(0.016)
+        s = s + 1
+    mobile_draw_phone(buf, surf, lv, sheet, chart, vals, zoom)
+    packed = 0
+    th = theme_dark()
+    bgc = th.surface
+    packed = bgc.to_uint32()
+    painted = mobile_painted(buf, surf, packed)
+    print("[phone] painted=" + str(painted) + " sheet.progress=" + str(sheet.progress))
+    acc[1] = acc[1] + 1
+    if painted > 100000:
+        acc[0] = acc[0] + 1
+        print("  PASS phone render (painted > 100000)")
+    acc[1] = acc[1] + 1
+    if sheet.progress > 0.9:
+        acc[0] = acc[0] + 1
+        print("  PASS bottom sheet mo qua spring")
+    acc[1] = acc[1] + 1
+    if lv.first_visible() > 0:
+        acc[0] = acc[0] + 1
+        print("  PASS pan scroll list first=" + str(lv.first_visible()))
+    acc[1] = acc[1] + 1
+    if zoom > 1.9:
+        acc[0] = acc[0] + 1
+        print("  PASS pinch scale 2.0")
+    # ---------- PAD 1024x768 ----------
+    pbuf = mobile_alloc(1024, 768)
+    psurf = PixelSurface(1024, 768, 1024)
+    plv = make_listview(16.0, 48.0, 300.0, 640.0, 20.0, 20000)
+    plv.scroll_by(120.0, 20000.0 * 20.0)
+    pchart = make_sparkline(380.0, 60.0, 600.0, 200.0, 0.0, 100.0)
+    sv = make_split_view(8.0, 8.0, 1008.0, 680.0, 0.35, 0)
+    sv.dragging = 1
+    sv.set_ratio_from_pointer(420.0)
+    sv.dragging = 0
+    ps = int(0)
+    while ps < 40:
+        sv.step(0.016)
+        ps = ps + 1
+    mobile_draw_pad(pbuf, psurf, sv, plv, pchart, vals)
+    ppainted = mobile_painted(pbuf, psurf, packed)
+    print("[pad] painted=" + str(ppainted))
+    acc[1] = acc[1] + 1
+    if ppainted > 700000:
+        acc[0] = acc[0] + 1
+        print("  PASS pad render (SplitView + panes)")
+    acc[1] = acc[1] + 1
+    if plv.first_visible() > 0:
+        acc[0] = acc[0] + 1
+        print("  PASS pad list virtualized first=" + str(plv.first_visible()))
+    print("--- mobile selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "TKVUI_MOBILE_OK"
+    return "TKVUI_MOBILE_FAIL"

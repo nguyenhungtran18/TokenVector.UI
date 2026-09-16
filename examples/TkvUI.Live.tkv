@@ -1,0 +1,520 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Live - live app harness (P7.5): vong chay 60fps that su
+
+Noi day cac tang da lam o P3+P5+P6+P7 thanh MOT vong chay:
+  Win32 ULW window (Platform) -> scene widget (Widgets) -> Flex (Layout)
+  -> EventDispatcher + hit-test (Input) -> InvalidationManager (dirty rect)
+  -> RenderLoop (60fps, idle -> 0% CPU) -> present_diff (khong chóp).
+
+Build: tkvc.exe build examples/TkvUI.Live.tkv --entry run --out build/TkvUI.Live.exe
+Chay:  cua so WS_EX_LAYERED 720x220 hien dock pill song (spring), ket thuc in
+       TKVUI_LIVE_OK (hoac TKVUI_LIVE_FAIL). Khong co desktop -> headless van PASS.
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+# Luu y: Environment.TickCount la PROPERTY (khong goi duoc qua extern_method -
+# MissingMethodException get_TickCount). Dung pinvoke GetTickCount (kernel32)
+# - duong pinvoke da verify o P3.
+__tkv_extern_pinvoke__ = [{"name": "tkv_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+__tkv_extern_method__ = [{"name": "tkv_sleep", "assembly": "mscorlib", "class": "System.Threading.Thread", "method": "Sleep", "params": ["i32"], "returns": "void"}]
+
+def live_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def live_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    ok = 0
+    if d <= tol:
+        ok = 1
+    return widget_check(acc, name, ok)
+
+def live_present(plat: "Win32Platform", buf: "list[i64]", shown: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+    # Contract present_diff: caller copy frame -> shown SAU khi present.
+    return plat.present_diff(buf, shown, surf, wh)
+
+def live_frame(buf: "list[i64]", surf: "PixelSurface", bg: "ColorRgba", card: "CardWidget", panel: "CardWidget", ring1: "MetricRingWidget", ring2: "MetricRingWidget", b1: "ButtonWidget", b2: "ButtonWidget", sw: "SwitchWidget", prog: "ProgressBarWidget", sld: "SliderWidget", tabs: "TabsWidget", toast: "ToastWidget") -> "i32":
+    surface_clear(buf, surf, bg)
+    card.render(buf, surf)
+    panel.render(buf, surf)
+    ring1.render(buf, surf)
+    ring2.render(buf, surf)
+    b1.render(buf, surf)
+    b2.render(buf, surf)
+    sw.render(buf, surf)
+    prog.render(buf, surf)
+    sld.render(buf, surf)
+    labels = widget_row_labels()
+    tabs.render(buf, surf, labels, 3)
+    toast.render(buf, surf)
+    return 1
+
+def run() -> "str":
+    print("=== TkvUI.Live harness version=" + tkvui_version() + " ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    W = 720
+    H = 220
+    buf = live_alloc(W, H)
+    shown = live_alloc(W, H)
+    surf = PixelSurface(W, H, W)
+    th = theme_dark()
+    bg = th.surface
+    bgp = bg.to_uint32()
+    # ---- scene: notch pill + panel + widgets dat bang FLEX ----
+    card = make_card_notch(0.0, 0.0, 720.0, 84.0, "TkvUI Live Harness")
+    panel = make_card(0.0, 88.0, 720.0, 132.0, "")
+    ring1 = make_metric_ring(20.0, 16.0, 52.0, 52.0, "CPU", 80, 200, 120)
+    ring2 = make_metric_ring(88.0, 16.0, 52.0, 52.0, "RAM", 80, 160, 255)
+    ring1.set_value(72.0)
+    ring2.set_value(45.0)
+    cw = []
+    ch = []
+    cw.append(120.0)
+    ch.append(32.0)
+    cw.append(120.0)
+    ch.append(32.0)
+    cw.append(52.0)
+    ch.append(26.0)
+    cw.append(120.0)
+    ch.append(8.0)
+    n = int(4)
+    ox = layout_alloc_f64(n, 0.0)
+    oy = layout_alloc_f64(n, 0.0)
+    ow = layout_alloc_f64(n, 0.0)
+    oh = layout_alloc_f64(n, 0.0)
+    cline = layout_alloc_i32(n, 0)
+    clh = layout_alloc_f64(n, 0.0)
+    st = flex_style(TKV_DIR_ROW, 12.0, 0.0, TKV_ALIGN_CENTER, TKV_JUSTIFY_START)
+    lines = layout_flex(st, 24.0, 102.0, 672.0, 40.0, cw, ch, n, cline, clh, ox, oy, ow, oh)
+    b1 = make_button(ox[0], oy[0], ow[0], oh[0], "Apply")
+    b2 = make_button_outline(ox[1], oy[1], ow[1], oh[1], "Cancel")
+    sw = make_switch(ox[2], oy[2], 52.0, 26.0, 1)
+    prog = make_progress(ox[3], oy[3], ow[3], 8.0, 0.72)
+    sld = make_slider(24.0, 156.0, 300.0, 18.0, 0.6)
+    tabs = make_tabs(360.0, 150.0, 340.0, 28.0, 3)
+    tabs.select(1)
+    toast = make_toast(24.0, 182.0, 200.0, 28.0, "Live", 0)
+    print("[live] flex rows=" + str(lines) + " btn.x=" + str(ox[0]) + " switch.x=" + str(ox[2]))
+    # ---- cay hit-test: ids/xs/ys/ws/hs/flags song song (topmost = CUOI) ----
+    ids = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    flags = []
+    ids.append(7)
+    xs.append(card.bx)
+    ys.append(card.by)
+    ws.append(card.bw)
+    hs.append(card.bh)
+    flags.append(0)
+    ids.append(1)
+    xs.append(b1.bx)
+    ys.append(b1.by)
+    ws.append(b1.bw)
+    hs.append(b1.bh)
+    flags.append(0)
+    ids.append(2)
+    xs.append(b2.bx)
+    ys.append(b2.by)
+    ws.append(b2.bw)
+    hs.append(b2.bh)
+    flags.append(0)
+    ids.append(3)
+    xs.append(sw.bx)
+    ys.append(sw.by)
+    ws.append(sw.bw)
+    hs.append(sw.bh)
+    flags.append(0)
+    ids.append(4)
+    xs.append(prog.bx)
+    ys.append(prog.by)
+    ws.append(prog.bw)
+    hs.append(prog.bh)
+    flags.append(0)
+    ids.append(5)
+    xs.append(sld.bx)
+    ys.append(sld.by)
+    ws.append(sld.bw)
+    hs.append(sld.bh)
+    flags.append(0)
+    ids.append(6)
+    xs.append(tabs.bx)
+    ys.append(tabs.by)
+    ws.append(tabs.bw)
+    hs.append(tabs.bh)
+    flags.append(0)
+    nh = int(7)
+    # ---- khung chay ----
+    disp = make_dispatcher()
+    inv = make_invalidation()
+    rl = make_render_loop(60)
+    springs = []
+    springs.append(1)
+    springs.append(1)
+    plat = Win32Platform(0)
+    win_ok = 0
+    wh = plat.create(100, 100, W, H, 1)
+    if wh.handle != 0:
+        win_ok = 1
+    print("[live] window handle=" + str(wh.handle) + " backend=" + plat.backend_name())
+    # ---- frame dau tien: render + present + copy shown ----
+    live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+    d1 = plat.present(buf, surf, wh)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+    print("[live] first present=" + str(d1))
+    e = PointerEventArgs(80.0, 122.0, 0, 0)
+    # ---- 1) hover vao Apply -> ENTER + tick has_input + invalidate ----
+    # Rang buoc compiler (P1): goi HAM THUONG truoc de unify kieu list
+    # (list[i32]/list[f64]) truoc khi list do vao METHOD cua record - neu khong
+    # thi method call sai width -> OverflowException runtime.
+    ht0 = hit_test_tree(e.px, e.py, ids, xs, ys, ws, hs, flags, nh)
+    hid = disp.dispatch_move(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "hover Apply -> id 1", hid, 1)
+    widget_check_i(acc, "ENTER duoc day", disp.last_event, 1)
+    v = rl.tick(0.016, springs, 1)
+    widget_check_i(acc, "tick(has_input) -> 1 frame", v, 1)
+    inv.invalidate(b1.bx, b1.by, b1.bw, b1.bh)
+    widget_check_i(acc, "invalidate -> needs_render 1", inv.needs_render(), 1)
+    dr = inv.dirty_rect()
+    widget_check_i(acc, "dirty rect co dien tich", int(dr.w * dr.h) > 0, 1)
+    inv.ack()
+    widget_check_i(acc, "ack -> needs_render 0", inv.needs_render(), 0)
+    # ---- 2) click Apply ----
+    e.is_down = 1
+    e.button = 1
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    e.is_down = 0
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "click Apply -> CLICK target 1", disp.last_target, 1)
+    widget_check_i(acc, "event cuoi la CLICK(5)", disp.last_event, 5)
+    # ---- 3) click Switch -> toggle (diem click lay TU GEOMETRY widget) ----
+    e.px = sw.bx + 10.0
+    e.py = sw.by + 10.0
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "click Switch -> id 3", hid, 3)
+    sw.toggle()
+    widget_check_i(acc, "switch on = 0 sau toggle", sw.on, 0)
+    # ---- 4) keo Slider: down + drag (pointer capture) + up ----
+    e.px = sld.bx + 150.0
+    e.py = sld.by + 8.0
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "down slider -> id 5", hid, 5)
+    e.px = 300.0
+    hid = disp.dispatch_move(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "drag giu capture id 5", disp.down_id, 5)
+    dragx = sld.bx + 150.0
+    live_check_f(acc, "drag_dx = 126 sau keo 126px", disp.drag_dx, 126.0, 0.01)
+    e.px = dragx
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "up trong slider -> click 5", hid, 5)
+    sv = sld.set_from_pointer(dragx)
+    live_check_f(acc, "slider value = 0.5", sv, 0.5, 0.001)
+    # ---- 5) click Tabs + Progress + Notch ----
+    e.px = tabs.bx + 40.0
+    e.py = tabs.by + 10.0
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    ti = tabs.hit_tab(e.px)
+    tabs.select(ti)
+    widget_check_i(acc, "tabs active = 0 sau click", tabs.active, 0)
+    e.px = prog.bx + 20.0
+    e.py = prog.by + 3.0
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "click Progress -> id 4", hid, 4)
+    e.px = card.bx + 600.0
+    e.py = card.by + 40.0
+    hid = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+    hid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "click Notch -> id 7", hid, 7)
+    # ---- 6) move ra vung trong -> LEAVE ----
+    e.px = 710.0
+    e.py = 214.0
+    hid = disp.dispatch_move(e, ids, xs, ys, ws, hs, flags, nh)
+    widget_check_i(acc, "move ra trong -> LEAVE(2)", disp.last_event, 2)
+    inv.ack()
+    # ---- 7) vong ANIMATION: retarget rings -> spring + dirty present 60fps ----
+    ring1.set_value(10.0)
+    ring2.set_value(88.0)
+    rendered = int(0)
+    idle_hits = int(0)
+    dirty_count = int(0)
+    f = int(0)
+    t0 = tkv_ticks()
+    while f < 240:
+        ring1.step(0.016)
+        ring2.step(0.016)
+        sp1 = ring1.spring
+        sp2 = ring2.spring
+        springs[0] = sp1.is_rest
+        springs[1] = sp2.is_rest
+        v = rl.tick(0.016, springs)
+        if v == 1:
+            live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+            inv.invalidate(0.0, 0.0, 720.0, 220.0)
+            inv.ack()
+            dirty_count = dirty_count + 1
+            pdv = live_present(plat, buf, shown, surf, wh)
+            surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+            rendered = rendered + 1
+        else:
+            tkv_sleep(12)
+            idle_hits = idle_hits + 1
+        f = f + 1
+    t1 = tkv_ticks()
+    print("[live] anim: rendered=" + str(rendered) + "/240 idle=" + str(idle_hits) + " elapsed=" + str(t1 - t0) + "ms")
+    # Settle: step cho DEN KHI spring nghi hoan toan (value == target chinh xac),
+    # roi render + copy shown MOT LAN NUA. Neu khong, frame cuoi cung da render
+    # co the gan-rest (10.03) nhung state cuoi la rest (10.00) -> diff lech vai px.
+    sp1 = ring1.spring
+    sp2 = ring2.spring
+    guard = int(0)
+    while guard < 600:
+        if sp1.is_rest == 1:
+            if sp2.is_rest == 1:
+                break
+        ring1.step(0.016)
+        ring2.step(0.016)
+        sp1 = ring1.spring
+        sp2 = ring2.spring
+        guard = guard + 1
+    live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+    print("[live] settle steps=" + str(guard))
+    widget_check_ge(acc, "spring render >= 30 frame", rendered, 30)
+    widget_check_ge(acc, "idle >= 60 frame (0% CPU)", idle_hits, 60)
+    widget_check_i(acc, "dirty-rect dem = so frame render", dirty_count, rendered)
+    live_check_f(acc, "ring1 dap ve 10.0", ring1.value, 10.0, 0.5)
+    live_check_f(acc, "ring2 dap ve 88.0", ring2.value, 88.0, 0.5)
+    # ---- 8) frame khong doi -> present_diff tra 0 (khong cham GDI) ----
+    live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+    pd2 = live_present(plat, buf, shown, surf, wh)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+    widget_check_i(acc, "frame giong het -> diff 0", pd2, 0)
+    widget_check_i(acc, "settle dat rest (khong vuot guard)", guard < 600, 1)
+    painted = widget_count_non_bg(buf, surf, bgp)
+    print("[live] painted=" + str(painted) + "/" + str(W * H))
+    widget_check_ge(acc, "scene du pixel khac nen", painted, 3000)
+    if win_ok == 1:
+        plat.close_window(wh)
+    print("--- live harness: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        print("=== TkvUI.Live end ===")
+        return "TKVUI_LIVE_OK"
+    print("=== TkvUI.Live end (FAIL) ===")
+    return "TKVUI_LIVE_FAIL"
+
+def run_live() -> "str":
+    # P7.6: vong nhap THAT - pump PeekMessage + GetMessagePos + GetAsyncKeyState.
+    # Khong con vong scripted: input la chuot that tren cua so ULW 720x220.
+    # ESC (vk 27) de thoat; tu ket thuc sau 600 vong (~10s) neu khong co ai tiep.
+    print("=== TkvUI.Live run_live (P7.6) version=" + tkvui_version() + " ===")
+    W = 720
+    H = 220
+    buf = live_alloc(W, H)
+    shown = live_alloc(W, H)
+    surf = PixelSurface(W, H, W)
+    th = theme_dark()
+    bg = th.surface
+    card = make_card_notch(0.0, 0.0, 720.0, 84.0, "TkvUI Live - ESC de thoat")
+    panel = make_card(0.0, 88.0, 720.0, 132.0, "")
+    ring1 = make_metric_ring(20.0, 16.0, 52.0, 52.0, "CPU", 80, 200, 120)
+    ring2 = make_metric_ring(88.0, 16.0, 52.0, 52.0, "RAM", 80, 160, 255)
+    ring1.set_value(72.0)
+    ring2.set_value(45.0)
+    cw = []
+    ch = []
+    cw.append(120.0)
+    ch.append(32.0)
+    cw.append(120.0)
+    ch.append(32.0)
+    cw.append(52.0)
+    ch.append(26.0)
+    cw.append(120.0)
+    ch.append(8.0)
+    n = int(4)
+    ox = layout_alloc_f64(n, 0.0)
+    oy = layout_alloc_f64(n, 0.0)
+    ow = layout_alloc_f64(n, 0.0)
+    oh = layout_alloc_f64(n, 0.0)
+    cline = layout_alloc_i32(n, 0)
+    clh = layout_alloc_f64(n, 0.0)
+    st = flex_style(TKV_DIR_ROW, 12.0, 0.0, TKV_ALIGN_CENTER, TKV_JUSTIFY_START)
+    lines = layout_flex(st, 24.0, 102.0, 672.0, 40.0, cw, ch, n, cline, clh, ox, oy, ow, oh)
+    b1 = make_button(ox[0], oy[0], ow[0], oh[0], "Apply")
+    b2 = make_button_outline(ox[1], oy[1], ow[1], oh[1], "Cancel")
+    sw = make_switch(ox[2], oy[2], 52.0, 26.0, 1)
+    prog = make_progress(ox[3], oy[3], ow[3], 8.0, 0.72)
+    sld = make_slider(24.0, 156.0, 300.0, 18.0, 0.6)
+    tabs = make_tabs(360.0, 150.0, 340.0, 28.0, 3)
+    tabs.select(1)
+    toast = make_toast(24.0, 182.0, 200.0, 28.0, "Live", 0)
+    ids = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    flags = []
+    ids.append(7)
+    xs.append(card.bx)
+    ys.append(card.by)
+    ws.append(card.bw)
+    hs.append(card.bh)
+    flags.append(0)
+    ids.append(1)
+    xs.append(b1.bx)
+    ys.append(b1.by)
+    ws.append(b1.bw)
+    hs.append(b1.bh)
+    flags.append(0)
+    ids.append(2)
+    xs.append(b2.bx)
+    ys.append(b2.by)
+    ws.append(b2.bw)
+    hs.append(b2.bh)
+    flags.append(0)
+    ids.append(3)
+    xs.append(sw.bx)
+    ys.append(sw.by)
+    ws.append(sw.bw)
+    hs.append(sw.bh)
+    flags.append(0)
+    ids.append(4)
+    xs.append(prog.bx)
+    ys.append(prog.by)
+    ws.append(prog.bw)
+    hs.append(prog.bh)
+    flags.append(0)
+    ids.append(5)
+    xs.append(sld.bx)
+    ys.append(sld.by)
+    ws.append(sld.bw)
+    hs.append(sld.bh)
+    flags.append(0)
+    ids.append(6)
+    xs.append(tabs.bx)
+    ys.append(tabs.by)
+    ws.append(tabs.bw)
+    hs.append(tabs.bh)
+    flags.append(0)
+    nh = int(7)
+    disp = make_dispatcher()
+    rl = make_render_loop(60)
+    springs = []
+    springs.append(1)
+    springs.append(1)
+    springs.append(1)
+    plat = Win32Platform(0)
+    wh = plat.create(100, 100, W, H, 1)
+    if wh.handle == 0:
+        print("[live] khong tao duoc cua so -> headless khong co gi cho run_live")
+        return "TKVUI_LIVE_RUN_HEADLESS"
+    live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+    d1 = plat.present(buf, surf, wh)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+    print("[live] first present=" + str(d1) + " - ESC de thoat")
+    # Rang buoc list-method (P7.5): call ham thuong truoc method dau tien nhan list.
+    ht0 = hit_test_tree(0.0, 0.0, ids, xs, ys, ws, hs, flags, nh)
+    e = PointerEventArgs(0.0, 0.0, 1, 1)
+    prev_down = int(0)
+    had_input = int(0)
+    quit_v = int(0)
+    cap = int(0)
+    rendered = int(0)
+    idle_hits = int(0)
+    msg_frames = int(0)
+    while cap < 600:
+        cap = cap + 1
+        pump = win_poll_messages()
+        if pump > 0:
+            msg_frames = msg_frames + 1
+            had_input = 1
+        pxs = win_pointer_x()
+        pys = win_pointer_y()
+        xf = float(pxs) - float(wh.x)
+        yf = float(pys) - float(wh.y)
+        if quit_v == 0:
+            if win_key_down(27) != 0:
+                quit_v = 1
+        down = win_key_down(1)
+        if down == 1:
+            if prev_down == 0:
+                e.px = xf
+                e.py = yf
+                rc = disp.dispatch_down(e, ids, xs, ys, ws, hs, flags, nh)
+            else:
+                e.px = xf
+                e.py = yf
+                rc = disp.dispatch_move(e, ids, xs, ys, ws, hs, flags, nh)
+            if disp.down_id == 5:
+                sv = sld.set_from_pointer(xf)
+                had_input = 1
+        else:
+            if prev_down == 1:
+                e.px = xf
+                e.py = yf
+                cid = disp.dispatch_up(e, ids, xs, ys, ws, hs, flags, nh)
+                if cid == 1:
+                    prog.value = sld.ratio()
+                    had_input = 1
+                if cid == 3:
+                    onv = sw.toggle()
+                    had_input = 1
+                if cid == 6:
+                    ti = tabs.hit_tab(xf)
+                    tabs.select(ti)
+                    had_input = 1
+                if cid == 7:
+                    spr1 = ring1.spring
+                    if spr1.target > 40.0:
+                        ring1.set_value(10.0)
+                    else:
+                        ring1.set_value(72.0)
+                    had_input = 1
+            else:
+                if pump > 0:
+                    e.px = xf
+                    e.py = yf
+                    rc = disp.dispatch_move(e, ids, xs, ys, ws, hs, flags, nh)
+        prev_down = down
+        # anim: rings + switch (springs[2] theo switch.anim)
+        ring1.step(0.016)
+        ring2.step(0.016)
+        if sw.anim > 0.001:
+            if sw.anim < 0.999:
+                sw.step(0.016)
+        sp1 = ring1.spring
+        sp2 = ring2.spring
+        springs[0] = sp1.is_rest
+        springs[1] = sp2.is_rest
+        if sw.anim > 0.001:
+            if sw.anim < 0.999:
+                springs[2] = 0
+            else:
+                springs[2] = 1
+        else:
+            springs[2] = 1
+        v = rl.tick(0.016, springs, had_input)
+        had_input = 0
+        if v == 1:
+            live_frame(buf, surf, bg, card, panel, ring1, ring2, b1, b2, sw, prog, sld, tabs, toast)
+            pdv = plat.present_diff(buf, shown, surf, wh)
+            surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+            rendered = rendered + 1
+        else:
+            tkv_sleep(12)
+            idle_hits = idle_hits + 1
+    plat.close_window(wh)
+    print("[live] run_live: vong=" + str(cap) + " rendered=" + str(rendered) + " idle=" + str(idle_hits) + " frames-co-msg=" + str(msg_frames))
+    print("=== TkvUI.Live run_live end ===")
+    return "TKVUI_LIVE_RUN_OK"
