@@ -7,7 +7,7 @@ Entry mac dinh 'main' = chay toan bo selftest cua thu vien (headless, khong mo c
 __tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Widgets"]
 
 def tkvui_version() -> "str":
-    return "2.2.0"
+    return "2.2.2"
 
 def tkvui_selftest() -> "str":
     # Chay TAT CA selftest cua thu vien va gop ket qua. Moi selftest tra ve "<MODULE>_OK"
