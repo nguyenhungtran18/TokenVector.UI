@@ -107,4 +107,51 @@
 | Q3 | Platform hardening | Android/iOS real ✅, Multi-window ✅ |
 | Q4 | v3 features | Web/Video/3D ✅ |
 
+---
+
+## Hướng nâng cấp tiếp theo (đánh giá 2026-09-17, sau v2.2.2)
+
+Bối cảnh đã có: glyph atlas ~4.2×, half-res blur ~2.5× (chưa dùng trong product path),
+selftest 299 check, packaging .tkvpkg/.nupkg đầy đủ.
+
+### 1. Quick wins (1–3 ngày mỗi mục)
+
+| Item | Chi tiết | Tác dụng |
+|---|---|---|
+| **BitBlt present** ⭐ | Thay per-pixel `SetPixelV` trong `presentDiff` bằng `gdi_bit_blt` (pinvoke đã có trong Platform, chưa dùng) | Điểm nóng lớn nhất còn lại: presentDiff từng đo ~430ms/frame (roadmap §7.6); blit cả DIB 1 lần có thể xuống vài ms |
+| Áp half-res blur | `backdrop_blur` + `draw_drop_shadow` đổi sang `half_res_blur` khi radius ≥ 4 | Hàm đã có, chỉ rewire + sửa selftest — hưởng lợi tức thì |
+| Bilinear upsample | Cho `half_res_blur` thay nearest-neighbor | Giảm artifacts bậc thang sau text/mép sắc, quan trọng khi half-res là đường mặc định |
+| Focus manager | Tab/Shift-Tab, focus ring, caret nháy theo FrameScheduler | TextFieldWidget đã có `focused` nhưng chưa điều hướng bàn phím; tiền đề form thật |
+| Cache `char_code` | Bảng 95 entry cache on first hit trong `text_atlas_draw_string` | Nhỏ nhưng rẻ (loại binary search 7 bước/ký tự/frame) |
+
+### 2. Trung hạn (mở khóa phase mới)
+
+| Item | Chi tiết | Mở khóa |
+|---|---|---|
+| **TTF rasterizer** ⭐ | Parse glyf quadratic (không hinting), bake vào atlas hiện có; DPI thật qua `GetDeviceCaps` (pinvoke đã có) | Tiếng Việt, đa cỡ chữ, đa DPI — giá trị sản phẩm cao nhất |
+| Theme theo OS | Đọc registry dark/light (`RegGetValueA`), hot-switch runtime | UX hiện đại |
+| Multi-window | Pool DIB/memDC theo `PlatformWindowHandle`, RenderLoop pump nhiều window | Khung SurfacePool/RenderLoop đã sẵn, chỉ còn wiring |
+
+### 3. Bị chặn bởi compiler tkvc (đẩy upstream)
+
+| Item | Cần gì | Mở khóa |
+|---|---|---|
+| X11/Wayland thật | pinvoke `.so` (hiện bắt buộc `.dll`) | Linux desktop, bỏ vehicle WinForms |
+| Android/iOS pixel thật | `.so`/`.dylib` + `memcpy`/`Marshal.WriteByte` | Demo chạy trên thiết bị |
+| Decode ARGB `>>`/`&` | Bit shift/mask operators | Blur + blend nhanh thêm ~1.5–2× (đã đo: `//`/`%` chi phối) |
+| Zero-console | `.subsystem 0x0002` | GUI app không kèm console |
+| DLL thuần | `--target library` | Nupkg sạch (DLL hiện là exe đổi tên) |
+
+### 4. Dài hạn (Phase 3/4/6 — xem các phần trên)
+
+- **A11y tree**: thêm `a11y_role`/`a11y_label` vào `UIElement` từ sớm để widget catalog không phải sửa hàng loạt sau; bridge OS để sau.
+- **GPU backend abstraction** (`create_texture`/`draw_quad`/`present`, software fallback) — API đủ ổn định để tách layer.
+- **TkvUI.Web / Video / Chart / 3D** — chưa bắt đầu.
+
+### Thứ tự đề xuất
+
+Nếu chỉ chọn 3 việc tiếp: **(1) BitBlt present → (2) TTF rasterizer → (3) focus manager**.
+Cả ba không cần compiler mới, đo được bằng selftest/benchmark, và mỗi cái là tiền đề
+của phase sau (BitBlt → multi-window; TTF → i18n; focus → a11y).
+
 **Resource estimate**: 1–2 core devs (compiler + runtime), 1 platform specialist per OS, 1 tooling dev. Total ~12–18 months to parity with Avalonia/Uno on core criteria.
