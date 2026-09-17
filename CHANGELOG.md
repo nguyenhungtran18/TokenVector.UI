@@ -2,6 +2,13 @@
 
 Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy từ `tkvui_version()` trong `TokenVector.UI.tkv`.
 
+## 2.3.1 — P2.8 bilinear upsample (2026-09-17)
+
+- `half_res_blur`: thay upsample nearest-neighbor bằng **bilinear nội tuyến 1 chiều trong khối 2×2** — px lẻ lấy trung bình 2 mẫu kề, giảm artifact "bậc thang" khi blur sau text/mép sắc. Chi phí gần như không đổi (vẫn không đọc pixel ngoài khối).
+- `effects_selftest`: 29 → **32/32** (3 check bilinear: px lẻ giữa 2 vùng nằm giữa 2 đầu mút, gradient tiếp diễn vào vùng trong).
+- Lưu ý dùng: small_buf/small_scratch phải sạch (zeros) trước mỗi gọi vì `half_res_blur` chỉ ghi sw×sh phần tử đầu.
+- Full verify: TKVUI_VERIFY_OK (12 PASS / 0 FAIL / 2 SKIPPED).
+
 ## 2.3.0 — P2.4–P2.7 quick wins (2026-09-17)
 
 - **P2.4 — Present qua DIB memory-mapped** (`TkvUI.Platform`): `create` tạo DIB section backed bởi file-mapping (`CreateFileMappingA` + `MapViewOfFile`, pinvoke mới), lưu mapview pointer vào `PlatformWindowHandle`. `present`/`present_diff` ghi pixel trực tiếp vào DIB bits qua `wsprintfA` thay vì `SetPixelV` per-pixel (probe: 40k px — mem 0ms vs SetPixelV 15–31ms). `close_window` giải phóng mapping đúng.

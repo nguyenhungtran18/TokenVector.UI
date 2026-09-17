@@ -1,7 +1,7 @@
 {
   "name": "TokenVector.UI",
   "alias": "TkvUI",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Thư viện UI đa nền tảng 100% TokenVector (.tkv) - zero dependency: rasterizer, font bitmap, effects, layout flex/grid, 15 widget, cửa sổ native Win32.",
   "license": "MIT",
   "repository": "https://github.com/nguyenhungtran18/TokenVector",

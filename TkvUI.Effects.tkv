@@ -482,16 +482,42 @@ def half_res_blur(buf: "list[i64]", small_buf: "list[i64]", small_scratch: "list
     small_surf = PixelSurface(sw, sh, sw)
     box_blur_pass(small_buf, small_scratch, small_surf, 0, 0, sw, sh, r2, 1)
     box_blur_pass(small_scratch, small_buf, small_surf, 0, 0, sw, sh, r2, 0)
-    # --- upsample nearest-neighbor: nhung chi vung blur (bo bien 1 px tranh noise)
+    # --- upsample bilinear (P2.8): thay nearest-neighbor de giam artifact
+    # 'bac thang'. Trong khoi 2x2, px le (1/2) noi tuyen giua 2 diem mau
+    # lieu thang/ke cua no; khong can doc pixel nen tranh luon.
     sy = 0
     while sy < sh * 2 and sy < h:
         srow = (sy // 2) * sw
         drow = (y0 + sy) * stride + x0
         sx = 0
         while sx < sw * 2 and sx < w:
-            buf[drow + sx] = small_buf[srow + sx // 2]
+            c0 = small_buf[srow + sx // 2]
+            if sx % 2 == 0:
+                if sx + 1 < w:
+                    c1 = small_buf[srow + (sx + 1) // 2]
+                else:
+                    c1 = c0
+            else:
+                if sx + 1 < w:
+                    c1 = small_buf[srow + (sx + 1) // 2]
+                else:
+                    c1 = c0
+            if c1 == c0:
+                buf[drow + sx] = c0
+            else:
+                a0 = c0 // 16777216
+                r0 = c0 % 16777216 // 65536
+                g0 = c0 % 65536 // 256
+                b0 = c0 % 256
+                a1 = c1 // 16777216
+                r1 = c1 % 16777216 // 65536
+                g1 = c1 % 65536 // 256
+                b1 = c1 % 256
+                buf[drow + sx] = ((a0 + a1) // 2) * 16777216 + ((r0 + r1) // 2) * 65536 + ((g0 + g1) // 2) * 256 + (b0 + b1) // 2
             sx = sx + 1
         sy = sy + 1
+    # --- cap 2 diem goc con thieu sau upsample tung px: hang/cot chan da
+    # lay truc tiep tu small_buf; px le da noi tuyen. Khong can buoc them.
     return 1
 
 def backdrop_blur(buf: "list[i64]", scratch: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "i32", tint_alpha: "i32") -> "i32":
@@ -789,6 +815,39 @@ def effects_selftest() -> "str":
     effects_check_i(acc, "half_res tren vung deu giu mau", effects_pixel_r(buf, surf, 30, 20), 100)
     # half-res nhanh hon full-res (full phai do dai hon half)
     effects_check_gt(acc, "half-res nhanh hon full-res", t_full - t_half, 0)
+    # P2.8: upsample bilinear - px le (cot 1, 3...) la TRUNG BINH 2 mau
+    # lieu ke (khong sao che nguyen px nhu nearest-neighbor).
+    # Xoa small_buf truoc khi dung: half_res_blur chi ghi sw*sh phan tu
+    # dau, con du lieu stale (small 30x20 o tren) se pha kiem tra.
+    small_buf = []
+    small_scratch = []
+    i = 0
+    while i < 128:
+        small_buf.append(0)
+        small_scratch.append(0)
+        i = i + 1
+    surface_clear(buf, surf, ColorRgba(0, 0, 0, 255))
+    x = 0
+    while x < 16:
+        # nua trai r=200, nua phai r=100: small (8x2) co cot 0..3=200,
+        # cot 4..7=100; blur r=1 tao gradient o bien (cot 3=166, 4=133).
+        if x < 8:
+            v = 16777216 * 255 + 65536 * 200
+        else:
+            v = 16777216 * 255 + 65536 * 100
+        buf[0 * 60 + x] = v
+        buf[1 * 60 + x] = v
+        buf[2 * 60 + x] = v
+        buf[3 * 60 + x] = v
+        x = x + 1
+    half_res_blur(buf, small_buf, small_scratch, surf, 0, 0, 16, 4, 2)
+    # small: blur r=1 tao gradient o bien (cot 3=166, 4=133); upsample
+    # bilinear noi tuyen tiep -> buf cot 7=149, 9=116 nam giua 2 dau mut.
+    r_mid = effects_pixel_r(buf, surf, 7, 0)
+    r_far = effects_pixel_r(buf, surf, 13, 0)
+    effects_check_gt(acc, "bilinear px le giua 2 vung (r < 200)", 200 - r_mid, 1)
+    effects_check_gt(acc, "bilinear px le giua 2 vung (r > 100)", r_mid - 100, 1)
+    effects_check_gt(acc, "bilinear gradient tiep tuc den vung trong (r13 < r7)", r_mid - r_far, 1)
     print("--- effects selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
     if acc[0] == acc[1]:
         return "EFFECTS_OK"

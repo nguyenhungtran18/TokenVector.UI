@@ -57,7 +57,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `core_selftest` | 47/47 PASS |
 | `graphics_selftest` | 29/29 PASS |
 | `text_selftest` | 46/46 PASS (kèm benchmark: atlas ~4.2× nhanh hơn classic) |
-| `effects_selftest` | 29/29 PASS (kèm benchmark blur: sliding-window O(1)/px; **half-res blur ~2.5× nhanh hơn** full-res) |
+| `effects_selftest` | 32/32 PASS (kèm benchmark blur: sliding-window O(1)/px; **half-res blur ~2.5× nhanh hơn** full-res) |
 | `platform_selftest` | 24/24 PASS (**present ghi trực tiếp DIB memory-mapped** thay vì SetPixelV — P2.4) |
 | `input_selftest` | 41/41 PASS |
 | `layout_selftest` | 50/50 PASS |
