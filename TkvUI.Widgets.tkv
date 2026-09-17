@@ -691,6 +691,11 @@ class TextFieldWidget:
 def make_textfield(x: "f64", y: "f64", w: "f64", h: "f64", placeholder: "str") -> "TextFieldWidget":
     return TextFieldWidget(x, y, w, h, "", placeholder, 0, 0, 80, 160, 255, 255)
 
+def empty_textfield() -> "TextFieldWidget":
+    # Placeholder an toan cho FocusManager khi khong co widget nao focused
+    # (dung bien 'focused' lam cam hieu: placeholder luon co focused = 0).
+    return TextFieldWidget(0.0, 0.0, 0.0, 0.0, "", "", 0, 0, 0, 0, 0, 0)
+
 # =========================================================
 # 8) LIST VIEW (virtualized)
 # =========================================================
@@ -1284,6 +1289,100 @@ def make_render_loop(fps: "i32") -> "RenderLoop":
 # =========================================================
 # WIDGET HELPERS
 # =========================================================
+# =========================================================
+# P2.7 FOCUS MANAGER - tab-order, Tab/Shift-Tab, hit-test, key routing
+# =========================================================
+class FocusManager:
+    fields: "list[TextFieldWidget]"
+    idx: "i32"
+    def __init__(self, idx):
+        # fields la container: init trong than __init__ (tham so .ctor chi la idx)
+        self.fields = []
+        self.idx = idx
+    def register(self, tf: "TextFieldWidget") -> "i32":
+        self.fields.append(tf)
+        n = len(self.fields)
+        if n == 1:
+            tf.focused = 1
+            self.idx = 0
+        return n
+    def count(self) -> "i32":
+        return len(self.fields)
+    def current_index(self) -> "i32":
+        return self.idx
+    def focus_index(self, i: "i32") -> "i32":
+        n = len(self.fields)
+        if i < 0:
+            # i = -1: CLEAR focus (bo focused flag cua widget hien tai,
+            # idx = -1 -> type_char/backspace khong route cho ai).
+            old = self.idx
+            if old >= 0:
+                if old < n:
+                    of = self.fields[old]
+                    of.focused = 0
+            self.idx = 0 - 1
+            return 0 - 1
+        if i >= n:
+            return 0 - 1
+        old = self.idx
+        if old >= 0:
+            if old < n:
+                of = self.fields[old]
+                of.focused = 0
+        self.idx = i
+        nf = self.fields[i]
+        nf.focused = 1
+        return i
+    # Ghi chu (P2.7): cac dong 'self.fields[old].focused = 0' da duoc viet lai
+    # qua bien tam 'of'/'nf' vi compiler khong ho tro gan field qua chain
+    # 'list[index].field'. Hy vong tuong tu voi 'current()' phia duoi.
+    def focus_next(self) -> "i32":
+        n = len(self.fields)
+        if n == 0:
+            return 0 - 1
+        ni = self.idx + 1
+        if ni >= n:
+            ni = 0
+        return self.focus_index(ni)
+    def focus_prev(self) -> "i32":
+        n = len(self.fields)
+        if n == 0:
+            return 0 - 1
+        pi = self.idx - 1
+        if pi < 0:
+            pi = n - 1
+        return self.focus_index(pi)
+    def focus_at(self, px: "f64", py: "f64") -> "i32":
+        # hit-test: chon TextField chua diem (px, py); truot het tra -1 (giu nguyen).
+        n = len(self.fields)
+        i = 0
+        while i < n:
+            tf = self.fields[i]
+            if px >= tf.bx:
+                if px <= tf.bx + tf.bw:
+                    if py >= tf.by:
+                        if py <= tf.by + tf.bh:
+                            return self.focus_index(i)
+            i = i + 1
+        return 0 - 1
+    def current(self) -> "TextFieldWidget":
+        n = len(self.fields)
+        if self.idx < 0:
+            return empty_textfield()
+        if self.idx >= n:
+            return empty_textfield()
+        return self.fields[self.idx]
+    def type_char(self, ch: "str") -> "str":
+        cur = self.current()
+        if cur.focused != 1:
+            return ""
+        return cur.type_char(ch)
+    def backspace(self) -> "str":
+        cur = self.current()
+        if cur.focused != 1:
+            return ""
+        return cur.backspace()
+
 def widget_row_labels() -> "list[str]":
     out = []
     out.append("Home")
@@ -1515,6 +1614,47 @@ def widget_selftest() -> "str":
             idle_hits = idle_hits + 1
         f2 = f2 + 1
     widget_check_ge(acc, "render loop idle -> 0 CPU (idle hits)", idle_hits, 11)
+    # --- P2.7: FocusManager - tab-order, Tab/Shift-Tab, hit-test, key routing
+    fm = FocusManager(0 - 1)
+    fm.register(tf)
+    tf2 = TextFieldWidget(20.0, 200.0, 160.0, 28.0, "", "second", 0, 0, 80, 160, 255, 255)
+    fm.register(tf2)
+    tf3 = TextFieldWidget(20.0, 240.0, 160.0, 28.0, "", "third", 0, 0, 80, 160, 255, 255)
+    fm.register(tf3)
+    widget_check_i(acc, "focus ban dau o widget 0", fm.current_index(), 0)
+    widget_check_i(acc, "widget dau da focused", tf.focused, 1)
+    fm.focus_next()
+    widget_check_i(acc, "Tab chuyen sang widget 1", fm.current_index(), 1)
+    widget_check_i(acc, "widget 0 mat focus", tf.focused, 0)
+    widget_check_i(acc, "widget 1 co focus", tf2.focused, 1)
+    fm.focus_prev()
+    widget_check_i(acc, "Shift-Tab quay lai widget 0", fm.current_index(), 0)
+    fm.focus_next()
+    fm.focus_next()
+    widget_check_i(acc, "Tab x2 den widget cuoi", fm.current_index(), 2)
+    fm.focus_next()
+    widget_check_i(acc, "Tab o cuoi wrap ve dau", fm.current_index(), 0)
+    fm.focus_prev()
+    widget_check_i(acc, "Shift-Tab o dau wrap ve cuoi", fm.current_index(), 2)
+    # hit-test: click chon widget dung vung
+    got = fm.focus_at(30.0, 250.0)
+    widget_check_i(acc, "click (30,250) focus widget 2", got, 2)
+    widget_check_i(acc, "hit-test doi focused flag", tf3.focused, 1)
+    got_miss = fm.focus_at(400.0, 400.0)
+    widget_check_i(acc, "click ngoai -> khong doi focus", got_miss, 0 - 1)
+    # key routing: widget co focus nhan ky tu
+    fm.focus_index(1)
+    fm.type_char("a")
+    fm.type_char("b")
+    widget_check_i(acc, "go vao widget co focus -> text=ab", len(tf2.text), 2)
+    widget_check_i(acc, "widget khac khong nhan text", len(tf.text), 1)
+    fm.backspace()
+    widget_check_i(acc, "backspace vao focus -> text=a", len(tf2.text), 1)
+    # P2.7b: key routing KHONG lam roi widget khong focus (routing theo
+    # 'focused' flag cua widget hien tai, placeholder focused=0 -> bo qua).
+    fm.focus_index(0 - 1)
+    fm.type_char("x")
+    widget_check_i(acc, "khong focus -> khong widget nao nhan text", len(tf2.text), 1)
     print("--- widgets selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
     if acc[0] == acc[1]:
         return "WIDGETS_OK"

@@ -5,7 +5,7 @@ __tkv_extern_assembly__ = ["System.Windows.Forms"]
 # Probe runtime bang API mscorlib (portable Win/Mono/Android/iOS) - dung cho detect_platform()
 __tkv_extern_method__ = [{"name": "tkv_getenv", "assembly": "mscorlib", "class": "System.Environment", "method": "GetEnvironmentVariable", "params": ["str"], "returns": "str"}, {"name": "tkv_file_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}]
 __tkv_extern_class__ = [{"name": "TkvForm", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Form", "ctor": [], "methods": [{"name": "Show", "params": [], "returns": "void"}, {"name": "Hide", "params": [], "returns": "void"}, {"name": "Close", "params": [], "returns": "void"}, {"name": "Refresh", "params": [], "returns": "void"}], "properties": [{"name": "Text", "dtype": "str", "readonly": False}, {"name": "Opacity", "dtype": "f64", "readonly": False}]}]
-__tkv_extern_pinvoke__ = [{"name": "win_create_window_ex", "dll": "user32.dll", "symbol": "CreateWindowExA", "convention": "stdcall", "params": ["i32", "str", "str", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "win_destroy_window", "dll": "user32.dll", "symbol": "DestroyWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_show_window", "dll": "user32.dll", "symbol": "ShowWindow", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_set_window_pos", "dll": "user32.dll", "symbol": "SetWindowPos", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_set_layered_attr", "dll": "user32.dll", "symbol": "SetLayeredWindowAttributes", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_update_layered", "dll": "user32.dll", "symbol": "UpdateLayeredWindow", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "win_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "win_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "win_get_queue_status", "dll": "user32.dll", "symbol": "GetQueueStatus", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_set_window_text", "dll": "user32.dll", "symbol": "SetWindowTextA", "convention": "stdcall", "params": ["i64", "str"], "returns": "i32"}, {"name": "win_get_desktop_window", "dll": "user32.dll", "symbol": "GetDesktopWindow", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "gdi_create_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "gdi_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_create_bitmap", "dll": "gdi32.dll", "symbol": "CreateBitmap", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "gdi_select_object", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "gdi_delete_object", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_set_pixel_v", "dll": "gdi32.dll", "symbol": "SetPixelV", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_get_last_error", "dll": "kernel32.dll", "symbol": "GetLastError", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "win_virtual_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"}, {"name": "win_virtual_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "win_wsprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_create_dib_section", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"}, {"name": "win_get_window_long", "dll": "user32.dll", "symbol": "GetWindowLongA", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "gdi_get_object", "dll": "gdi32.dll", "symbol": "GetObject", "convention": "stdcall", "params": ["i64", "i32", "i64"], "returns": "i32"}, {"name": "gdi_get_device_caps", "dll": "gdi32.dll", "symbol": "GetDeviceCaps", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_lstrlen", "dll": "kernel32.dll", "symbol": "lstrlenA", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_bit_blt", "dll": "gdi32.dll", "symbol": "BitBlt", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"}, {"name": "win_lstrcmp", "dll": "kernel32.dll", "symbol": "lstrcmpA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "u_peek", "dll": "user32.dll", "symbol": "PeekMessageA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "u_getpos", "dll": "user32.dll", "symbol": "GetMessagePos", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "u_gks", "dll": "user32.dll", "symbol": "GetAsyncKeyState", "convention": "stdcall", "params": ["i32"], "returns": "i32"}]
+__tkv_extern_pinvoke__ = [{"name": "win_create_window_ex", "dll": "user32.dll", "symbol": "CreateWindowExA", "convention": "stdcall", "params": ["i32", "str", "str", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "win_destroy_window", "dll": "user32.dll", "symbol": "DestroyWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_show_window", "dll": "user32.dll", "symbol": "ShowWindow", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_set_window_pos", "dll": "user32.dll", "symbol": "SetWindowPos", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_set_layered_attr", "dll": "user32.dll", "symbol": "SetLayeredWindowAttributes", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_update_layered", "dll": "user32.dll", "symbol": "UpdateLayeredWindow", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "win_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "win_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "win_get_queue_status", "dll": "user32.dll", "symbol": "GetQueueStatus", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_set_window_text", "dll": "user32.dll", "symbol": "SetWindowTextA", "convention": "stdcall", "params": ["i64", "str"], "returns": "i32"}, {"name": "win_get_desktop_window", "dll": "user32.dll", "symbol": "GetDesktopWindow", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "gdi_create_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "gdi_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_create_bitmap", "dll": "gdi32.dll", "symbol": "CreateBitmap", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "gdi_select_object", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "gdi_delete_object", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_set_pixel_v", "dll": "gdi32.dll", "symbol": "SetPixelV", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_get_last_error", "dll": "kernel32.dll", "symbol": "GetLastError", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "win_virtual_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"}, {"name": "win_virtual_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "win_wsprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_create_dib_section", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"}, {"name": "win_get_window_long", "dll": "user32.dll", "symbol": "GetWindowLongA", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "gdi_get_object", "dll": "gdi32.dll", "symbol": "GetObject", "convention": "stdcall", "params": ["i64", "i32", "i64"], "returns": "i32"}, {"name": "gdi_get_device_caps", "dll": "gdi32.dll", "symbol": "GetDeviceCaps", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_lstrlen", "dll": "kernel32.dll", "symbol": "lstrlenA", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_bit_blt", "dll": "gdi32.dll", "symbol": "BitBlt", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_create_file_mapping", "dll": "kernel32.dll", "symbol": "CreateFileMappingA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "str"], "returns": "i64"}, {"name": "win_map_view", "dll": "kernel32.dll", "symbol": "MapViewOfFile", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "win_unmap_view", "dll": "kernel32.dll", "symbol": "UnmapViewOfFile", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_close_handle", "dll": "kernel32.dll", "symbol": "CloseHandle", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"}, {"name": "win_lstrcmp", "dll": "kernel32.dll", "symbol": "lstrcmpA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "u_peek", "dll": "user32.dll", "symbol": "PeekMessageA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "u_getpos", "dll": "user32.dll", "symbol": "GetMessagePos", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "u_gks", "dll": "user32.dll", "symbol": "GetAsyncKeyState", "convention": "stdcall", "params": ["i32"], "returns": "i32"}]
 
 # =========================================================
 # TASK 5: PLATFORM - Abstraction & Native Window (P3: Win32 real)
@@ -124,7 +124,9 @@ class PlatformWindowHandle:
     alpha: "i32"
     colorkey: "i32"
     structmem: "i64"
-    def __init__(self, handle, x, y, w, h, topmost, memdc, hbmp, oldbmp, screendc, alpha, colorkey, structmem):
+    fmap: "i64"
+    mapview: "i64"
+    def __init__(self, handle, x, y, w, h, topmost, memdc, hbmp, oldbmp, screendc, alpha, colorkey, structmem, fmap, mapview):
         self.handle = handle
         self.x = x
         self.y = y
@@ -138,6 +140,8 @@ class PlatformWindowHandle:
         self.alpha = alpha
         self.colorkey = colorkey
         self.structmem = structmem
+        self.fmap = fmap
+        self.mapview = mapview
 
 class Win32Platform:
     dummy: "i32"
@@ -150,42 +154,70 @@ class Win32Platform:
         style = 0 - 1879048192
         hwnd = win_create_window_ex(ex, "Static", "TkvUI", style, x, y, w, h, 0, 0, 0, 0)
         if hwnd == 0:
-            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
         sdc = win_get_dc(0)
         mdc = gdi_create_compat_dc(sdc)
+        # P2.4 (v2.3.0): DIB section backed boi file-mapping -> co con tro bo nho
+        # truc tiep, present ghi pixel qua wsprintfA thay vi SetPixelV (nhanh ~30x).
+        mapsize = w * h * 4 + 65536
+        fmap = win_create_file_mapping(0 - 1, 0, 4, 0, mapsize, "")
+        mapview = 0
+        if fmap != 0:
+            mapview = win_map_view(fmap, 6, 0, 0, mapsize)
         info = win_build_dib_info(w, h)
         hb = 0
         if info != 0:
-            hb = gdi_create_dib_section(sdc, info, 0, info + 48, 0, 0)
+            hb = gdi_create_dib_section(sdc, info, 0, info + 48, fmap, 0)
             fr = win_virtual_free(info, 0, 32768)
         if hb == 0:
             hb = gdi_create_bitmap(w, h, 1, 32, 0)
         old = gdi_select_object(mdc, hb)
         sm = win_virtual_alloc(0, 64, 12288, 4)
         rc = win_show_window(hwnd, 5)
-        return PlatformWindowHandle(hwnd, x, y, w, h, topmost, mdc, hb, old, sdc, 255, 16711935, sm)
+        wh = PlatformWindowHandle(hwnd, x, y, w, h, topmost, mdc, hb, old, sdc, 255, 16711935, sm, fmap, mapview)
+        return wh
     def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
         if wh.handle == 0:
             return 0
         if wh.memdc == 0:
             return 0
         drawn = int(0)
-        for y in range(surf.height):
-            for x in range(surf.width):
-                idx = y * surf.stride + x
-                pix = buf[idx]
-                sa = pix // 16777216
-                rem = pix % 16777216
-                sr = rem // 65536
-                rem2 = rem % 65536
-                sg = rem2 // 256
-                sb = rem2 % 256
-                if sa < 128:
-                    rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
-                else:
-                    rgb = int(sr + sg * 256 + sb * 65536)
-                    rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
-                    drawn = drawn + 1
+        if wh.mapview != 0:
+            # P2.4: ghi truc tiep vao DIB bits (mapping) - 1 lenh wsprintfA/pixel.
+            mv = wh.mapview
+            for y in range(surf.height):
+                row = y * surf.stride
+                dst = mv + y * wh.w * 4
+                for x in range(surf.width):
+                    pix = buf[row + x]
+                    sa = pix // 16777216
+                    rem = pix % 16777216
+                    sr = rem // 65536
+                    rem2 = rem % 65536
+                    sg = rem2 // 256
+                    sb = rem2 % 256
+                    if sa < 128:
+                        rc = win_wsprintf(dst + x * 4, "%c%c%c%c", wh.colorkey % 256, (wh.colorkey // 256) % 256, (wh.colorkey // 65536) % 256, 0)
+                    else:
+                        rc = win_wsprintf(dst + x * 4, "%c%c%c%c", sr, sg, sb, 0)
+                        drawn = drawn + 1
+        else:
+            for y in range(surf.height):
+                for x in range(surf.width):
+                    idx = y * surf.stride + x
+                    pix = buf[idx]
+                    sa = pix // 16777216
+                    rem = pix % 16777216
+                    sr = rem // 65536
+                    rem2 = rem % 65536
+                    sg = rem2 // 256
+                    sb = rem2 % 256
+                    if sa < 128:
+                        rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
+                    else:
+                        rgb = int(sr + sg * 256 + sb * 65536)
+                        rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
+                        drawn = drawn + 1
         sm = wh.structmem
         rc = win_write_u32_le(sm, 0, wh.alpha * 65536)
         rc = win_write_u32_le(sm, 8, wh.x)
@@ -207,23 +239,44 @@ class Win32Platform:
         if len(prev) < n:
             return 0 - 2
         drawn = int(0)
-        for i in range(n):
-            if buf[i] != prev[i]:
-                y = i // surf.stride
-                x = i - y * surf.stride
-                pix = buf[i]
-                sa = pix // 16777216
-                rem = pix % 16777216
-                sr = rem // 65536
-                rem2 = rem % 65536
-                sg = rem2 // 256
-                sb = rem2 % 256
-                if sa < 128:
-                    rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
-                else:
-                    rgb = int(sr + sg * 256 + sb * 65536)
-                    rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
-                drawn = drawn + 1
+        if wh.mapview != 0:
+            # P2.4: diff theo pixel, ghi chi pixel doi (wsprintfA truc tiep).
+            mv = wh.mapview
+            for i in range(n):
+                if buf[i] != prev[i]:
+                    y = i // surf.stride
+                    x = i - y * surf.stride
+                    pix = buf[i]
+                    sa = pix // 16777216
+                    rem = pix % 16777216
+                    sr = rem // 65536
+                    rem2 = rem % 65536
+                    sg = rem2 // 256
+                    sb = rem2 % 256
+                    dst = mv + (y * wh.w + x) * 4
+                    if sa < 128:
+                        rc = win_wsprintf(dst, "%c%c%c%c", wh.colorkey % 256, (wh.colorkey // 256) % 256, (wh.colorkey // 65536) % 256, 0)
+                    else:
+                        rc = win_wsprintf(dst, "%c%c%c%c", sr, sg, sb, 0)
+                    drawn = drawn + 1
+        else:
+            for i in range(n):
+                if buf[i] != prev[i]:
+                    y = i // surf.stride
+                    x = i - y * surf.stride
+                    pix = buf[i]
+                    sa = pix // 16777216
+                    rem = pix % 16777216
+                    sr = rem // 65536
+                    rem2 = rem % 65536
+                    sg = rem2 // 256
+                    sb = rem2 % 256
+                    if sa < 128:
+                        rc = gdi_set_pixel_v(wh.memdc, x, y, wh.colorkey)
+                    else:
+                        rgb = int(sr + sg * 256 + sb * 65536)
+                        rc = gdi_set_pixel_v(wh.memdc, x, y, rgb)
+                    drawn = drawn + 1
         if drawn == 0:
             return 0
         sm = wh.structmem
@@ -278,11 +331,17 @@ class Win32Platform:
             rc = win_destroy_window(wh.handle)
         if wh.structmem != 0:
             rc = win_virtual_free(wh.structmem, 0, 32768)
+        if wh.mapview != 0:
+            rc = win_unmap_view(wh.mapview)
+        if wh.fmap != 0:
+            rc = win_close_handle(wh.fmap)
         wh.handle = wh.handle - wh.handle
         wh.memdc = wh.memdc - wh.memdc
         wh.hbmp = wh.hbmp - wh.hbmp
         wh.screendc = wh.screendc - wh.screendc
         wh.structmem = wh.structmem - wh.structmem
+        wh.fmap = wh.fmap - wh.fmap
+        wh.mapview = wh.mapview - wh.mapview
         return 1
     def poll_events(self) -> "i32":
         return win_get_queue_status(1279)
@@ -386,7 +445,7 @@ class X11Platform:
     def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
         hnd = 2001
         print("X11 CreateWindow ARGB Visual stub handle=" + str(hnd))
-        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
     def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
         print("X11 XPutImage " + str(surf.width) + "x" + str(surf.height))
         return 1
@@ -422,7 +481,7 @@ class CocoaPlatform:
     def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
         hnd = 3001
         print("Cocoa NSPanel borderless stub handle=" + str(hnd))
-        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
     def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
         print("Cocoa CGDataProvider present " + str(surf.width) + "x" + str(surf.height))
         return 1
@@ -492,10 +551,10 @@ class AndroidPlatform:
         pid = detect_platform()
         if pid != 5:
             print("Android backend khong kha dung tren platform " + str(pid) + " - tra handle 0")
-            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
         hnd = 5001
         print("Android ANativeWindow create " + str(w) + "x" + str(h) + " dpi=" + str(self.dpi_scale))
-        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
     def set_surface(self, surface_ptr: "i64") -> "i32":
         self.surface = surface_ptr
         if surface_ptr != 0:
@@ -625,14 +684,14 @@ class IOSPlatform:
         pid = detect_platform()
         if pid != 6:
             print("iOS backend khong kha dung tren platform " + str(pid) + " (can thiet bi iOS that) - tra handle 0")
-            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
         uiview_class = objc_get_class("UIView")
         self.view = ios_uiview_create(0.0, 0.0, float(w), float(h))
         self.layer = ios_uiview_get_layer(self.view)
         calayer_class = objc_get_class("CALayer")
         hnd = 6001
         print("iOS UIView create " + str(w) + "x" + str(h) + " scale=" + str(self.scale))
-        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0)
+        return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
     def set_frame_buffer(self, ptr: "i64") -> "i32":
         # Host (Swift/ObjC) cap buffer RGBA native; library KHONG tu cap phat native memory tren iOS
         self.frame_buf = ptr
@@ -783,7 +842,7 @@ def platform_selftest() -> "str":
     surface_ensure_capacity(buf, 64)
     surf = PixelSurface(8, 8, 8)
     surface_clear(buf, surf, ColorRgba(0, 0, 0, 255))
-    wh0 = PlatformWindowHandle(0, 0, 0, 8, 8, 0, 0, 0, 0, 0, 255, 16711935, 0)
+    wh0 = PlatformWindowHandle(0, 0, 0, 8, 8, 0, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
     platform_check_i(acc, "Win32Platform.present handle 0 -> 0", w32.present(buf, surf, wh0), 0)
     platform_check_i(acc, "Win32Platform.present_diff handle 0 -> 0", w32.present_diff(buf, buf, surf, wh0), 0)
     # --- Android tren runtime khong phai Android -> handle 0, present 0 (khong crash DllNotFound)

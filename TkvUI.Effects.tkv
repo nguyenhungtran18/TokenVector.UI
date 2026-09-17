@@ -125,7 +125,39 @@ def draw_drop_shadow(buf: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", r
     shadow_rect = Rect2D(bounds.x, bounds.y + 4, bounds.w, bounds.h)
     fill_round_rect(buf, surf, shadow_rect, radius, col)
     if blurSize > 0:
-        apply_box_blur(buf, surf, shadow_rect, blurSize)
+        # P2.5: blurSize >= 4 dung half_res_blur (~2.5x nhanh hon full-res).
+        if blurSize >= 4:
+            x0s = int(shadow_rect.x)
+            y0s = int(shadow_rect.y)
+            x1s = int(shadow_rect.x + shadow_rect.w)
+            y1s = int(shadow_rect.y + shadow_rect.h)
+            if x0s < 0:
+                x0s = 0
+            if y0s < 0:
+                y0s = 0
+            if x1s > surf.width:
+                x1s = surf.width
+            if y1s > surf.height:
+                y1s = surf.height
+            w = x1s - x0s
+            h = y1s - y0s
+            sw = w // 2
+            sh = h // 2
+            ok_half = 0
+            if sw >= 1:
+                if sh >= 1:
+                    small_buf = []
+                    small_scratch = []
+                    i = 0
+                    while i < sw * sh:
+                        small_buf.append(0)
+                        small_scratch.append(0)
+                        i = i + 1
+                    ok_half = half_res_blur(buf, small_buf, small_scratch, surf, x0s, y0s, x1s, y1s, blurSize)
+            if ok_half == 0:
+                apply_box_blur(buf, surf, shadow_rect, blurSize)
+        else:
+            apply_box_blur(buf, surf, shadow_rect, blurSize)
     return 1
 
 # [P2.2 perf] box_blur_pass: sliding window O(1)/pixel + hoist row index ra khoi
@@ -463,7 +495,38 @@ def half_res_blur(buf: "list[i64]", small_buf: "list[i64]", small_scratch: "list
     return 1
 
 def backdrop_blur(buf: "list[i64]", scratch: "list[i64]", surf: "PixelSurface", bounds: "Rect2D", radius: "i32", tint_alpha: "i32") -> "i32":
-    kawase_blur(buf, scratch, surf, bounds, radius)
+    # P2.5: radius >= 4 dung half_res_blur (downsample 2x -> blur -> upsample,
+    # nhanh ~2.5x); nho hon thi kawase full-res (chi phi downsample chiem uu the).
+    x0b = int(bounds.x)
+    y0b = int(bounds.y)
+    x1b = int(bounds.x + bounds.w)
+    y1b = int(bounds.y + bounds.h)
+    if x0b < 0:
+        x0b = 0
+    if y0b < 0:
+        y0b = 0
+    if x1b > surf.width:
+        x1b = surf.width
+    if y1b > surf.height:
+        y1b = surf.height
+    used_half = 0
+    if radius >= 4:
+        w = x1b - x0b
+        h = y1b - y0b
+        sw = w // 2
+        sh = h // 2
+        if sw >= 1:
+            if sh >= 1:
+                small_buf = []
+                small_scratch = []
+                i = 0
+                while i < sw * sh:
+                    small_buf.append(0)
+                    small_scratch.append(0)
+                    i = i + 1
+                used_half = half_res_blur(buf, small_buf, small_scratch, surf, x0b, y0b, x1b, y1b, radius)
+    if used_half == 0:
+        kawase_blur(buf, scratch, surf, bounds, radius)
     ta = tint_alpha
     if ta < 0:
         ta = 0

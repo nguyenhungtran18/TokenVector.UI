@@ -60,6 +60,7 @@ class GlyphAtlas:
     scale: "i32"
     width: "i32"
     height: "i32"
+    codes: "list[i32]"
     def __init__(self, cols, glyph_w, glyph_h, scale, width, height):
         self.cols = cols
         self.glyph_w = glyph_w
@@ -67,6 +68,7 @@ class GlyphAtlas:
         self.scale = scale
         self.width = width
         self.height = height
+        self.codes = []
 
 def atlas_width_for(cols: "i32", glyph_w: "i32", scale: "i32") -> "i32":
     return cols * glyph_w * scale
@@ -1855,8 +1857,27 @@ def text_atlas_draw_string(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i6
             cur_x = int(x) + int(box_w - tw)
     cur_y = int(y)
     adv = 6 * sc + int(tracking)
+    # P2.6: cache 95 entry gan VOI ATLAS (atlas.codes, tao 1 lan luc bake) -
+    # binary search 7 buoc chi chay 1 lan/ky tu duy nhat trong vong doi atlas.
+    code_cache = atlas.codes
+    nc = len(code_cache)
+    if nc != 95:
+        i = nc
+        while i < 95:
+            code_cache.append(-2)
+            i = i + 1
     for idx in range(len(text)):
-        code = char_code(text[idx])
+        ch = text[idx]
+        ci = char_code(ch)
+        slot = -1
+        if ci >= 0:
+            slot = ci - 32
+        code = -1
+        if slot >= 0:
+            code = code_cache[slot]
+        if code == -2:
+            code = char_code(ch)
+            code_cache[slot] = code
         if code >= 0:
             atlas_blit_glyph(abuf, atlas, buf, surf, code - 32, cur_x, cur_y, color, color.a)
         cur_x = cur_x + adv

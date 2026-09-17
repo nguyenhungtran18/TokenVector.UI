@@ -2,6 +2,15 @@
 
 Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy từ `tkvui_version()` trong `TokenVector.UI.tkv`.
 
+## 2.3.0 — P2.4–P2.7 quick wins (2026-09-17)
+
+- **P2.4 — Present qua DIB memory-mapped** (`TkvUI.Platform`): `create` tạo DIB section backed bởi file-mapping (`CreateFileMappingA` + `MapViewOfFile`, pinvoke mới), lưu mapview pointer vào `PlatformWindowHandle`. `present`/`present_diff` ghi pixel trực tiếp vào DIB bits qua `wsprintfA` thay vì `SetPixelV` per-pixel (probe: 40k px — mem 0ms vs SetPixelV 15–31ms). `close_window` giải phóng mapping đúng.
+- **P2.5 — Áp half-res blur vào sản phẩm** (`TkvUI.Effects`): `backdrop_blur` và `draw_drop_shadow` dùng `half_res_blur` khi radius ≥ 4 (buffer phụ cho trước), hưởng ~2.5× tại chỗ gọi hot mỗi frame.
+- **P2.6 — Cache `char_code`** (`TkvUI.Text`): `text_atlas_draw_string` tra `char_code` (binary search 7 bước) mỗi ký tự mỗi frame; giờ cache 95 entry gắn với atlas (`atlas.codes`, -2 = chưa tra) — tra 1 lần/ký tự trong vòng đời atlas.
+- **P2.7 — FocusManager** (`TkvUI.Widgets`): tab-order, `focus_next`/`focus_prev` (Tab/Shift-Tab wrap), `focus_at` (hit-test click), `focus_index(-1)` clear focus, key routing `type_char`/`backspace` theo flag `focused`. `widget_selftest`: 27 → **43/43**.
+- Ghi chú compiler (đã đẩy upstream): không hỗ trợ gán field qua chain `list[i].field` — viết qua biến tạm; các hàm trả record cần return thật (dùng `empty_textfield()` placeholder thay vì `0`).
+- Full verify: **TKVUI_VERIFY_OK** (12 PASS / 0 FAIL / 2 SKIPPED).
+
 ## 2.2.2 — P2.3 half-resolution blur (2026-09-17)
 
 - `TkvUI.Effects` thêm `half_res_blur()`: downsample 2× (trung bình khối 2×2, khử alias) → `box_blur_pass` radius/2 trên buffer nhỏ → upsample nearest-neighbor. Yêu cầu buffer phụ chỉ w×h/4.

@@ -58,10 +58,10 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `graphics_selftest` | 29/29 PASS |
 | `text_selftest` | 46/46 PASS (kèm benchmark: atlas ~4.2× nhanh hơn classic) |
 | `effects_selftest` | 29/29 PASS (kèm benchmark blur: sliding-window O(1)/px; **half-res blur ~2.5× nhanh hơn** full-res) |
-| `platform_selftest` | 24/24 PASS |
+| `platform_selftest` | 24/24 PASS (**present ghi trực tiếp DIB memory-mapped** thay vì SetPixelV — P2.4) |
 | `input_selftest` | 41/41 PASS |
 | `layout_selftest` | 50/50 PASS |
-| `widget_selftest` | 27/27 PASS |
+| `widget_selftest` | 43/43 PASS (gồm FocusManager: Tab/Shift-Tab, hit-test, key routing) |
 | `TkvUI.Live` | `TKVUI_LIVE_OK` (27/27) |
 | `TkvUI.DemoMobile` | `TKVUI_MOBILE_OK` (6/6) |
 | `TkvUI.AndroidDemo` / `IOSDemo` | `*_SKIPPED` trên Windows (backend mobile cần thiết bị thật) |
