@@ -116,6 +116,7 @@ selftest 299 check, packaging .tkvpkg/.nupkg đầy đủ.
 
 ### 1. Quick wins (1–3 ngày mỗi mục)
 
+> **Trạng thái sau v2.3.0 (2026-09-17):** 4/5 mục đã xong — present memory-mapped (P2.4, làm bằng file-mapping thay vì BitBlt), áp half-res blur (P2.5), FocusManager (P2.7), cache char_code (P2.6). Còn lại: **Bilinear upsample**.
 | Item | Chi tiết | Tác dụng |
 |---|---|---|
 | **BitBlt present** ⭐ | Thay per-pixel `SetPixelV` trong `presentDiff` bằng `gdi_bit_blt` (pinvoke đã có trong Platform, chưa dùng) | Điểm nóng lớn nhất còn lại: presentDiff từng đo ~430ms/frame (roadmap §7.6); blit cả DIB 1 lần có thể xuống vài ms |
