@@ -491,9 +491,131 @@ class MvTableState:
                 shown = shown + 1
             k = k + 1
         return shown
+def mv_render_typed(st: "MvTableState", buf: "list[i64]", surf: "PixelSurface", mode: "i32", headers: "list[str]", cells: "list[str]", widths: "list[f64]", ncols: "i32", ctypes: "list[i32]", order: "list[i32]", visible: "list[int]") -> "i32":
+    # Giong render nhung moi cot ve theo kind (0=text,1=check,2=progress,
+    # 3=slider) qua mv_paint_cell. ctypes thieu -> text.
+    # NOTE: de la ham module (khong phai method) vi method call 11 params
+    # crash runtime (method dispatch limit) - xem P4 notes.
+    pal = os_palette_for_mode(mode)
+    r = Rect2D(st.bx, st.by, st.bw, st.bh)
+    fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+    stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+    x = st.bx - st.scroll_x
+    i = int(0)
+    while i < ncols:
+        w = 80.0
+        if i < len(widths):
+            w = widths[i]
+        hr = Rect2D(x, st.by, w, 24.0)
+        fill_round_rect(buf, surf, hr, 0.0, os_header_bg(pal, 0))
+        if i < len(headers):
+            draw_string(buf, surf, headers[i], x + 4.0, st.by + 8.0, 1.0, os_role_color(pal, 1))
+        if i == st.sort_col:
+            sx = x + w - 12.0
+            if st.sort_dir == 1:
+                draw_line(buf, surf, sx, st.by + 16.0, sx + 4.0, st.by + 8.0, 1.5, os_role_color(pal, 1))
+                draw_line(buf, surf, sx + 4.0, st.by + 8.0, sx + 8.0, st.by + 16.0, 1.5, os_role_color(pal, 1))
+            else:
+                draw_line(buf, surf, sx, st.by + 8.0, sx + 4.0, st.by + 16.0, 1.5, os_role_color(pal, 1))
+                draw_line(buf, surf, sx + 4.0, st.by + 16.0, sx + 8.0, st.by + 8.0, 1.5, os_role_color(pal, 1))
+        x = x + w
+        i = i + 1
+    draw_line(buf, surf, st.bx, st.by + 24.0, st.bx + st.bw, st.by + 24.0, 1.0, os_separator_color(pal))
+    shown = int(0)
+    k = int(0)
+    nrows = mv_row_count(cells, ncols)
+    while k < nrows:
+        row = k
+        if k < len(order):
+            row = order[k]
+        vis = 1
+        if row < len(visible):
+            vis = visible[row]
+        if vis == 1:
+            y = st.by + 24.0 + float(shown) * 22.0 - st.scroll_y
+            if y + 22.0 > st.by + 24.0:
+                if y < st.by + st.bh:
+                    xx = st.bx - st.scroll_x
+                    j = int(0)
+                    while j < ncols:
+                        w2 = 80.0
+                        if j < len(widths):
+                            w2 = widths[j]
+                        sel = 0
+                        if row == st.sel_row:
+                            if j == st.sel_col:
+                                sel = 1
+                        cr2 = Rect2D(xx, y, w2, 22.0)
+                        fill_round_rect(buf, surf, cr2, 0.0, os_row_bg(pal, shown, sel))
+                        kind = 0
+                        if j < len(ctypes):
+                            kind = ctypes[j]
+                        cuv = mv_cell_get(cells, ncols, row, j)
+                        cun = mv_parse_int(cuv)
+                        if kind == 1:
+                            if cun == 0:
+                                if cuv != "":
+                                    if cuv != "0":
+                                        cun = 1
+                        mv_paint_cell(buf, surf, pal, xx, y, w2, 22.0, kind, cuv, cun, sel)
+                        j = j + 1
+                        xx = xx + w2
+            shown = shown + 1
+        k = k + 1
+    return shown
 
 def make_mv_table(x: "f64", y: "f64", w: "f64", h: "f64") -> "MvTableState":
     return MvTableState(x, y, w, h, -1, -1, -1, 0, 0.0, 0.0)
+
+def mv_paint_cell(buf: "list[i64]", surf: "PixelSurface", pal: "OsPalette", x: "f64", y: "f64", w: "f64", h: "f64", kind: "i32", text: "str", num: "i32", sel: "i32") -> "i32":
+    # Ve NOI DUNG cell (nen/selection do caller ve): 0=text, 1=check,
+    # 2=progress (num 0-100), 3=slider (num 0-100). La tra ve 1.
+    fg = os_row_fg(pal, sel)
+    if kind == 1:
+        bx = x + 4.0
+        by = y + 5.0
+        br = Rect2D(bx, by, 12.0, 12.0)
+        fill_round_rect(buf, surf, br, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, br, 2.0, 1.0, os_separator_color(pal))
+        if num != 0:
+            draw_line(buf, surf, bx + 3.0, by + 3.0, bx + 9.0, by + 9.0, 1.5, fg)
+            draw_line(buf, surf, bx + 9.0, by + 3.0, bx + 3.0, by + 9.0, 1.5, fg)
+        return 1
+    if kind == 2:
+        bw = w - 8.0
+        if bw < 0.0:
+            bw = 0.0
+        fw = bw * float(num) / 100.0
+        if fw < 0.0:
+            fw = 0.0
+        if fw > bw:
+            fw = bw
+        br = Rect2D(x + 4.0, y + 6.0, bw, 10.0)
+        fill_round_rect(buf, surf, br, 2.0, os_progress_bg(pal))
+        if fw > 0.0:
+            fr = Rect2D(x + 4.0, y + 6.0, fw, 10.0)
+            fill_round_rect(buf, surf, fr, 2.0, os_progress_chunk(pal, 0))
+        return 1
+    if kind == 3:
+        bw = w - 8.0
+        if bw < 0.0:
+            bw = 0.0
+        gy = y + 10.0
+        draw_line(buf, surf, x + 4.0, gy, x + 4.0 + bw, gy, 2.0, os_slider_groove(pal))
+        ratio = float(num) / 100.0
+        if ratio < 0.0:
+            ratio = 0.0
+        if ratio > 1.0:
+            ratio = 1.0
+        hw = 10.0
+        if hw > bw:
+            hw = bw
+        hx = x + 4.0 + (bw - hw) * ratio
+        hr = Rect2D(hx, y + 5.0, hw, 12.0)
+        fill_round_rect(buf, surf, hr, 2.0, os_slider_handle(pal, 0))
+        return 1
+    draw_string(buf, surf, text, x + 4.0, y + 7.0, 1.0, fg)
+    return 1
 
 # =========================================================
 # MvStringList - model 1 cot don gian
@@ -759,6 +881,25 @@ def mv_seed_visible(n: "i32") -> "list[int]":
         i = i + 1
     return out
 
+def mv_ink_rect(buf: "list[i64]", stride: "i32", x0: "i32", y0: "i32", x1: "i32", y1: "i32") -> "i32":
+    # 1 neu co pixel != 0 trong vung, else 0 (cho assert paint smoke-test).
+    if mv_ink_count(buf, stride, x0, y0, x1, y1) > 0:
+        return 1
+    return 0
+
+def mv_ink_count(buf: "list[i64]", stride: "i32", x0: "i32", y0: "i32", x1: "i32", y1: "i32") -> "i32":
+    # Dem pixel != 0 trong vung (cho so sanh more/less).
+    c = int(0)
+    y = y0
+    while y < y1:
+        x = x0
+        while x < x1:
+            if buf[y * stride + x] != 0:
+                c = c + 1
+            x = x + 1
+        y = y + 1
+    return c
+
 def data_selftest() -> "str":
     print("== TkvUI.Data selftest ==")
     acc = [int(0), int(0)]
@@ -820,6 +961,53 @@ def data_selftest() -> "str":
     cells0 = []
     ord0 = mv_seed_order(0)
     mvcheck_i(acc, "sort.empty", mv_sort_build(cells0, 3, 1, 1, ord0), 0)
+    # delegates: text/check/progress/slider paint + render_typed
+    pal0 = os_palette_for_mode(0)
+    dsurf = PixelSurface(120, 60, 120)
+    dbuf = []
+    di = int(0)
+    while di < 7200:
+        dbuf.append(0)
+        di = di + 1
+    mvcheck_i(acc, "dlg.text", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 0.0, 60.0, 22.0, 0, "Hi", 0, 0), 1)
+    mvcheck_i(acc, "dlg.text.ink", mv_ink_rect(dbuf, 120, 0, 0, 60, 22), 1)
+    mvcheck_i(acc, "dlg.check.off", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 0.0, 60.0, 22.0, 1, "0", 0, 0), 1)
+    off1 = mv_ink_count(dbuf, 120, 0, 0, 20, 22)
+    mvcheck_i(acc, "dlg.check.on", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 0.0, 60.0, 22.0, 1, "1", 1, 0), 1)
+    on1 = mv_ink_count(dbuf, 120, 0, 0, 20, 22)
+    dmore = 0
+    if on1 > off1:
+        dmore = 1
+    mvcheck(acc, "dlg.check.more", dmore)
+    mvcheck_i(acc, "dlg.prog.0", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 24.0, 100.0, 22.0, 2, "0", 0, 0), 1)
+    pix0 = dbuf[35 * 120 + 50]
+    mvcheck_i(acc, "dlg.prog.100", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 24.0, 100.0, 22.0, 2, "100", 100, 0), 1)
+    pix100 = dbuf[35 * 120 + 50]
+    dmore2 = 0
+    if pix100 != pix0:
+        dmore2 = 1
+    mvcheck(acc, "dlg.prog.more", dmore2)
+    mvcheck_i(acc, "dlg.slider", mv_paint_cell(dbuf, dsurf, pal0, 0.0, 24.0, 100.0, 22.0, 3, "50", 50, 0), 1)
+    # render_typed: 2 rows (text + check), ctypes thieu -> text
+    t2 = make_mv_table(0.0, 0.0, 120.0, 60.0)
+    hd = []
+    hd.append("A")
+    hd.append("B")
+    cw = []
+    cw.append(50.0)
+    cw.append(50.0)
+    c3 = []
+    c3.append("x")
+    c3.append("1")
+    c3.append("y")
+    c3.append("0")
+    o3 = mv_seed_order(2)
+    v3 = mv_seed_visible(2)
+    ct3 = []
+    ct3.append(0)
+    ct3.append(1)
+    mvcheck_i(acc, "dlg.rtyped", mv_render_typed(t2, dbuf, dsurf, 0, hd, c3, cw, 2, ct3, o3, v3), 2)
+    mvcheck_i(acc, "dlg.rtyped.ink", mv_ink_rect(dbuf, 120, 0, 0, 120, 60), 1)
     # table state
     st = make_mv_table(0.0, 0.0, 300.0, 200.0)
     st.select(1, 2, 3, 3)

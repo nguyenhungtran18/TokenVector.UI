@@ -1,0 +1,1202 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Theme - OS native-look theme engine (Phase 1).
+
+Phu thuoc: TkvUI.Core (ColorRgba). KHONG phu thuoc Widgets (DAG: Widgets <- Theme).
+
+Quy uoc compiler (xem docs/TkvUI.Roadmap.md S0):
+- Record KHONG chua field list/color-record ngoai file -> OsPalette luu mau
+  duoi dang i64 phang (4 kenh x 13 role). Tra ve ColorRgba (record import)
+  o return la HOP LE, chi cam o FIELD.
+- Moi local 1 kieu; float(...) tuong minh; int(...) chi literal nguyen;
+  khong tron int-bien x f64; counter khoi tao int(0); nhan ASCII.
+
+Cac ten dung prefix os_* / Os* de tranh trung khi merge import.
+"""
+__tkv_import__ = ["TkvUI.Core"]
+
+# =========================================================
+# COLOR ROLES (tuong duong Qt QPalette roles)
+# =========================================================
+OS_ROLE_WINDOW = 0
+OS_ROLE_WINDOWTEXT = 1
+OS_ROLE_BASE = 2
+OS_ROLE_ALTERNATEBASE = 3
+OS_ROLE_TOOLTIPBASE = 4
+OS_ROLE_TOOLTIPTEXT = 5
+OS_ROLE_TEXT = 6
+OS_ROLE_BUTTON = 7
+OS_ROLE_BUTTONTEXT = 8
+OS_ROLE_BRIGHTTEXT = 9
+OS_ROLE_LINK = 10
+OS_ROLE_HIGHLIGHT = 11
+OS_ROLE_HIGHLIGHTEDTEXT = 12
+OS_ROLE_COUNT = 13
+
+# Widget states
+OS_STATE_NORMAL = 0
+OS_STATE_HOVER = 1
+OS_STATE_PRESSED = 2
+OS_STATE_DISABLED = 3
+OS_STATE_CHECKED = 4
+OS_STATE_FOCUS = 5
+
+# Theme modes
+OS_MODE_LIGHT = 0
+OS_MODE_DARK = 1
+OS_MODE_HIGHCONTRAST = 2
+
+# =========================================================
+# OsPalette - 13 roles x RGBA, luu phang i64
+# =========================================================
+class OsPalette:
+    window_r: "i64"
+    window_g: "i64"
+    window_b: "i64"
+    window_a: "i64"
+    windowtext_r: "i64"
+    windowtext_g: "i64"
+    windowtext_b: "i64"
+    windowtext_a: "i64"
+    base_r: "i64"
+    base_g: "i64"
+    base_b: "i64"
+    base_a: "i64"
+    altbase_r: "i64"
+    altbase_g: "i64"
+    altbase_b: "i64"
+    altbase_a: "i64"
+    tipbase_r: "i64"
+    tipbase_g: "i64"
+    tipbase_b: "i64"
+    tipbase_a: "i64"
+    tiptext_r: "i64"
+    tiptext_g: "i64"
+    tiptext_b: "i64"
+    tiptext_a: "i64"
+    text_r: "i64"
+    text_g: "i64"
+    text_b: "i64"
+    text_a: "i64"
+    button_r: "i64"
+    button_g: "i64"
+    button_b: "i64"
+    button_a: "i64"
+    buttontext_r: "i64"
+    buttontext_g: "i64"
+    buttontext_b: "i64"
+    buttontext_a: "i64"
+    brighttext_r: "i64"
+    brighttext_g: "i64"
+    brighttext_b: "i64"
+    brighttext_a: "i64"
+    link_r: "i64"
+    link_g: "i64"
+    link_b: "i64"
+    link_a: "i64"
+    highlight_r: "i64"
+    highlight_g: "i64"
+    highlight_b: "i64"
+    highlight_a: "i64"
+    highlighttext_r: "i64"
+    highlighttext_g: "i64"
+    highlighttext_b: "i64"
+    highlighttext_a: "i64"
+    def __init__(self, window_r, window_g, window_b, window_a, windowtext_r, windowtext_g, windowtext_b, windowtext_a, base_r, base_g, base_b, base_a, altbase_r, altbase_g, altbase_b, altbase_a, tipbase_r, tipbase_g, tipbase_b, tipbase_a, tiptext_r, tiptext_g, tiptext_b, tiptext_a, text_r, text_g, text_b, text_a, button_r, button_g, button_b, button_a, buttontext_r, buttontext_g, buttontext_b, buttontext_a, brighttext_r, brighttext_g, brighttext_b, brighttext_a, link_r, link_g, link_b, link_a, highlight_r, highlight_g, highlight_b, highlight_a, highlighttext_r, highlighttext_g, highlighttext_b, highlighttext_a):
+        self.window_r = window_r
+        self.window_g = window_g
+        self.window_b = window_b
+        self.window_a = window_a
+        self.windowtext_r = windowtext_r
+        self.windowtext_g = windowtext_g
+        self.windowtext_b = windowtext_b
+        self.windowtext_a = windowtext_a
+        self.base_r = base_r
+        self.base_g = base_g
+        self.base_b = base_b
+        self.base_a = base_a
+        self.altbase_r = altbase_r
+        self.altbase_g = altbase_g
+        self.altbase_b = altbase_b
+        self.altbase_a = altbase_a
+        self.tipbase_r = tipbase_r
+        self.tipbase_g = tipbase_g
+        self.tipbase_b = tipbase_b
+        self.tipbase_a = tipbase_a
+        self.tiptext_r = tiptext_r
+        self.tiptext_g = tiptext_g
+        self.tiptext_b = tiptext_b
+        self.tiptext_a = tiptext_a
+        self.text_r = text_r
+        self.text_g = text_g
+        self.text_b = text_b
+        self.text_a = text_a
+        self.button_r = button_r
+        self.button_g = button_g
+        self.button_b = button_b
+        self.button_a = button_a
+        self.buttontext_r = buttontext_r
+        self.buttontext_g = buttontext_g
+        self.buttontext_b = buttontext_b
+        self.buttontext_a = buttontext_a
+        self.brighttext_r = brighttext_r
+        self.brighttext_g = brighttext_g
+        self.brighttext_b = brighttext_b
+        self.brighttext_a = brighttext_a
+        self.link_r = link_r
+        self.link_g = link_g
+        self.link_b = link_b
+        self.link_a = link_a
+        self.highlight_r = highlight_r
+        self.highlight_g = highlight_g
+        self.highlight_b = highlight_b
+        self.highlight_a = highlight_a
+        self.highlighttext_r = highlighttext_r
+        self.highlighttext_g = highlighttext_g
+        self.highlighttext_b = highlighttext_b
+        self.highlighttext_a = highlighttext_a
+
+def os_palette_light() -> "OsPalette":
+    # Win32 light defaults: window trang, button xam nhat, highlight xanh
+    return OsPalette(255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 240, 240, 240, 255, 255, 255, 225, 255, 0, 0, 0, 255, 0, 0, 0, 255, 229, 229, 229, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 255, 255, 0, 102, 204, 255, 255, 255, 255, 255)
+
+def os_palette_dark() -> "OsPalette":
+    # Win32 dark: nen 30/30/30, chu 212, button 58, highlight xanh giu nguyen
+    return OsPalette(30, 30, 30, 255, 212, 212, 212, 255, 37, 37, 38, 255, 58, 58, 60, 255, 43, 43, 43, 255, 212, 212, 212, 255, 212, 212, 212, 255, 58, 58, 60, 255, 212, 212, 212, 255, 255, 255, 255, 255, 100, 160, 255, 255, 0, 102, 204, 255, 255, 255, 255, 255)
+
+def os_palette_highcontrast() -> "OsPalette":
+    # HighContrast: den/trang tuyet doi, highlight vang
+    return OsPalette(0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 20, 20, 20, 255, 0, 0, 0, 255, 255, 255, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 0, 0, 0, 255)
+
+def os_palette_for_mode(mode: "i32") -> "OsPalette":
+    if mode == 1:
+        return os_palette_dark()
+    if mode == 2:
+        return os_palette_highcontrast()
+    return os_palette_light()
+
+def os_role_color(pal: "OsPalette", role: "i32") -> "ColorRgba":
+    if role == 1:
+        return ColorRgba(pal.windowtext_r, pal.windowtext_g, pal.windowtext_b, pal.windowtext_a)
+    if role == 2:
+        return ColorRgba(pal.base_r, pal.base_g, pal.base_b, pal.base_a)
+    if role == 3:
+        return ColorRgba(pal.altbase_r, pal.altbase_g, pal.altbase_b, pal.altbase_a)
+    if role == 4:
+        return ColorRgba(pal.tipbase_r, pal.tipbase_g, pal.tipbase_b, pal.tipbase_a)
+    if role == 5:
+        return ColorRgba(pal.tiptext_r, pal.tiptext_g, pal.tiptext_b, pal.tiptext_a)
+    if role == 6:
+        return ColorRgba(pal.text_r, pal.text_g, pal.text_b, pal.text_a)
+    if role == 7:
+        return ColorRgba(pal.button_r, pal.button_g, pal.button_b, pal.button_a)
+    if role == 8:
+        return ColorRgba(pal.buttontext_r, pal.buttontext_g, pal.buttontext_b, pal.buttontext_a)
+    if role == 9:
+        return ColorRgba(pal.brighttext_r, pal.brighttext_g, pal.brighttext_b, pal.brighttext_a)
+    if role == 10:
+        return ColorRgba(pal.link_r, pal.link_g, pal.link_b, pal.link_a)
+    if role == 11:
+        return ColorRgba(pal.highlight_r, pal.highlight_g, pal.highlight_b, pal.highlight_a)
+    if role == 12:
+        return ColorRgba(pal.highlighttext_r, pal.highlighttext_g, pal.highlighttext_b, pal.highlighttext_a)
+    return ColorRgba(pal.window_r, pal.window_g, pal.window_b, pal.window_a)
+
+# =========================================================
+# STATE DERIVATION - mau theo trang thai widget
+# =========================================================
+def os_mix_channel(a: "i64", b: "i64", t: "f64") -> "i64":
+    fa = float(a)
+    fb = float(b)
+    v = int(fa + (fb - fa) * t)
+    if v < 0:
+        v = 0
+    if v > 255:
+        v = 255
+    return v
+
+def os_state_color(pal: "OsPalette", role: "i32", state: "i32") -> "ColorRgba":
+    # Mau nen/chu da dieu chinh theo state: hover sang hon, pressed toi hon,
+    # disabled hoa xam, checked dung highlight.
+    base = os_role_color(pal, role)
+    if state == 1:
+        return ColorRgba(os_mix_channel(base.r, 255, 0.12), os_mix_channel(base.g, 255, 0.12), os_mix_channel(base.b, 255, 0.12), base.a)
+    if state == 2:
+        return ColorRgba(os_mix_channel(base.r, 0, 0.18), os_mix_channel(base.g, 0, 0.18), os_mix_channel(base.b, 0, 0.18), base.a)
+    if state == 3:
+        g = int((float(base.r) + float(base.g) + float(base.b)) / 3.0)
+        return ColorRgba(os_mix_channel(g, 128, 0.55), os_mix_channel(g, 128, 0.55), os_mix_channel(g, 128, 0.55), base.a)
+    if state == 4:
+        hi = os_role_color(pal, 11)
+        return ColorRgba(os_mix_channel(base.r, hi.r, 0.35), os_mix_channel(base.g, hi.g, 0.35), os_mix_channel(base.b, hi.b, 0.35), base.a)
+    return base
+
+def os_button_bg(pal: "OsPalette", state: "i32", is_default: "i32") -> "ColorRgba":
+    if is_default == 1:
+        if state == 2:
+            return os_state_color(pal, 11, 2)
+        if state == 3:
+            return os_state_color(pal, 7, 3)
+        return os_role_color(pal, 11)
+    return os_state_color(pal, 7, state)
+
+def os_button_fg(pal: "OsPalette", state: "i32", is_default: "i32") -> "ColorRgba":
+    if is_default == 1:
+        if state == 3:
+            return os_state_color(pal, 8, 3)
+        return os_role_color(pal, 12)
+    return os_state_color(pal, 8, state)
+
+def os_edit_bg(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 3:
+        return os_state_color(pal, 0, 0)
+    return os_role_color(pal, 2)
+
+def os_edit_border(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 5:
+        return os_role_color(pal, 11)
+    if state == 1:
+        return os_state_color(pal, 8, 1)
+    if state == 3:
+        return os_state_color(pal, 7, 3)
+    return os_state_color(pal, 7, 2)
+
+def os_row_bg(pal: "OsPalette", row: "i32", selected: "i32") -> "ColorRgba":
+    if selected == 1:
+        return os_role_color(pal, 11)
+    rem = row - (row // 2) * 2
+    if rem == 1:
+        return os_role_color(pal, 3)
+    return os_role_color(pal, 2)
+
+def os_row_fg(pal: "OsPalette", selected: "i32") -> "ColorRgba":
+    if selected == 1:
+        return os_role_color(pal, 12)
+    return os_role_color(pal, 6)
+
+def os_header_bg(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 1:
+        return os_state_color(pal, 7, 1)
+    if state == 2:
+        return os_state_color(pal, 7, 2)
+    return os_role_color(pal, 7)
+
+def os_tooltip_bg(pal: "OsPalette") -> "ColorRgba":
+    return os_role_color(pal, 4)
+
+def os_tooltip_fg(pal: "OsPalette") -> "ColorRgba":
+    return os_role_color(pal, 5)
+
+def os_focus_color(pal: "OsPalette") -> "ColorRgba":
+    return os_role_color(pal, 11)
+
+def os_link_color(pal: "OsPalette") -> "ColorRgba":
+    return os_role_color(pal, 10)
+
+# =========================================================
+# OsMetrics - kich thuoc chuan theo OS
+# =========================================================
+class OsMetrics:
+    button_h: "f64"
+    button_min_w: "f64"
+    button_pad: "f64"
+    icon: "f64"
+    frame: "f64"
+    scrollbar_w: "f64"
+    edit_h: "f64"
+    combo_drop_h: "f64"
+    header_h: "f64"
+    row_h: "f64"
+    cell_pad: "f64"
+    tab_h: "f64"
+    tab_min_w: "f64"
+    menu_h: "f64"
+    menu_item_h: "f64"
+    dialog_pad: "f64"
+    radius: "f64"
+    focus_w: "f64"
+    def __init__(self, button_h, button_min_w, button_pad, icon, frame, scrollbar_w, edit_h, combo_drop_h, header_h, row_h, cell_pad, tab_h, tab_min_w, menu_h, menu_item_h, dialog_pad, radius, focus_w):
+        self.button_h = button_h
+        self.button_min_w = button_min_w
+        self.button_pad = button_pad
+        self.icon = icon
+        self.frame = frame
+        self.scrollbar_w = scrollbar_w
+        self.edit_h = edit_h
+        self.combo_drop_h = combo_drop_h
+        self.header_h = header_h
+        self.row_h = row_h
+        self.cell_pad = cell_pad
+        self.tab_h = tab_h
+        self.tab_min_w = tab_min_w
+        self.menu_h = menu_h
+        self.menu_item_h = menu_item_h
+        self.dialog_pad = dialog_pad
+        self.radius = radius
+        self.focus_w = focus_w
+
+def os_metrics_default() -> "OsMetrics":
+    return OsMetrics(24.0, 60.0, 8.0, 16.0, 1.0, 15.0, 22.0, 120.0, 24.0, 22.0, 4.0, 22.0, 60.0, 20.0, 20.0, 12.0, 6.0, 1.0)
+
+def os_metrics_scaled(m: "OsMetrics", scale: "f64") -> "OsMetrics":
+    # Nhan DPI scale cho moi kich thuoc (ban moi, giu ban goc)
+    return OsMetrics(m.button_h * scale, m.button_min_w * scale, m.button_pad * scale, m.icon * scale, m.frame, m.scrollbar_w * scale, m.edit_h * scale, m.combo_drop_h * scale, m.header_h * scale, m.row_h * scale, m.cell_pad * scale, m.tab_h * scale, m.tab_min_w * scale, m.menu_h * scale, m.menu_item_h * scale, m.dialog_pad * scale, m.radius * scale, m.focus_w)
+
+def os_metrics_for_dpi(dpi: "f64") -> "OsMetrics":
+    base = os_metrics_default()
+    s = dpi / 96.0
+    if s < 1.0:
+        s = 1.0
+    return os_metrics_scaled(base, s)
+
+# =========================================================
+# OsTheme - state chu de runtime (mode + scale + contrast)
+# =========================================================
+class OsTheme:
+    mode: "i32"
+    contrast: "i32"
+    scale: "f64"
+    rtl: "i32"
+    def __init__(self, mode, contrast, scale, rtl):
+        self.mode = mode
+        self.contrast = contrast
+        self.scale = scale
+        self.rtl = rtl
+    def set_mode(self, mode: "i32") -> "i32":
+        if mode == 0:
+            self.mode = 0
+        else:
+            if mode == 1:
+                self.mode = 1
+            else:
+                self.mode = 2
+        return self.mode
+    def toggle(self) -> "i32":
+        if self.mode == 0:
+            self.mode = 1
+        else:
+            if self.mode == 1:
+                self.mode = 0
+            else:
+                self.mode = 0
+        return self.mode
+    def set_scale(self, s: "f64") -> "f64":
+        if s < 1.0:
+            s = 1.0
+        if s > 3.0:
+            s = 3.0
+        self.scale = s
+        return self.scale
+    def set_rtl(self, v: "i32") -> "i32":
+        self.rtl = v
+        return self.rtl
+    def palette_mode(self) -> "i32":
+        if self.contrast == 1:
+            return 2
+        return self.mode
+
+def os_theme_make(mode: "i32") -> "OsTheme":
+    return OsTheme(mode, 0, 1.0, 0)
+
+def os_theme_palette(th: "OsTheme") -> "OsPalette":
+    m = th.palette_mode()
+    return os_palette_for_mode(m)
+
+def os_theme_metrics(th: "OsTheme") -> "OsMetrics":
+    base = os_metrics_default()
+    return os_metrics_scaled(base, th.scale)
+
+def os_theme_apply_mode(th: "OsTheme", mode: "i32") -> "i32":
+    return th.set_mode(mode)
+
+def os_theme_is_dark(th: "OsTheme") -> "i32":
+    if th.palette_mode() == 1:
+        return 1
+    return 0
+
+def os_theme_is_rtl(th: "OsTheme") -> "i32":
+    return th.rtl
+
+# =========================================================
+# GEOMETRY HELPERS - tinh toan layout theo metrics
+# =========================================================
+def os_button_size(m: "OsMetrics", text_w: "f64") -> "f64":
+    w = text_w + m.button_pad * 2.0
+    if w < m.button_min_w:
+        w = m.button_min_w
+    return w
+
+def os_scrollbar_thumb(track_len: "f64", page: "f64", total: "f64") -> "f64":
+    # Chieu dai con truot ti le page/total, toi thieu 20px
+    if total <= 0.0:
+        return track_len
+    t = track_len * page / total
+    if t < 20.0:
+        t = 20.0
+    if t > track_len:
+        t = track_len
+    return t
+
+def os_scrollbar_thumb_pos(track_len: "f64", thumb_len: "f64", value: "f64", minimum: "f64", maximum: "f64") -> "f64":
+    span = maximum - minimum
+    if span <= 0.0:
+        return 0.0
+    r = (value - minimum) / span
+    if r < 0.0:
+        r = 0.0
+    if r > 1.0:
+        r = 1.0
+    return (track_len - thumb_len) * r
+
+def os_progress_fill(total_w: "f64", value: "f64", minimum: "f64", maximum: "f64") -> "f64":
+    span = maximum - minimum
+    if span <= 0.0:
+        return 0.0
+    r = (value - minimum) / span
+    if r < 0.0:
+        r = 0.0
+    if r > 1.0:
+        r = 1.0
+    return total_w * r
+
+def os_slider_ratio(value: "f64", minimum: "f64", maximum: "f64") -> "f64":
+    span = maximum - minimum
+    if span <= 0.0:
+        return 0.0
+    r = (value - minimum) / span
+    if r < 0.0:
+        r = 0.0
+    if r > 1.0:
+        r = 1.0
+    return r
+
+def os_slider_value(ratio: "f64", minimum: "f64", maximum: "f64") -> "f64":
+    if ratio < 0.0:
+        ratio = 0.0
+    if ratio > 1.0:
+        ratio = 1.0
+    return minimum + (maximum - minimum) * ratio
+
+def os_tab_cell_w(total_w: "f64", count: "i32", min_w: "f64") -> "f64":
+    if count <= 0:
+        return total_w
+    w = total_w / float(count)
+    if w < min_w:
+        w = min_w
+    return w
+
+def os_tab_hit(total_w: "f64", count: "i32", min_w: "f64", px: "f64") -> "i32":
+    w = os_tab_cell_w(total_w, count, min_w)
+    if w <= 0.0:
+        return -1
+    idx = int(px / w)
+    if idx < 0:
+        return -1
+    if idx >= count:
+        return -1
+    return idx
+
+def os_list_first_visible(scroll: "f64", item_h: "f64") -> "i32":
+    if item_h <= 0.0:
+        return 0
+    f = int(scroll / item_h)
+    if f < 0:
+        f = 0
+    return f
+
+def os_list_visible_count(view_h: "f64", item_h: "f64") -> "i32":
+    if item_h <= 0.0:
+        return 0
+    return int(view_h / item_h) + 2
+
+def os_clamp_scroll(scroll: "f64", total_h: "f64", view_h: "f64") -> "f64":
+    if scroll < 0.0:
+        scroll = 0.0
+    mx = total_h - view_h
+    if mx < 0.0:
+        mx = 0.0
+    if scroll > mx:
+        scroll = mx
+    return scroll
+
+def os_dialog_button_w(total_w: "f64", pad: "f64") -> "f64":
+    return (total_w - pad * 3.0) / 2.0
+
+def os_split_clamp(ratio: "f64", min_r: "f64") -> "f64":
+    if ratio < min_r:
+        ratio = min_r
+    hi = 1.0 - min_r
+    if ratio > hi:
+        ratio = hi
+    return ratio
+
+# =========================================================
+# OsAnim - animator don gian cho hover/open/fade (P8.4)
+# =========================================================
+class OsAnim:
+    value: "f64"
+    target: "f64"
+    rate: "f64"
+    done: "i32"
+    def __init__(self, value, target, rate, done):
+        self.value = value
+        self.target = target
+        self.rate = rate
+        self.done = done
+    def set_target(self, t: "f64") -> "f64":
+        self.target = t
+        self.done = 0
+        return t
+    def step(self, dt: "f64") -> "i32":
+        if self.done == 1:
+            self.value = self.target
+            return 1
+        d = self.target - self.value
+        dv = self.rate * dt
+        if d > 0.0:
+            self.value = self.value + dv
+            if self.value >= self.target:
+                self.value = self.target
+                self.done = 1
+        else:
+            if d < 0.0:
+                self.value = self.value - dv
+                if self.value <= self.target:
+                    self.value = self.target
+                    self.done = 1
+            else:
+                self.done = 1
+        return self.done
+    def ratio(self, lo: "f64", hi: "f64") -> "f64":
+        span = hi - lo
+        if span <= 0.0:
+            return 1.0
+        r = (self.value - lo) / span
+        if r < 0.0:
+            r = 0.0
+        if r > 1.0:
+            r = 1.0
+        return r
+
+def os_anim_make(value: "f64", rate: "f64") -> "OsAnim":
+    return OsAnim(value, value, rate, 1)
+
+def os_anim_open(rate: "f64") -> "OsAnim":
+    a = OsAnim(0.0, 1.0, rate, 0)
+    return a
+
+def os_anim_ease(t: "f64") -> "f64":
+    # Smoothstep: 0->0, 1->1, giua muot (dung cho open/fade polish)
+    if t < 0.0:
+        t = 0.0
+    if t > 1.0:
+        t = 1.0
+    return t * t * (3.0 - 2.0 * t)
+
+def os_anim_lerp(a: "f64", b: "f64", t: "f64") -> "f64":
+    e = os_anim_ease(t)
+    return a + (b - a) * e
+
+def os_anim_hover_state(v: "f64") -> "i32":
+    # Native widgets state roi rac: quantize anim value -> 0/1
+    if v >= 0.5:
+        return 1
+    return 0
+
+# =========================================================
+# RTL MIRROR - doi truc x trong container (P8.5)
+# =========================================================
+def os_mirror_x(x: "f64", w: "f64", container_w: "f64") -> "f64":
+    return container_w - x - w
+
+def os_mirror_rect(x: "f64", w: "f64", container_w: "f64") -> "f64":
+    return os_mirror_x(x, w, container_w)
+
+def os_apply_rtl(x: "f64", w: "f64", container_w: "f64", rtl: "i32") -> "f64":
+    if rtl == 1:
+        return os_mirror_x(x, w, container_w)
+    return x
+
+# =========================================================
+# STANDARD PIXMAP IDS (tai lieu, than method dung literal so)
+# =========================================================
+OS_SP_INFO = 0
+OS_SP_WARNING = 1
+OS_SP_CRITICAL = 2
+OS_SP_QUESTION = 3
+OS_SP_DIR = 12
+OS_SP_DIR_OPEN = 13
+OS_SP_FILE = 17
+OS_SP_ARROW_UP = 45
+OS_SP_ARROW_DOWN = 46
+OS_SP_ARROW_LEFT = 47
+OS_SP_ARROW_RIGHT = 48
+OS_SP_MEDIA_PLAY = 55
+OS_SP_MEDIA_STOP = 56
+OS_SP_MEDIA_PAUSE = 57
+
+# =========================================================
+# EXTRA ROLE HELPERS - dung cho Native widgets
+# =========================================================
+def os_separator_color(pal: "OsPalette") -> "ColorRgba":
+    return os_state_color(pal, 7, 2)
+
+def os_disabled_text(pal: "OsPalette") -> "ColorRgba":
+    return os_state_color(pal, 8, 3)
+
+def os_menu_bg(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 1:
+        return os_role_color(pal, 11)
+    return os_role_color(pal, 0)
+
+def os_menu_fg(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 1:
+        return os_role_color(pal, 12)
+    if state == 3:
+        return os_state_color(pal, 0, 3)
+    return os_role_color(pal, 0)
+
+def os_menu_fg_fixed(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    # Chu menu: hover dung highlighted-text, disabled xam, thuong window-text
+    if state == 1:
+        return os_role_color(pal, 12)
+    if state == 3:
+        return os_state_color(pal, 8, 3)
+    return os_role_color(pal, 1)
+
+def os_tab_bg(pal: "OsPalette", selected: "i32", state: "i32") -> "ColorRgba":
+    if selected == 1:
+        return os_role_color(pal, 0)
+    return os_state_color(pal, 7, state)
+
+def os_tab_fg(pal: "OsPalette", selected: "i32", state: "i32") -> "ColorRgba":
+    if state == 3:
+        return os_state_color(pal, 8, 3)
+    if selected == 1:
+        return os_role_color(pal, 1)
+    return os_state_color(pal, 8, state)
+
+def os_progress_bg(pal: "OsPalette") -> "ColorRgba":
+    return os_state_color(pal, 7, 0)
+
+def os_progress_chunk(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 3:
+        return os_state_color(pal, 11, 3)
+    return os_role_color(pal, 11)
+
+def os_slider_groove(pal: "OsPalette") -> "ColorRgba":
+    return os_state_color(pal, 7, 2)
+
+def os_slider_handle(pal: "OsPalette", state: "i32") -> "ColorRgba":
+    if state == 1:
+        return os_state_color(pal, 11, 1)
+    if state == 2:
+        return os_state_color(pal, 11, 2)
+    return os_role_color(pal, 11)
+
+def os_spin_button_w(m: "OsMetrics") -> "f64":
+    return m.edit_h
+
+def os_tooltip_pad(m: "OsMetrics") -> "f64":
+    return m.cell_pad + 2.0
+
+def os_group_title_h(m: "OsMetrics") -> "f64":
+    return m.edit_h - 6.0
+
+def os_status_height(m: "OsMetrics") -> "f64":
+    return m.menu_h + 2.0
+
+def os_toolbar_height(m: "OsMetrics") -> "f64":
+    return m.button_h + 6.0
+
+def os_icon_text_gap(m: "OsMetrics") -> "f64":
+    return m.cell_pad
+
+def os_tree_indent(m: "OsMetrics") -> "f64":
+    return m.icon + 2.0
+
+def os_check_size(m: "OsMetrics") -> "f64":
+    # O tieu chuan 13px theo metrics mac dinh, ti le voi button_h
+    return 13.0 * m.button_h / 24.0
+
+# =========================================================
+# STYLESHEET v1 - selectors + cascade tren palette (QSS subset).
+# Cu phap: `Type { prop: #hex; }`, `Type.class`, `Type#id` (1 selector/rule).
+# Props = ten role palette (button, text, window...); value #RRGGBB/#RGB.
+# Cascade: type -> class -> id (sau thang truoc); cung muc sau thang.
+# Luu flat parallel lists (khong dict). Malformed -> bo rule, khong crash.
+# =========================================================
+def os_hex_val(ch: "str") -> "i32":
+    if ch == "0":
+        return 0
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    if ch == "6":
+        return 6
+    if ch == "7":
+        return 7
+    if ch == "8":
+        return 8
+    if ch == "9":
+        return 9
+    if ch == "a" or ch == "A":
+        return 10
+    if ch == "b" or ch == "B":
+        return 11
+    if ch == "c" or ch == "C":
+        return 12
+    if ch == "d" or ch == "D":
+        return 13
+    if ch == "e" or ch == "E":
+        return 14
+    if ch == "f" or ch == "F":
+        return 15
+    return -1
+
+def os_style_trim(s: "str") -> "str":
+    a = int(0)
+    b = len(s)
+    while a < b:
+        c = s[a]
+        if c == " " or c == "\t" or c == "\n" or c == "\r":
+            a = a + 1
+        else:
+            break
+    while b > a:
+        c = s[b - 1]
+        if c == " " or c == "\t" or c == "\n" or c == "\r":
+            b = b - 1
+        else:
+            break
+    return s[a:b]
+
+def os_style_parse(src: "str", kinds: "list[i32]", names: "list[str]", props: "list[str]", rs: "list[i32]", gs: "list[i32]", bs: "list[i32]", als: "list[i32]") -> "i32":
+    # Parse stylesheet, append rules vao lists song song. Tra so rule.
+    n = len(src)
+    i = int(0)
+    count = int(0)
+    while i < n:
+        while i < n:
+            c = src[i]
+            if c == " " or c == "\t" or c == "\n" or c == "\r" or c == ";":
+                i = i + 1
+            else:
+                break
+        if i >= n:
+            break
+        sel = ""
+        while i < n:
+            if src[i] == "{":
+                break
+            sel = sel + src[i]
+            i = i + 1
+        if i >= n:
+            break
+        i = i + 1
+        sel = os_style_trim(sel)
+        dot = -1
+        hash = -1
+        k = int(0)
+        while k < len(sel):
+            if sel[k] == ".":
+                if dot < 0:
+                    dot = k
+            if sel[k] == "#":
+                if hash < 0:
+                    hash = k
+            k = k + 1
+        kind = -1
+        rname = ""
+        if hash >= 0:
+            kind = 2
+            rname = sel[hash + 1:len(sel)]
+        else:
+            if dot >= 0:
+                kind = 1
+                rname = sel[dot + 1:len(sel)]
+            else:
+                if len(sel) > 0:
+                    kind = 0
+                    rname = sel
+        if kind < 0 or len(rname) == 0:
+            while i < n:
+                if src[i] == "}":
+                    break
+                i = i + 1
+            if i < n:
+                i = i + 1
+        else:
+            while i < n:
+                if src[i] == "}":
+                    break
+                while i < n:
+                    c = src[i]
+                    if c == " " or c == "\t" or c == "\n" or c == "\r" or c == ";":
+                        i = i + 1
+                    else:
+                        break
+                if i < n:
+                    if src[i] == "}":
+                        break
+                chunk = ""
+                while i < n:
+                    if src[i] == ";" or src[i] == "}":
+                        break
+                    chunk = chunk + src[i]
+                    i = i + 1
+                cp = 0
+                while cp < len(chunk):
+                    if chunk[cp] == ":":
+                        break
+                    cp = cp + 1
+                if cp < len(chunk):
+                    prop = os_style_trim(chunk[0:cp])
+                    val = os_style_trim(chunk[cp + 1:len(chunk)])
+                    r = int(0)
+                    g = int(0)
+                    b = int(0)
+                    a = int(255)
+                    okh = 0
+                    if len(val) == 7:
+                        if val[0] == "#":
+                            r1 = os_hex_val(val[1])
+                            r0 = os_hex_val(val[2])
+                            g1 = os_hex_val(val[3])
+                            g0 = os_hex_val(val[4])
+                            b1 = os_hex_val(val[5])
+                            b0 = os_hex_val(val[6])
+                            if r1 >= 0 and r0 >= 0 and g1 >= 0 and g0 >= 0 and b1 >= 0 and b0 >= 0:
+                                r = r1 * 16 + r0
+                                g = g1 * 16 + g0
+                                b = b1 * 16 + b0
+                                okh = 1
+                    else:
+                        if len(val) == 4:
+                            if val[0] == "#":
+                                r1 = os_hex_val(val[1])
+                                g1 = os_hex_val(val[2])
+                                b1 = os_hex_val(val[3])
+                                if r1 >= 0 and g1 >= 0 and b1 >= 0:
+                                    r = r1 * 17
+                                    g = g1 * 17
+                                    b = b1 * 17
+                                    okh = 1
+                    if okh == 1:
+                        if len(prop) > 0:
+                                    kinds.append(kind)
+                                    names.append(rname)
+                                    props.append(prop)
+                                    rs.append(r)
+                                    gs.append(g)
+                                    bs.append(b)
+                                    als.append(a)
+                                    count = count + 1
+                if i < n:
+                    if src[i] == ";":
+                        i = i + 1
+            if i < n:
+                i = i + 1
+    return count
+
+def os_palette_copy(p: "OsPalette") -> "OsPalette":
+    # Ban sao doc lap (xay moi qua ctor voi scalars - an toan alias).
+    return OsPalette(p.window_r, p.window_g, p.window_b, p.window_a, p.windowtext_r, p.windowtext_g, p.windowtext_b, p.windowtext_a, p.base_r, p.base_g, p.base_b, p.base_a, p.altbase_r, p.altbase_g, p.altbase_b, p.altbase_a, p.tipbase_r, p.tipbase_g, p.tipbase_b, p.tipbase_a, p.tiptext_r, p.tiptext_g, p.tiptext_b, p.tiptext_a, p.text_r, p.text_g, p.text_b, p.text_a, p.button_r, p.button_g, p.button_b, p.button_a, p.buttontext_r, p.buttontext_g, p.buttontext_b, p.buttontext_a, p.brighttext_r, p.brighttext_g, p.brighttext_b, p.brighttext_a, p.link_r, p.link_g, p.link_b, p.link_a, p.highlight_r, p.highlight_g, p.highlight_b, p.highlight_a, p.highlighttext_r, p.highlighttext_g, p.highlighttext_b, p.highlighttext_a)
+
+def os_style_set_prop(pal: "OsPalette", prop: "str", r: "i32", g: "i32", b: "i32", a: "i32") -> "i32":
+    # Gan 4 kenh theo ten role; 1 neu khop, 0 neu prop la.
+    if prop == "window":
+        pal.window_r = r
+        pal.window_g = g
+        pal.window_b = b
+        pal.window_a = a
+        return 1
+    if prop == "windowtext":
+        pal.windowtext_r = r
+        pal.windowtext_g = g
+        pal.windowtext_b = b
+        pal.windowtext_a = a
+        return 1
+    if prop == "base":
+        pal.base_r = r
+        pal.base_g = g
+        pal.base_b = b
+        pal.base_a = a
+        return 1
+    if prop == "text":
+        pal.text_r = r
+        pal.text_g = g
+        pal.text_b = b
+        pal.text_a = a
+        return 1
+    if prop == "button":
+        pal.button_r = r
+        pal.button_g = g
+        pal.button_b = b
+        pal.button_a = a
+        return 1
+    if prop == "buttontext":
+        pal.buttontext_r = r
+        pal.buttontext_g = g
+        pal.buttontext_b = b
+        pal.buttontext_a = a
+        return 1
+    if prop == "highlight":
+        pal.highlight_r = r
+        pal.highlight_g = g
+        pal.highlight_b = b
+        pal.highlight_a = a
+        return 1
+    if prop == "highlighttext":
+        pal.highlighttext_r = r
+        pal.highlighttext_g = g
+        pal.highlighttext_b = b
+        pal.highlighttext_a = a
+        return 1
+    if prop == "link":
+        pal.link_r = r
+        pal.link_g = g
+        pal.link_b = b
+        pal.link_a = a
+        return 1
+    return 0
+
+def os_style_palette(base: "OsPalette", kinds: "list[i32]", names: "list[str]", props: "list[str]", rs: "list[i32]", gs: "list[i32]", bs: "list[i32]", als: "list[i32]", wtype: "str", wid: "str", wcls: "str") -> "OsPalette":
+    # Palette moi = copy base + apply rules cascade type->class->id.
+    # Tinh 1 lan moi widget/theme-change; paint code giu nguyen.
+    out = os_palette_copy(base)
+    lvl = int(0)
+    while lvl < 3:
+        i = int(0)
+        while i < len(kinds):
+            match = 0
+            if kinds[i] == lvl:
+                if lvl == 0:
+                    if names[i] == wtype:
+                        match = 1
+                else:
+                    if lvl == 1:
+                        if names[i] == wcls:
+                            match = 1
+                    else:
+                        if names[i] == wid:
+                            match = 1
+            if match == 1:
+                os_style_set_prop(out, props[i], rs[i], gs[i], bs[i], als[i])
+            i = i + 1
+        lvl = lvl + 1
+    return out
+def oscheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def oscheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def oscheck_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def theme_selftest() -> "str":
+    print("== TkvUI.Theme selftest ==")
+    acc = [int(0), int(0)]
+    # 1-3: palette factories phan biet sang/toi
+    pl = os_palette_light()
+    pd = os_palette_dark()
+    ph = os_palette_highcontrast()
+    oscheck_i(acc, "light.window_r", pl.window_r, 255)
+    oscheck_i(acc, "dark.window_r", pd.window_r, 30)
+    oscheck_i(acc, "hc.windowtext_r", ph.windowtext_r, 255)
+    # 4-6: role lookup
+    c0 = os_role_color(pl, 0)
+    oscheck_i(acc, "role0.r", c0.r, 255)
+    c11 = os_role_color(pl, 11)
+    oscheck_i(acc, "role11.g", c11.g, 102)
+    c12 = os_role_color(pd, 12)
+    oscheck_i(acc, "dark.role12.r", c12.r, 255)
+    # 7-10: state derivation
+    ch = os_state_color(pl, 7, 1)
+    hv = ch.r - pl.button_r
+    ok_hv = 0
+    if hv > 0:
+        ok_hv = 1
+    oscheck(acc, "hover.brighter", ok_hv)
+    cp = os_state_color(pl, 7, 2)
+    dk = pl.button_r - cp.r
+    ok_dk = 0
+    if dk > 0:
+        ok_dk = 1
+    oscheck(acc, "pressed.darker", ok_dk)
+    cd = os_state_color(pl, 6, 3)
+    gr = 255 - cd.r
+    ok_gr = 0
+    if gr > 100:
+        ok_gr = 1
+    oscheck(acc, "disabled.grayish", ok_gr)
+    cn = os_state_color(pl, 7, 0)
+    oscheck_i(acc, "normal.same", cn.r, pl.button_r)
+    # 11-13: button roles
+    bb = os_button_bg(pl, 0, 0)
+    oscheck_i(acc, "btn.bg", bb.r, pl.button_r)
+    bd = os_button_bg(pl, 0, 1)
+    oscheck_i(acc, "default.bg", bd.b, 204)
+    bf = os_button_fg(pl, 0, 1)
+    oscheck_i(acc, "default.fg", bf.r, 255)
+    # 14-16: zebra rows + selection
+    r0 = os_row_bg(pl, 0, 0)
+    r1 = os_row_bg(pl, 1, 0)
+    oscheck_i(acc, "row0.base", r0.r, pl.base_r)
+    oscheck_i(acc, "row1.alt", r1.r, pl.altbase_r)
+    rs = os_row_bg(pl, 3, 1)
+    oscheck_i(acc, "row.sel", rs.g, 102)
+    # 17-18: edit
+    eb = os_edit_bg(pl, 0)
+    oscheck_i(acc, "edit.bg", eb.r, 255)
+    eo = os_edit_border(pl, 5)
+    oscheck_i(acc, "edit.focus", eo.g, 102)
+    # 19-21: metrics
+    m = os_metrics_default()
+    oscheck_f(acc, "metrics.btn_h", m.button_h, 24.0, 0.001)
+    oscheck_f(acc, "metrics.sb_w", m.scrollbar_w, 15.0, 0.001)
+    m2 = os_metrics_scaled(m, 2.0)
+    oscheck_f(acc, "metrics.scaled", m2.button_h, 48.0, 0.001)
+    # 22-26: theme state
+    th = os_theme_make(0)
+    oscheck_i(acc, "theme.mode", th.mode, 0)
+    th.set_mode(1)
+    oscheck_i(acc, "theme.set", th.mode, 1)
+    th.toggle()
+    oscheck_i(acc, "theme.toggle", th.mode, 0)
+    th.set_scale(2.0)
+    oscheck_f(acc, "theme.scale", th.scale, 2.0, 0.001)
+    oscheck_i(acc, "theme.isdark", os_theme_is_dark(th), 0)
+    # 27-28: palette/metrics theo theme
+    tp = os_theme_palette(th)
+    oscheck_i(acc, "theme.pal", tp.window_r, 255)
+    tm = os_theme_metrics(th)
+    oscheck_f(acc, "theme.metrics", tm.button_h, 48.0, 0.001)
+    # 29-34: geometry helpers
+    oscheck_f(acc, "btn.size", os_button_size(m, 40.0), 60.0, 0.001)
+    oscheck_f(acc, "btn.wide", os_button_size(m, 100.0), 116.0, 0.001)
+    oscheck_f(acc, "thumb", os_scrollbar_thumb(200.0, 50.0, 100.0), 100.0, 0.001)
+    oscheck_f(acc, "thumb.min", os_scrollbar_thumb(200.0, 1.0, 100.0), 20.0, 0.001)
+    oscheck_f(acc, "fill", os_progress_fill(200.0, 25.0, 0.0, 100.0), 50.0, 0.001)
+    oscheck_f(acc, "ratio", os_slider_ratio(25.0, 0.0, 100.0), 0.25, 0.001)
+    # 35-38: tab/list/scroll/split
+    oscheck_i(acc, "tab.hit", os_tab_hit(300.0, 3, 60.0, 150.0), 1)
+    oscheck_i(acc, "list.first", os_list_first_visible(45.0, 22.0), 2)
+    oscheck_f(acc, "scroll.clamp", os_clamp_scroll(999.0, 100.0, 200.0), 0.0, 0.001)
+    oscheck_f(acc, "split.clamp", os_split_clamp(0.05, 0.2), 0.2, 0.001)
+    # 39-46: extra helpers
+    sp = os_separator_color(pl)
+    dsp = pl.button_r - sp.r
+    ok_sp = 0
+    if dsp > 0:
+        ok_sp = 1
+    oscheck(acc, "sep.darker", ok_sp)
+    mn = os_menu_fg_fixed(pl, 1)
+    oscheck_i(acc, "menu.hover", mn.r, 255)
+    tb = os_tab_bg(pl, 1, 0)
+    oscheck_i(acc, "tab.sel", tb.r, 255)
+    pc = os_progress_chunk(pl, 0)
+    oscheck_i(acc, "prog.chunk", pc.g, 102)
+    sg = os_slider_groove(pl)
+    dsg = pl.button_r - sg.r
+    ok_sg = 0
+    if dsg > 0:
+        ok_sg = 1
+    oscheck(acc, "groove.darker", ok_sg)
+    oscheck_f(acc, "check.size", os_check_size(m), 13.0, 0.001)
+    oscheck_f(acc, "toolbar.h", os_toolbar_height(m), 30.0, 0.001)
+    oscheck_f(acc, "indent", os_tree_indent(m), 18.0, 0.001)
+    # 47-56: OsAnim (P8.4)
+    fa = os_anim_make(0.0, 4.0)
+    fa.set_target(1.0)
+    fa.step(0.1)
+    oscheck_f(acc, "anim.step", fa.value, 0.4, 0.001)
+    fa.step(10.0)
+    oscheck_i(acc, "anim.done", fa.done, 1)
+    oscheck_f(acc, "anim.clamp", fa.value, 1.0, 0.001)
+    fa.set_target(0.0)
+    fa.step(0.1)
+    oscheck_f(acc, "anim.back", fa.value, 0.6, 0.001)
+    oscheck_f(acc, "anim.ease0", os_anim_ease(0.0), 0.0, 0.001)
+    oscheck_f(acc, "anim.ease1", os_anim_ease(1.0), 1.0, 0.001)
+    oscheck_f(acc, "anim.easehalf", os_anim_ease(0.5), 0.5, 0.001)
+    oscheck_f(acc, "anim.lerp", os_anim_lerp(10.0, 20.0, 0.5), 15.0, 0.001)
+    oscheck_i(acc, "anim.hover", os_anim_hover_state(0.7), 1)
+    # 57-60: RTL mirror (P8.5)
+    oscheck_f(acc, "mirror", os_mirror_x(10.0, 80.0, 400.0), 310.0, 0.001)
+    oscheck_f(acc, "mirror.inv", os_mirror_x(os_mirror_x(10.0, 80.0, 400.0), 80.0, 400.0), 10.0, 0.001)
+    oscheck_f(acc, "rtl.off", os_apply_rtl(10.0, 80.0, 400.0, 0), 10.0, 0.001)
+    oscheck_f(acc, "rtl.on", os_apply_rtl(10.0, 80.0, 400.0, 1), 310.0, 0.001)
+    # stylesheet v1 (P4): parse + cascade + apply
+    oscheck_i(acc, "ss.hex", os_hex_val("f"), 15)
+    oscheck_i(acc, "ss.hex.bad", os_hex_val("z"), -1)
+    oscheck(acc, "ss.trim", os_style_trim("  a b  ") == "a b")
+    ssk = []
+    ssn = []
+    ssp = []
+    ssr = []
+    ssg = []
+    ssb = []
+    ssa = []
+    oscheck_i(acc, "ss.parse.n", os_style_parse("Button { button: #FF0000; }", ssk, ssn, ssp, ssr, ssg, ssb, ssa), 1)
+    oscheck_i(acc, "ss.parse.kind", ssk[0], 0)
+    oscheck(acc, "ss.parse.name", ssn[0] == "Button")
+    oscheck(acc, "ss.parse.prop", ssp[0] == "button")
+    oscheck_i(acc, "ss.parse.r", ssr[0], 255)
+    oscheck_i(acc, "ss.parse.b", ssb[0], 0)
+    ssk2 = []
+    ssn2 = []
+    ssp2 = []
+    ssr2 = []
+    ssg2 = []
+    ssb2 = []
+    ssa2 = []
+    os_style_parse("Button { button: #FF0000; } Button.danger { button: #00FF00; } Button#ok { button: #0000FF; } SpinBox { nope: #123456; } BadRule { button: red; }", ssk2, ssn2, ssp2, ssr2, ssg2, ssb2, ssa2)
+    oscheck_i(acc, "ss.parse.multi", len(ssk2), 4)
+    oscheck_i(acc, "ss.parse.cls", ssk2[1], 1)
+    oscheck_i(acc, "ss.parse.id", ssk2[2], 2)
+    oscheck(acc, "ss.parse.idname", ssn2[2] == "ok")
+    oscheck_i(acc, "ss.parse.short", ssr2[3], 18)
+    base0 = os_palette_light()
+    st1 = os_style_palette(base0, ssk2, ssn2, ssp2, ssr2, ssg2, ssb2, ssa2, "Button", "", "")
+    oscheck_i(acc, "ss.apply.type", st1.button_r, 255)
+    st2 = os_style_palette(base0, ssk2, ssn2, ssp2, ssr2, ssg2, ssb2, ssa2, "Button", "", "danger")
+    oscheck_i(acc, "ss.apply.cls", st2.button_g, 255)
+    st3 = os_style_palette(base0, ssk2, ssn2, ssp2, ssr2, ssg2, ssb2, ssa2, "Button", "ok", "danger")
+    oscheck_i(acc, "ss.apply.id", st3.button_b, 255)
+    oscheck_i(acc, "ss.apply.idonly", st3.button_r, 0)
+    st4 = os_style_palette(base0, ssk2, ssn2, ssp2, ssr2, ssg2, ssb2, ssa2, "Label", "", "")
+    oscheck_i(acc, "ss.apply.nomatch", st4.button_r, base0.button_r)
+    oscheck_i(acc, "ss.base.untouched", base0.button_r, 229)
+    print("theme: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "THEME_OK"
+    return "THEME_FAIL"
