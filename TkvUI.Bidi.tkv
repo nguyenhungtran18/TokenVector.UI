@@ -1,0 +1,1839 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Bidi - Unicode Bidirectional Algorithm (UAX #9) core
+
+Pure TokenVector implementation of Unicode Bidirectional Algorithm + HarfBuzz shaping guard.
+Phu thuoc: Core, Text (draw_string, atlas_blit_glyph, i18n bake/draw), Viet (utf8_seq_len, vi_bits), I18nData (i18n_codepoint/slot_for), Platform (tkv_has_file). Khong vong import.
+"""
+
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.Platform"]
+# HarfBuzz FFI bindings (require libharfbuzz.dll / libharfbuzz.so / libharfbuzz.dylib)
+__tkv_extern_pinvoke__ = [
+    {"name": "hb_version_string", "dll": "libharfbuzz.dll", "symbol": "hb_version_string", "convention": "cdecl", "params": [], "returns": "str"},
+    {"name": "hb_version", "dll": "libharfbuzz.dll", "symbol": "hb_version", "convention": "cdecl", "params": ["i32", "i32", "i32"], "returns": "void"},
+    {"name": "hb_buffer_create", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_create", "convention": "cdecl", "params": [], "returns": "i64"},
+    {"name": "hb_buffer_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
+    {"name": "hb_buffer_clear_contents", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_clear_contents", "convention": "cdecl", "params": ["i64"], "returns": "void"},
+    {"name": "hb_buffer_add_utf8", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_add_utf8", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32"], "returns": "void"},
+    {"name": "hb_buffer_add_utf16", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_add_utf16", "convention": "cdecl", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "void"},
+    {"name": "hb_buffer_set_direction", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_direction", "convention": "cdecl", "params": ["i64", "i32"], "returns": "void"},
+    {"name": "hb_buffer_set_script", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_script", "convention": "cdecl", "params": ["i64", "i32"], "returns": "void"},
+    {"name": "hb_buffer_set_language", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_language", "convention": "cdecl", "params": ["i64", "str"], "returns": "void"},
+    {"name": "hb_buffer_get_length", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_length", "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "hb_buffer_get_glyph_infos", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_glyph_infos", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
+    {"name": "hb_buffer_get_glyph_positions", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_glyph_positions", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
+    {"name": "hb_font_create", "dll": "libharfbuzz.dll", "symbol": "hb_font_create", "convention": "cdecl", "params": ["i64"], "returns": "i64"},
+    {"name": "hb_font_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_font_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
+    {"name": "hb_font_set_scale", "dll": "libharfbuzz.dll", "symbol": "hb_font_set_scale", "convention": "cdecl", "params": ["i64", "i32", "i32"], "returns": "void"},
+    {"name": "hb_face_create", "dll": "libharfbuzz.dll", "symbol": "hb_face_create", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
+    {"name": "hb_face_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_face_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
+    {"name": "hb_blob_create", "dll": "libharfbuzz.dll", "symbol": "hb_blob_create", "convention": "cdecl", "params": ["i64", "i32", "i64", "i32", "i64"], "returns": "i64"},
+    {"name": "hb_blob_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_blob_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
+    {"name": "hb_shape", "dll": "libharfbuzz.dll", "symbol": "hb_shape", "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "void"},
+    {"name": "hb_script_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_script_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
+    {"name": "hb_language_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_language_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
+    {"name": "hb_direction_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_direction_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
+]
+
+# Bidi character classes (UAX #9 Table 3)
+# Muc dich: phan loai ky tu de xac dinh huong van ban
+
+# Strong types
+BIDI_L   = 0   # Left-to-Right
+BIDI_R   = 1   # Right-to-Left
+BIDI_AL  = 2   # Arabic Letter
+
+# Weak types
+BIDI_EN  = 3   # European Number
+BIDI_ES  = 4   # European Separator
+BIDI_ET  = 5   # European Terminator
+BIDI_AN  = 6   # Arabic Number
+BIDI_CS  = 7   # Common Separator
+BIDI_NSM = 8   # Non-Spacing Mark
+BIDI_BN  = 9   # Boundary Neutral
+
+# Neutral types
+BIDI_B   = 10  # Paragraph Separator
+BIDI_S   = 11  # Segment Separator
+BIDI_WS  = 12  # White Space
+BIDI_ON  = 13  # Other Neutral
+
+# Explicit formatting
+BIDI_LRE = 14  # Left-to-Right Embedding
+BIDI_LRO = 15  # Left-to-Right Override
+BIDI_RLE = 16  # Right-to-Left Embedding
+BIDI_RLO = 17  # Right-to-Left Override
+BIDI_PDF = 18  # Pop Directional Format
+BIDI_LRI = 19  # Left-to-Right Isolate
+BIDI_RLI = 20  # Right-to-Left Isolate
+BIDI_FSI = 21  # First Strong Isolate
+BIDI_PDI = 22  # Pop Directional Isolate
+
+# Bidi class count
+BIDI_CLASS_COUNT = 23
+
+# Max embedding level (UAX #9: 61 levels, 0-125)
+BIDI_MAX_LEVEL = 125
+
+# Direction flags
+DIR_LTR = 0
+DIR_RTL = 1
+
+# HarfBuzz direction constants
+HB_DIRECTION_LTR = 0
+HB_DIRECTION_RTL = 1
+HB_DIRECTION_TTB = 2
+HB_DIRECTION_BTT = 3
+
+# HarfBuzz script constants (subset)
+HB_SCRIPT_COMMON = 0
+HB_SCRIPT_INHERITED = 1
+HB_SCRIPT_ARABIC = 2
+HB_SCRIPT_HEBREW = 3
+HB_SCRIPT_SYRIAC = 4
+HB_SCRIPT_THAANA = 5
+HB_SCRIPT_DEVANAGARI = 6
+HB_SCRIPT_BENGALI = 7
+HB_SCRIPT_GURMUKHI = 8
+HB_SCRIPT_GUJARATI = 9
+HB_SCRIPT_ORIYA = 10
+HB_SCRIPT_TAMIL = 11
+HB_SCRIPT_TELUGU = 12
+HB_SCRIPT_KANNADA = 13
+HB_SCRIPT_MALAYALAM = 14
+HB_SCRIPT_SINHALA = 15
+HB_SCRIPT_THAI = 16
+HB_SCRIPT_LAO = 17
+HB_SCRIPT_TIBETAN = 18
+HB_SCRIPT_MYANMAR = 19
+HB_SCRIPT_GEORGIAN = 20
+HB_SCRIPT_HANGUL = 21
+HB_SCRIPT_ETHIOPIC = 22
+HB_SCRIPT_CHEROKEE = 23
+HB_SCRIPT_UNIFIED_CANADIAN_ABORIGINAL_SYLLABICS = 24
+HB_SCRIPT_OGHAM = 25
+HB_SCRIPT_RUNIC = 26
+HB_SCRIPT_KHMER = 27
+HB_SCRIPT_MONGOLIAN = 28
+HB_SCRIPT_HIRAGANA = 28
+HB_SCRIPT_KATAKANA = 29
+HB_SCRIPT_BOPOMOFO = 29
+HB_SCRIPT_HAN = 30
+HB_SCRIPT_LATIN = 31
+
+# HarfBuzz buffer flags
+HB_BUFFER_FLAG_DEFAULT = 0
+HB_BUFFER_FLAG_BOT = 1
+HB_BUFFER_FLAG_EOT = 2
+HB_BUFFER_FLAG_PRESERVE_DEFAULT_IGNORABLES = 4
+HB_BUFFER_FLAG_REMOVE_DEFAULT_IGNORABLES = 8
+HB_BUFFER_FLAG_DO_NOT_INSERT_DOTTED_CIRCLE = 16
+
+# Glyph info structure (from hb_glyph_info_t)
+class HbGlyphInfo:
+    codepoint: "i32"
+    mask: "i32"
+    cluster: "i32"
+    var1: "i32"
+    var2: "i32"
+    def __init__(self, codepoint, mask, cluster, var1, var2):
+        self.codepoint = codepoint
+        self.mask = mask
+        self.cluster = cluster
+        self.var1 = var1
+        self.var2 = var2
+
+# Glyph position structure (from hb_glyph_position_t)
+class HbGlyphPosition:
+    x_advance: "i32"
+    y_advance: "i32"
+    x_offset: "i32"
+    y_offset: "i32"
+    var: "i32"
+    def __init__(self, x_advance, y_advance, x_offset, y_offset, var):
+        self.x_advance = x_advance
+        self.y_advance = y_advance
+        self.x_offset = x_offset
+        self.y_offset = y_offset
+        self.var = var
+
+# HarfBuzz font wrapper
+class HbFont:
+    handle: "i64"
+    def __init__(self, handle):
+        self.handle = handle
+
+# HarfBuzz buffer wrapper
+class HbBuffer:
+    handle: "i64"
+    def __init__(self, handle):
+        self.handle = handle
+
+# Bidi character info record
+class BidiCharInfo:
+    ch: "str"
+    bidi_class: "i32"
+    orig_index: "i32"
+    level: "i32"
+    def __init__(self, ch, bidi_class, orig_index, level):
+        self.ch = ch
+        self.bidi_class = bidi_class
+        self.orig_index = orig_index
+        self.level = level
+
+# Paragraph info
+# Record khong chua list (rang buoc TokenVector) - chi luu text va level
+# chars duoc quan ly rieng ngoai record
+class BidiParagraph:
+    text: "str"
+    para_level: "i32"
+    def __init__(self, text, para_level):
+        self.text = text
+        self.para_level = para_level
+
+# Unicode database: bidi class for each codepoint
+# Day la bang nang luong - chi chua cac range quan trong
+# Full table se duoc load tu file hoac sinh bang code
+
+def bidi_get_class(ch: "str") -> "i32":
+    """Tra ve bidi class cua ky tu (codepoint).
+    Neu khong tim thay tra ve BIDI_L (mac dinh LTR)."""
+    if len(ch) != 1:
+        return BIDI_L
+    cp = char_code(ch)
+    
+    # ASCII control
+    ctrl_max = 31  # 0x1F
+    del_char = 127  # 0x7F
+    if cp <= ctrl_max:
+        return BIDI_BN
+    if cp == del_char:
+        return BIDI_BN
+    
+    # Space
+    if cp == 32:
+        return BIDI_WS
+    
+    # European number separator
+    plus_sign = 43
+    minus_sign = 45
+    if cp == plus_sign:
+        return BIDI_ES
+    if cp == minus_sign:
+        return BIDI_ES
+    if cp == 46:
+        return BIDI_CS
+    if cp == 47:
+        return BIDI_CS
+    
+    # Digits 0-9
+    if cp >= 48:
+        if cp <= 57:
+            return BIDI_EN
+    
+    # Colon, semicolon
+    if cp == 58:
+        return BIDI_CS
+    if cp == 59:
+        return BIDI_CS
+    
+    # @ A-Z [\]^_ ` a-z {|}~
+    if cp >= 65:
+        if cp <= 90:
+            return BIDI_L
+    if cp >= 97:
+        if cp <= 122:
+            return BIDI_L
+    
+    # Explicit formatting chars
+    if cp == 8234:
+        return BIDI_LRE
+    if cp == 8235:
+        return BIDI_RLE
+    if cp == 8236:
+        return BIDI_PDF
+    if cp == 8237:
+        return BIDI_LRO
+    if cp == 8238:
+        return BIDI_RLO
+    if cp == 8294:
+        return BIDI_LRI
+    if cp == 8295:
+        return BIDI_RLI
+    if cp == 8296:
+        return BIDI_FSI
+    if cp == 8297:
+        return BIDI_PDI
+    
+    # European number separator
+    plus_sign = 43
+    minus_sign = 45
+    dot_char = 46
+    slash_char = 47
+    if cp == plus_sign:
+        return BIDI_ES
+    if cp == minus_sign:
+        return BIDI_ES
+    if cp == dot_char:
+        return BIDI_CS
+    if cp == slash_char:
+        return BIDI_CS
+    
+    # Digits 0-9
+    zero_char = 48
+    nine_char = 57
+    if cp >= zero_char:
+        if cp <= nine_char:
+            return BIDI_EN
+    
+    # Colon, semicolon
+    colon_char = 58
+    semicolon_char = 59
+    if cp == colon_char:
+        return BIDI_CS
+    if cp == semicolon_char:
+        return BIDI_CS
+    
+    # @ A-Z [\]^_ ` a-z {|}~
+    cap_A = 65
+    cap_Z = 90
+    low_a = 97
+    low_z = 122
+    if cp >= cap_A:
+        if cp <= cap_Z:
+            return BIDI_L
+    if cp >= low_a:
+        if cp <= low_z:
+            return BIDI_L
+    
+    # Explicit formatting chars
+    lre_char = 8234
+    rle_char = 8235
+    pdf_char = 8236
+    lro_char = 8237
+    rlo_char = 8238
+    lri_char = 8294
+    rli_char = 8295
+    fsi_char = 8296
+    pdi_char = 8297
+    if cp == lre_char:
+        return BIDI_LRE
+    if cp == rle_char:
+        return BIDI_RLE
+    if cp == pdf_char:
+        return BIDI_PDF
+    if cp == lro_char:
+        return BIDI_LRO
+    if cp == rlo_char:
+        return BIDI_RLO
+    if cp == lri_char:
+        return BIDI_LRI
+    if cp == rli_char:
+        return BIDI_RLI
+    if cp == fsi_char:
+        return BIDI_FSI
+    if cp == pdi_char:
+        return BIDI_PDI
+    
+    # Arabic ranges (simplified)
+    arabic_start1 = 1536
+    arabic_end1 = 1791
+    if cp >= arabic_start1:
+        if cp <= arabic_end1:
+            return BIDI_AL
+    arabic_start2 = 1872
+    arabic_end2 = 1919
+    if cp >= arabic_start2:
+        if cp <= arabic_end2:
+            return BIDI_AL
+    arabic_start3 = 2208
+    arabic_end3 = 2303
+    if cp >= arabic_start3:
+        if cp <= arabic_end3:
+            return BIDI_AL
+    arabic_start4 = 64208
+    arabic_end4 = 65023
+    if cp >= arabic_start4:
+        if cp <= arabic_end4:
+            return BIDI_AL
+    arabic_start5 = 65008
+    arabic_end5 = 65279
+    if cp >= arabic_start5:
+        if cp <= arabic_end5:
+            return BIDI_AL
+    
+    # Hebrew
+    hebrew_start = 1424
+    hebrew_end = 1535
+    if cp >= hebrew_start:
+        if cp <= hebrew_end:
+            return BIDI_R
+    
+    # RTL scripts
+    nko_start = 1984
+    nko_end = 2047
+    if cp >= nko_start:
+        if cp <= nko_end:
+            return BIDI_R
+    samaritan_start = 2048
+    samaritan_end = 2111
+    if cp >= samaritan_start:
+        if cp <= samaritan_end:
+            return BIDI_R
+    mandaic_start = 2112
+    mandaic_end = 2143
+    if cp >= mandaic_start:
+        if cp <= mandaic_end:
+            return BIDI_R
+    syriac_start = 2144
+    syriac_end = 2159
+    if cp >= syriac_start:
+        if cp <= syriac_end:
+            return BIDI_AL
+    
+    # Default: L
+    return BIDI_L
+
+def bidi_is_strong(cls: "i32") -> "i32":
+    if cls == BIDI_L or cls == BIDI_R or cls == BIDI_AL:
+        return 1
+    return 0
+
+def bidi_is_weak(cls: "i32") -> "i32":
+    if cls >= BIDI_EN and cls <= BIDI_BN:
+        return 1
+    return 0
+
+def bidi_is_neutral(cls: "i32") -> "i32":
+    if cls >= BIDI_B and cls <= BIDI_ON:
+        return 1
+    return 0
+
+def bidi_is_explicit(cls: "i32") -> "i32":
+    if cls >= BIDI_LRE and cls <= BIDI_PDI:
+        return 1
+    return 0
+
+def bidi_is_rtl(cls: "i32") -> "i32":
+    if cls == BIDI_R or cls == BIDI_AL:
+        return 1
+    return 0
+
+def bidi_is_ltr(cls: "i32") -> "i32":
+    if cls == BIDI_L:
+        return 1
+    return 0
+
+def bidi_mirror_char(ch: "str") -> "str":
+    """Tra ve ky tu mirror neu co (UAX #9 Table 4).
+    Hien tai chi ho tro cac cap co ban."""
+    if len(ch) != 1:
+        return ch
+    cp = char_code(ch)
+    
+    # Common mirror pairs (decimal)
+    if cp == 40:
+        return ")"
+    if cp == 41:
+        return "("
+    if cp == 60:
+        return ">"
+    if cp == 62:
+        return "<"
+    if cp == 91:
+        return "]"
+    if cp == 93:
+        return "["
+    if cp == 123:
+        return "}"
+    if cp == 125:
+        return "{"
+    if cp == 171:
+        return "»"
+    if cp == 187:
+        return "«"
+    if cp == 8216:
+        return "‘"
+    if cp == 8217:
+        return "’"
+    if cp == 8220:
+        return "“"
+    if cp == 8221:
+        return "”"
+    if cp == 8249:
+        return "›"
+    if cp == 8250:
+        return "‹"
+    if cp == 8317:
+        return "⁽"
+    if cp == 8318:
+        return "⁾"
+    if cp == 8333:
+        return "₍"
+    if cp == 8334:
+        return "₎"
+    if cp == 9001:
+        return "〈"
+    if cp == 9002:
+        return "〉"
+    if cp == 12296:
+        return "〈"
+    if cp == 12297:
+        return "〉"
+    if cp == 12298:
+        return "《"
+    if cp == 12299:
+        return "》"
+    if cp == 12300:
+        return "「"
+    if cp == 12301:
+        return "」"
+    if cp == 12302:
+        return "『"
+    if cp == 12303:
+        return "』"
+    if cp == 12304:
+        return "【"
+    if cp == 12305:
+        return "】"
+    if cp == 12308:
+        return "〔"
+    if cp == 12309:
+        return "〕"
+    if cp == 12310:
+        return "〔"
+    if cp == 12311:
+        return "〕"
+    if cp == 12312:
+        return "〝"
+    if cp == 12313:
+        return "〞"
+    if cp == 12314:
+        return "〝"
+    if cp == 12315:
+        return "〞"
+    if cp == 12317:
+        return "〝"
+    if cp == 12318:
+        return "〞"
+    if cp == 12319:
+        return "〟"
+    
+    return ch
+
+# Bidi run info
+class BidiRun:
+    start: "i32"
+    limit: "i32"
+    level: "i32"
+    def __init__(self, start, limit, level):
+        self.start = start
+        self.limit = limit
+        self.level = level
+
+def bidi_paragraph_level(text: "str") -> "i32":
+    """Xac dinh paragraph embedding level (P2, P3).
+    Tim first strong character (L, R, AL).
+    Neu khong co -> mac dinh LTR (level 0)."""
+    n = len(text)
+    i = 0
+    while i < n:
+        cls = bidi_get_class(text[i])
+        if cls == BIDI_L:
+            return 0
+        if cls == BIDI_R or cls == BIDI_AL:
+            return 1
+        i = i + 1
+    return 0
+
+# Stack frame for explicit embeddings
+class BidiStackFrame:
+    level: "i32"
+    override: "i32"  # 0=none, 1=LRO, 2=RLO
+    isolate: "i32"   # 0=none, 1=LRI, 2=RLI, 3=FSI
+    def __init__(self, level, override, isolate):
+        self.level = level
+        self.override = override
+        self.isolate = isolate
+
+# =========================================================
+# HarfBuzz Wrapper API
+# =========================================================
+
+def hb_version_string_ex() -> "str":
+    """Lay version string cua HarfBuzz library."""
+    return hb_version_string()
+
+def hb_version_ex() -> "list[i32]":
+    """Lay version (major, minor, micro). Ghi vao bo nho that (ban cu truyen
+    gia tri list lam con tro -> crash)."""
+    mem = mem_alloc(12)
+    if mem == 0:
+        return [0, 0, 0]
+    hb_version(int(mem), int(mem + 4), int(mem + 8))
+    out = [mem_read_i32(mem), mem_read_i32(mem + 4), mem_read_i32(mem + 8)]
+    rc = mem_free(mem)
+    return out
+
+def hb_buffer_create_ex() -> "HbBuffer":
+    """Tao buffer moi."""
+    h = hb_buffer_create()
+    return HbBuffer(h)
+
+def hb_buffer_destroy_ex(buf: "HbBuffer") -> "i32":
+    """Giai phong buffer."""
+    hb_buffer_destroy(buf.handle)
+    return 1
+
+def hb_buffer_clear_contents_ex(buf: "HbBuffer") -> "i32":
+    """Xoa noi dung buffer."""
+    hb_buffer_clear_contents(buf.handle)
+    return 1
+
+def hb_buffer_add_utf8_ex(buf: "HbBuffer", text: "str", item_offset: "i32", item_length: "i32") -> "i32":
+    """Them text UTF-8 vao buffer."""
+    n = len(text)
+    item_len = item_length
+    if item_len < 0:
+        item_len = n - item_offset
+    hb_buffer_add_utf8(buf.handle, text, n, item_offset, item_len)
+    return 1
+
+def hb_buffer_add_utf16_ex(buf: "HbBuffer", text: "str", item_offset: "i32", item_length: "i32") -> "i32":
+    """Them text UTF-16 vao buffer (text la UTF-8, se chuyen doi)."""
+    # Note: TokenVector khong co UTF-16 native, can chuyen doi neu can
+    return 0
+
+def hb_buffer_set_direction_ex(buf: "HbBuffer", direction: "i32") -> "i32":
+    """Dat direction cho buffer (HB_DIRECTION_LTR/RTL/TTB/BTT)."""
+    hb_buffer_set_direction(buf.handle, direction)
+    return 1
+
+def hb_buffer_set_script_ex(buf: "HbBuffer", script: "i32") -> "i32":
+    """Dat script cho buffer (HB_SCRIPT_*)."""
+    hb_buffer_set_script(buf.handle, script)
+    return 1
+
+def hb_buffer_set_language_ex(buf: "HbBuffer", lang: "str") -> "i32":
+    """Dat language cho buffer (ISO 639 code, vd: 'en', 'ar', 'he')."""
+    hb_buffer_set_language(buf.handle, lang)
+    return 1
+
+def hb_buffer_get_length_ex(buf: "HbBuffer") -> "i32":
+    """Lay do dai buffer (so glyphs)."""
+    return hb_buffer_get_length(buf.handle)
+
+def hb_buffer_get_glyph_infos_ex(buf: "HbBuffer", out_infos: "list[HbGlyphInfo]") -> "i32":
+    """Lay glyph info array. out_infos phai duoc pre-allocated."""
+    n = hb_buffer_get_length(0)  # placeholder
+    # Note: Can implement lay thong tin glyph tu buffer
+    return 0
+
+def hb_buffer_get_glyph_positions_ex(buf: "HbBuffer", out_positions: "list[HbGlyphPosition]") -> "i32":
+    """Lay glyph position array."""
+    return 0
+
+def hb_font_create_ex(face_handle: "i64") -> "HbFont":
+    """Tao font tu face handle."""
+    h = hb_font_create(face_handle)
+    return HbFont(h)
+
+def hb_font_destroy_ex(font: "HbFont") -> "i32":
+    hb_font_destroy(font.handle)
+    return 1
+
+def hb_font_set_scale_ex(font: "HbFont", x_scale: "i32", y_scale: "i32") -> "i32":
+    """Dat scale cho font (trong 26.6 fixed point)."""
+    hb_font_set_scale(font.handle, x_scale, y_scale)
+    return 1
+
+def hb_face_create_ex(blob: "i64", index: "i32") -> "i64":
+    """Tao face tu blob."""
+    return hb_face_create(blob, index)
+
+def hb_face_destroy_ex(face: "i64") -> "i32":
+    hb_face_destroy(face)
+    return 1
+
+def hb_blob_create_ex(data: "i64", length: "i32", mode: "i64", user_data: "i32", destroy_func: "i64") -> "i64":
+    """Tao blob tu du lieu font."""
+    return hb_blob_create(data, length, mode, user_data, destroy_func)
+
+def hb_blob_destroy_ex(blob: "i64") -> "i32":
+    hb_blob_destroy(blob)
+    return 1
+
+def hb_shape_ex(font: "HbFont", buf: "HbBuffer", features: "i64", num_features: "i32") -> "i32":
+    """Shape text trong buffer voi font."""
+    hb_shape(font.handle, buf.handle, features, num_features)
+    return 1
+
+def hb_script_from_string_ex(script_str: "str", length: "i32") -> "i32":
+    """Chuyen string ten script thanh HB_SCRIPT_* constant."""
+    return hb_script_from_string(script_str, length)
+
+def hb_language_from_string_ex(lang_str: "str", length: "i32") -> "i32":
+    """Chuyen string ISO 639 language code thanh language handle."""
+    return hb_language_from_string(lang_str, length)
+
+def hb_direction_from_string_ex(dir_str: "str", length: "i32") -> "i32":
+    """Chuyen string direction thanh HB_DIRECTION_* constant."""
+    return hb_direction_from_string(dir_str, length)
+
+# Helper: Tao font tu file TTF/OTF
+def hb_font_from_file(font_path: "str", font_size: "f64") -> "HbFont":
+    """Tao HbFont tu file TTF/OTF.
+    Note: Can file I/O de doc file, day la placeholder."""
+    return HbFont(0)
+
+# Helper: Shape text voi HarfBuzz
+def hb_shape_text(text: "str", font_path: "str", font_size: "f64", direction: "i32" = 0, script: "i32" = 0, language: "str" = "") -> "list[HbGlyphInfo]":
+    """High-level helper: shape text voi HarfBuzz.
+    Tra ve list HbGlyphInfo."""
+    # Placeholder - can implement khi co file I/O
+    return []
+
+# =========================================================
+# Bidi + HarfBuzz Integration Helpers
+# =========================================================
+
+def bidi_hb_direction_from_para_level(para_level: "i32") -> "i32":
+    """Chuyen paragraph level sang HB_DIRECTION."""
+    if para_level % 2 == 0:
+        return HB_DIRECTION_LTR
+    return HB_DIRECTION_RTL
+
+def hb_script_from_bidi_class(bidi_class: "i32") -> "i32":
+    """Map bidi class den HB_SCRIPT_* (heuristic)."""
+    if bidi_class == BIDI_AL:
+        return HB_SCRIPT_ARABIC
+    if bidi_class == BIDI_R:
+        return HB_SCRIPT_HEBREW
+    if bidi_class == BIDI_L:
+        return HB_SCRIPT_LATIN
+    return HB_SCRIPT_COMMON
+
+def hb_lib_present() -> "i32":
+    """Probe libharfbuzz.dll (CWD hoac build/ khi chay tu repo root); 1 = co."""
+    if tkv_has_file("libharfbuzz.dll") == 1:
+        return 1
+    if tkv_has_file("build/libharfbuzz.dll") == 1:
+        return 1
+    return 0
+
+def hb_shape_full(text: "str", font_bytes: "list[i64]", direction: "i32", script: "i32", language: "str", out_gids: "list[i32]", out_advs: "list[i32]", out_clusters: "list[i32]") -> "i32":
+    """Shape that qua HarfBuzz (can libharfbuzz.dll). Chep font bytes vao bo
+    nho native, blob(DUPLICATE) -> face -> font -> buffer -> shape, doc mang
+    glyph infos/positions bang mem_read (khong can marshal struct).
+    Ghi gid/x_advance/cluster vao 3 list song song. Tra so glyph, 0 neu thieu."""
+    if hb_lib_present() == 0:
+        return 0
+    nbytes = len(font_bytes)
+    mem = mem_alloc(nbytes + 8)
+    if mem == 0:
+        return 0
+    rc = mem_copy_from_list(mem, font_bytes)
+    blob = hb_blob_create_ex(mem, nbytes, 0, 0, 0)
+    if blob == 0:
+        rc = mem_free(mem)
+        return 0
+    face = hb_face_create_ex(blob, 0)
+    if face == 0:
+        rc = hb_blob_destroy_ex(blob)
+        rc = mem_free(mem)
+        return 0
+    font = hb_font_create_ex(face)
+    if font.handle == 0:
+        rc = hb_face_destroy_ex(face)
+        rc = hb_blob_destroy_ex(blob)
+        rc = mem_free(mem)
+        return 0
+    buf = hb_buffer_create_ex()
+    rc = hb_buffer_add_utf8_ex(buf, text, 0, 0 - 1)
+    rc = hb_buffer_set_direction_ex(buf, direction)
+    rc = hb_buffer_set_script_ex(buf, script)
+    rc = hb_buffer_set_language_ex(buf, language)
+    rc = hb_shape_ex(font, buf, 0, 0)
+    n = hb_buffer_get_length_ex(buf)
+    infos = hb_buffer_get_glyph_infos(buf.handle, 0)
+    poss = hb_buffer_get_glyph_positions(buf.handle, 0)
+    i = 0
+    while i < n:
+        gid = mem_read_u32(infos + i * 8)
+        cl = mem_read_u32(infos + i * 8 + 4)
+        xa = mem_read_i32(poss + i * 16)
+        out_gids.append(int(gid))
+        out_advs.append(xa)
+        out_clusters.append(int(cl))
+        i = i + 1
+    rc = hb_buffer_destroy_ex(buf)
+    rc = hb_font_destroy_ex(font)
+    rc = hb_face_destroy_ex(face)
+    rc = hb_blob_destroy_ex(blob)
+    rc = mem_free(mem)
+    return n
+
+def hb_shape_run(text: "str", font_handle: "i64", direction: "i32", script: "i32", language: "str") -> "i32":
+    """Pipeline shape an toan: thieu DLL hoac font null -> tra 0 ngay, khong crash."""
+    if hb_lib_present() == 0:
+        return 0
+    if font_handle == 0:
+        return 0
+    buf = hb_buffer_create_ex()
+    font = HbFont(font_handle)
+    hb_buffer_add_utf8_ex(buf, text, 0, 0 - 1)
+    hb_buffer_set_direction_ex(buf, direction)
+    hb_buffer_set_script_ex(buf, script)
+    hb_buffer_set_language_ex(buf, language)
+    hb_shape_ex(font, buf, 0, 0)
+    n = hb_buffer_get_length_ex(buf)
+    hb_buffer_destroy_ex(buf)
+    return n
+
+def hb_script_for_text(text: "str") -> "i32":
+    """Heuristic script theo strong dau tien (byte-level; day du can giai ma codepoint)."""
+    n = len(text)
+    i = 0
+    while i < n:
+        cls = bidi_get_class(text[i])
+        if cls == BIDI_AL:
+            return HB_SCRIPT_ARABIC
+        if cls == BIDI_R:
+            return HB_SCRIPT_HEBREW
+        if cls == BIDI_L:
+            return HB_SCRIPT_LATIN
+        i = i + 1
+    return HB_SCRIPT_COMMON
+
+class HbShapePlan:
+    direction: "i32"
+    script: "i32"
+    para_level: "i32"
+    language: "str"
+    def __init__(self, direction, script, para_level, language):
+        self.direction = direction
+        self.script = script
+        self.para_level = para_level
+        self.language = language
+
+def hb_shape_plan(text: "str", language: "str") -> "HbShapePlan":
+    """Lap ke hoach shaping pure (khong goi DLL): direction/script/para/language."""
+    para = bidi_paragraph_level(text)
+    direction = bidi_hb_direction_from_para_level(para)
+    script = hb_script_for_text(text)
+    return HbShapePlan(direction, script, para, language)
+
+# =========================================================
+# P2-B: Shaping orchestration (pure tkv, khong phu thuoc DLL).
+# Chia text thanh runs theo script, cluster theo grapheme seq, advances
+# fallback co dinh; HB that chay per-run khi co DLL (xem shape_run_hb).
+# Out flat lists (tranh list-long-nhau): runs [s,e,script,dir]*n.
+# DON VI: UTF-8 bytes (mo hinh string cua engine: len = byte count,
+# text[i] = 1 byte; utf8_seq_len tra do dai seq theo byte - DUNG cho
+# viec tach seq, da verify trong draw paths). Mọi index deu la BYTE offsets
+# (khop clusters cua HarfBuzz!). Combining mark = seq rieng (P2-C se gop).
+# Script anchors: ASCII (vi_is_ascii) + literal trong repo (א/ا/ก/你) +
+# Indic (अ/অ/அ/అ, bien gan dung co kiem tra thu tu trong selftest).
+# So sanh byte-wise bao toan thu tu codepoint voi UTF-8 hop le.
+# =========================================================
+def shape_unit_script(u: "str") -> "i32":
+    if vi_is_ascii(u) == 1:
+        if u >= "0" and u <= "9":
+            return HB_SCRIPT_COMMON
+        if u >= "A" and u <= "Z":
+            return HB_SCRIPT_LATIN
+        if u >= "a" and u <= "z":
+            return HB_SCRIPT_LATIN
+        return HB_SCRIPT_COMMON
+    if u >= "א" and u < "ا":
+        return HB_SCRIPT_HEBREW
+    if u >= "ا" and u < "अ":
+        return HB_SCRIPT_ARABIC
+    if u >= "अ" and u < "অ":
+        return HB_SCRIPT_DEVANAGARI
+    if u >= "অ" and u < "அ":
+        return HB_SCRIPT_BENGALI
+    if u >= "அ" and u < "అ":
+        return HB_SCRIPT_TAMIL
+    if u >= "అ" and u < "ก":
+        return HB_SCRIPT_TELUGU
+    if u >= "ก" and u < "你":
+        return HB_SCRIPT_THAI
+    if u >= "你":
+        return HB_SCRIPT_HAN
+    return HB_SCRIPT_COMMON
+
+def shape_run_dir(script: "i32") -> "i32":
+    if script == HB_SCRIPT_HEBREW:
+        return HB_DIRECTION_RTL
+    if script == HB_SCRIPT_ARABIC:
+        return HB_DIRECTION_RTL
+    return HB_DIRECTION_LTR
+
+def shape_split_runs(text: "str", out: "list[i32]") -> "i32":
+    # Cat text thanh runs [start,end,script,dir] theo unit. Joiner (COMMON)
+    # dinh vao run hien tai, khong tu tao run moi (tru khi mo dau).
+    while len(out) > 0:
+        out.pop()
+    n = len(text)
+    if n <= 0:
+        return 0
+    nruns = int(0)
+    run_start = int(0)
+    cur_s = int(-1)
+    cur_d = int(0)
+    i = int(0)
+    while i < n:
+        adv = utf8_seq_len(text, i)
+        if adv < 1:
+            adv = 1
+        if i + adv > n:
+            adv = n - i
+        u = text[i:i + adv]
+        sc = shape_unit_script(u)
+        d = shape_run_dir(sc)
+        if cur_s < 0:
+            cur_s = sc
+            cur_d = d
+            run_start = i
+        else:
+            if sc != HB_SCRIPT_COMMON:
+                if sc != cur_s or d != cur_d:
+                    out.append(run_start)
+                    out.append(i)
+                    out.append(cur_s)
+                    out.append(cur_d)
+                    nruns = nruns + 1
+                    run_start = i
+                    cur_s = sc
+                    cur_d = d
+        i = i + adv
+    out.append(run_start)
+    out.append(n)
+    out.append(cur_s)
+    out.append(cur_d)
+    nruns = nruns + 1
+    return nruns
+
+def shape_seq_clusters(text: "str", out: "list[i32]") -> "i32":
+    # Bien grapheme v1 = utf8 seq (mark rieng - P2-C se gop) -> [start,end].
+    while len(out) > 0:
+        out.pop()
+    n = len(text)
+    if n <= 0:
+        return 0
+    nseq = int(0)
+    i = int(0)
+    while i < n:
+        adv = utf8_seq_len(text, i)
+        if adv < 1:
+            adv = 1
+        if i + adv > n:
+            adv = n - i
+        out.append(i)
+        out.append(i + adv)
+        nseq = nseq + 1
+        i = i + adv
+    return nseq
+
+def shape_run_fallback(text: "str", start: "i32", end: "i32", out_adv: "list[i32]", out_cl: "list[i32]") -> "i32":
+    # Fallback khi vang DLL: advance co dinh 6/seq (khop atlas advpx scale
+    # 1), cluster = start tuyet doi (byte offsets, khop HB). Tra so glyph.
+    ng = int(0)
+    i = start
+    if i < 0:
+        i = 0
+    n = len(text)
+    if end > n:
+        end = n
+    while i < end:
+        adv = utf8_seq_len(text, i)
+        if adv < 1:
+            adv = 1
+        if i + adv > end:
+            adv = end - i
+        out_adv.append(6)
+        out_cl.append(i)
+        ng = ng + 1
+        i = i + adv
+    return ng
+
+def shape_run_hb(text: "str", start: "i32", end: "i32", font_bytes: "list[i64]", script: "i32", direction: "i32", language: "str", out_gids: "list[i32]", out_adv: "list[i32]", out_cl: "list[i32]") -> "i32":
+    # Shape 1 run qua HarfBuzz (ve 0 khi vang DLL). Cluster tra ve TUYET DOI
+    # (offset +start) de map cursor. Tra so glyph.
+    if start < 0:
+        start = 0
+    n = len(text)
+    if end > n:
+        end = n
+    if start >= end:
+        return 0
+    sub = text[start:end]
+    base_cl = len(out_cl)
+    cnt = hb_shape_full(sub, font_bytes, direction, script, language, out_gids, out_adv, out_cl)
+    if cnt <= 0:
+        return 0
+    k = int(0)
+    while k < cnt:
+        out_cl[base_cl + k] = out_cl[base_cl + k] + start
+        k = k + 1
+    return cnt
+
+# =========================================================
+# UTF-8 sequence split + visual draw (milestone RTL).
+# utf8_seq_len (dinh nghia trong TkvUI.Viet) chi dung so sanh 1-don-vi
+# (1v1) + ==: so sanh nhieu-don-vi co F0 cho ket qua sai
+# (probe: "F0F0" >= "F09F.." = 0). ASCII -> 1; F0.. -> 4; E0..EF -> 3;
+# con lai (C2..DF + byte le) -> 2. Khong bao gio tra 0.
+# Range class (so sanh 2v2 cung-do-dai, da verify): Viet -> L;
+# Hebrew [א,ا) -> R; 2-byte >= ا -> AL; 3-byte -> L; 4-byte -> ON.
+# Literal UTF-8 trong source con nguyen (da hexdump). Test swap dung 1
+# chuoi + doi direction (auto-direction render "אA" va "Aא" giong nhau).
+# Glyph that: bake subset vao atlas qua TkvUI.I18nData + text_atlas_draw_i18n
+# (emoji van box: can cmap format12 + outline mau, ngoai pham vi parser).
+# =========================================================
+
+BIDI_DIR_AUTO = 0
+BIDI_DIR_RTL = 1
+BIDI_DIR_LTR = 2
+
+# utf8_seq_len da chuyen sang TkvUI.Viet (leaf, de Text dung chung ma khong
+# vong import). Bidi goi qua import (khong doi call site).
+
+def utf8_seq_range(seq: "str", adv: "i32") -> "i32":
+    if adv == 1:
+        return bidi_get_class(seq)
+    if vi_bits(seq) >= 0:
+        return BIDI_L
+    if adv == 2:
+        if seq >= "א":
+            if seq < "ا":
+                return BIDI_R
+        if seq >= "ا":
+            return BIDI_AL
+        return BIDI_L
+    if adv == 3:
+        return BIDI_L
+    return BIDI_ON
+
+def bidi_seq_classes(text: "str") -> "list[i32]":
+    out = []
+    n = len(text)
+    idx = 0
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seq = text[idx:idx + adv]
+        cls = utf8_seq_range(seq, adv)
+        out.append(cls)
+        idx = idx + adv
+    return out
+
+def bidi_seq_offset(text: "str", n: "i32", s: "i32") -> "i32":
+    off = 0
+    k = 0
+    while k < s:
+        off = off + utf8_seq_len(text, off)
+        k = k + 1
+    return off
+
+def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
+    """Ve text theo visual order (RTL/mirror), sequence-aware; tra 1."""
+    n = len(text)
+    if n == 0:
+        return 1
+    classes = bidi_seq_classes(text)
+    m = len(classes)
+    para = bidi_para_level_of(classes, m)
+    if direction == BIDI_DIR_RTL:
+        para = 1
+    if direction == BIDI_DIR_LTR:
+        para = 0
+    levels = bidi_levels_init(m, para)
+    bidi_neutral_resolve(classes, m, para)
+    bidi_implicit_resolve(classes, levels, m)
+    order = bidi_visual_order(levels, m)
+    cur = x
+    k = 0
+    while k < m:
+        s = order[k]
+        off = bidi_seq_offset(text, n, s)
+        adv = utf8_seq_len(text, off)
+        if off + adv > n:
+            adv = n - off
+        seg = text[off:off + adv]
+        lv = levels[s]
+        if lv % 2 == 1:
+            seg = bidi_mirror_char(seg)
+        draw_string(buf, surf, seg, cur, y, scale, color)
+        mm = measure_string(seg, scale)
+        cur = cur + mm.w
+        k = k + 1
+    return 1
+
+def bidi_draw_visual_atlas(buf: "list[i64]", surf: "PixelSurface", iabuf: "list[i64]", iatlas: "GlyphAtlas", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
+    """Ve text theo visual order, seq co trong atlas i18n thi blit glyph that,
+    seq la thi draw_string nhu cu (giu mirror). Atlas bake o scale 1."""
+    n = len(text)
+    if n == 0:
+        return 1
+    classes = bidi_seq_classes(text)
+    m = len(classes)
+    para = bidi_para_level_of(classes, m)
+    if direction == BIDI_DIR_RTL:
+        para = 1
+    if direction == BIDI_DIR_LTR:
+        para = 0
+    levels = bidi_levels_init(m, para)
+    bidi_neutral_resolve(classes, m, para)
+    bidi_implicit_resolve(classes, levels, m)
+    order = bidi_visual_order(levels, m)
+    sc = int(scale)
+    if sc < 1:
+        sc = 1
+    cur = x
+    k = 0
+    while k < m:
+        s = order[k]
+        off = bidi_seq_offset(text, n, s)
+        adv = utf8_seq_len(text, off)
+        if off + adv > n:
+            adv = n - off
+        seg = text[off:off + adv]
+        lv = levels[s]
+        if lv % 2 == 1:
+            seg = bidi_mirror_char(seg)
+        slot = -1
+        cp = i18n_codepoint(seg)
+        if cp >= 0:
+            slot = i18n_slot_for(cp)
+        if slot >= 0:
+            atlas_blit_glyph(iabuf, iatlas, buf, surf, slot, int(cur), int(y), color, color.a)
+            cur = cur + float(6 * sc)
+        else:
+            draw_string(buf, surf, seg, cur, y, scale, color)
+            mm = measure_string(seg, scale)
+            cur = cur + mm.w
+        k = k + 1
+    return 1
+
+# =========================================================
+# Main bidi processing functions se duoc them o day
+# 1. bidi_resolve_explicit() - X2, X3, X4, X5, X6, X7, X8
+# 2. bidi_resolve_weak() - W1..W7
+# 3. bidi_resolve_neutral() - N1, N2
+# 4. bidi_resolve_implicit() - I1, I2
+# 4. bidi_reorder() - L1, L2, L3, L4
+
+def bidi_process(text: "str") -> "BidiParagraph":
+    """Xu ly van ban: tra ve BidiParagraph voi levels da resolved."""
+    n = len(text)
+    if n == 0:
+        p = BidiParagraph("", 0)
+        return p
+    
+    # Step 1: Build initial char info array
+    chars = []
+    i = 0
+    while i < n:
+        ch = text[i]
+        cls = bidi_get_class(ch)
+        info = BidiCharInfo(ch, cls, i, 0)
+        chars.append(info)
+        i = i + 1
+    
+    # Step 2: Determine paragraph level
+    para_level = bidi_paragraph_level(text)
+    
+    # TODO: Implement full resolution phases (explicit, weak, neutral, implicit, reorder)
+    # For now, just return paragraph info
+    p = BidiParagraph(text, para_level)
+    return p
+
+# =========================================================
+# Bidi Resolution Algorithms (UAX #9)
+# =========================================================
+
+def bidi_resolve_explicit(chars: "list[BidiCharInfo]", para_level: "i32") -> "list[BidiCharInfo]":
+    """X2-X8: Resolve explicit embeddings and overrides.
+    TODO: Full implementation requires array element mutation which is not supported in TokenVector."""
+    # Return unchanged for now - explicit resolution is complex and requires
+    # mutable record updates which TokenVector doesn't support on array elements
+    return chars
+
+
+def bidi_resolve_weak(chars: "list[BidiCharInfo]") -> "list[BidiCharInfo]":
+    """W1-W7: Resolve weak types.
+    TODO: Full implementation requires array element mutation which is not supported in TokenVector."""
+    return chars
+
+def bidi_resolve_neutral(chars: "list[BidiCharInfo]") -> "list[BidiCharInfo]":
+    """N1, N2: Resolve neutral types.
+    TODO: Full implementation requires array element mutation which is not supported in TokenVector."""
+    return chars
+
+def bidi_resolve_implicit(chars: "list[BidiCharInfo]") -> "list[BidiCharInfo]":
+    """I1, I2: Resolve implicit levels.
+    TODO: Full implementation requires array element mutation which is not supported in TokenVector."""
+    return chars
+
+def bidi_reorder(chars: "list[BidiCharInfo]") -> "list[BidiRun]":
+    """L1-L4: Reorder runs for visual display.
+    TODO: Full implementation requires array element mutation which is not supported in TokenVector."""
+    return []
+
+def bidi_get_visual_runs(para: "BidiParagraph", chars: "list[BidiCharInfo]") -> "list[BidiRun]":
+    """Lay danh sach run theo thu tu visual (sau reorder)."""
+    return bidi_reorder(chars)
+
+# =========================================================
+# X/W/N/I + visual tren parallel list (tranh mutate field tren
+# phan tu list - rang buoc compiler; index-set tren list[i32] OK)
+# =========================================================
+
+def bidi_classify_all(chars: "list[str]", n: "i32") -> "list[i32]":
+    out = []
+    i = 0
+    while i < n:
+        out.append(bidi_get_class(chars[i]))
+        i = i + 1
+    return out
+
+def bidi_para_level_of(classes: "list[i32]", n: "i32") -> "i32":
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_L:
+            return 0
+        if c == BIDI_R:
+            return 1
+        if c == BIDI_AL:
+            return 1
+        i = i + 1
+    return 0
+
+def bidi_levels_init(n: "i32", para: "i32") -> "list[i32]":
+    out = []
+    i = 0
+    while i < n:
+        out.append(para)
+        i = i + 1
+    return out
+
+def bidi_weak_resolve(classes: "list[i32]", n: "i32") -> "i32":
+    # W1: NSM <- prev (dau -> ON)
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_NSM:
+            if i == 0:
+                classes[i] = BIDI_ON
+            else:
+                p = classes[i - 1]
+                classes[i] = p
+        i = i + 1
+    # W2: EN <- AL -> AN
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_EN:
+            j = i - 1
+            while j >= 0:
+                d = classes[j]
+                if d == BIDI_L or d == BIDI_R or d == BIDI_AL:
+                    if d == BIDI_AL:
+                        classes[i] = BIDI_AN
+                    break
+                j = j - 1
+        i = i + 1
+    # W3: AL -> R
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_AL:
+            classes[i] = BIDI_R
+        i = i + 1
+    # W4: ES/CS don giua EN-EN / AN-AN
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_ES or c == BIDI_CS:
+            if i > 0 and i + 1 < n:
+                l = classes[i - 1]
+                r = classes[i + 1]
+                if l == BIDI_EN and r == BIDI_EN:
+                    classes[i] = BIDI_EN
+                if l == BIDI_AN and r == BIDI_AN:
+                    classes[i] = BIDI_AN
+        i = i + 1
+    # W5: ET ke EN -> EN
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_ET:
+            hit = 0
+            if i > 0:
+                l = classes[i - 1]
+                if l == BIDI_EN:
+                    hit = 1
+            if i + 1 < n:
+                r = classes[i + 1]
+                if r == BIDI_EN:
+                    hit = 1
+            if hit == 1:
+                classes[i] = BIDI_EN
+        i = i + 1
+    # W6: ES/ET/CS con lai -> ON
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_ES or c == BIDI_ET or c == BIDI_CS:
+            classes[i] = BIDI_ON
+        i = i + 1
+    # W7: EN <- L -> L
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_EN:
+            j = i - 1
+            while j >= 0:
+                d = classes[j]
+                if d == BIDI_L:
+                    classes[i] = BIDI_L
+                    break
+                if d == BIDI_R or d == BIDI_AL:
+                    break
+                j = j - 1
+        i = i + 1
+    return 1
+
+def bidi_neutral_resolve(classes: "list[i32]", n: "i32", para: "i32") -> "i32":
+    # N1: neutral lay strong 2 ben; N2: con lai -> para dir (don gian hoa, chua full sor/eos).
+    none = 0 - 1
+    i = 0
+    while i < n:
+        c = classes[i]
+        if c == BIDI_B or c == BIDI_S or c == BIDI_WS or c == BIDI_ON:
+            b = none
+            j = i - 1
+            while j >= 0:
+                d = classes[j]
+                if d == BIDI_L or d == BIDI_R or d == BIDI_AL:
+                    b = d
+                    break
+                j = j - 1
+            a = none
+            j = i + 1
+            while j < n:
+                d = classes[j]
+                if d == BIDI_L or d == BIDI_R or d == BIDI_AL:
+                    a = d
+                    break
+                j = j + 1
+            if b != none and b == a:
+                if b == BIDI_L:
+                    classes[i] = BIDI_L
+                else:
+                    classes[i] = BIDI_R
+            elif b != none:
+                if b == BIDI_L:
+                    classes[i] = BIDI_L
+                else:
+                    classes[i] = BIDI_R
+            elif a != none:
+                if a == BIDI_L:
+                    classes[i] = BIDI_L
+                else:
+                    classes[i] = BIDI_R
+            else:
+                if para % 2 == 0:
+                    classes[i] = BIDI_L
+                else:
+                    classes[i] = BIDI_R
+        i = i + 1
+    return 1
+
+def bidi_implicit_resolve(classes: "list[i32]", levels: "list[i32]", n: "i32") -> "i32":
+    # I1: chan: R/AL -> +1; I2: le: L -> +1.
+    i = 0
+    while i < n:
+        c = classes[i]
+        lv = levels[i]
+        if lv % 2 == 0:
+            if c == BIDI_R or c == BIDI_AL:
+                levels[i] = lv + 1
+        else:
+            if c == BIDI_L:
+                levels[i] = lv + 1
+        i = i + 1
+    return 1
+
+def bidi_visual_order(levels: "list[i32]", n: "i32") -> "list[i32]":
+    # L1/L2: identity roi dao tung run co level >= L, tu max xuong 1.
+    order = []
+    i = 0
+    while i < n:
+        order.append(i)
+        i = i + 1
+    maxlv = 0
+    i = 0
+    while i < n:
+        lv = levels[i]
+        if lv > maxlv:
+            maxlv = lv
+        i = i + 1
+    lev = maxlv
+    while lev >= 1:
+        neworder = []
+        i = 0
+        while i < n:
+            idx = order[i]
+            lv = levels[idx]
+            if lv >= lev:
+                run = []
+                while i < n:
+                    idx2 = order[i]
+                    lv2 = levels[idx2]
+                    if lv2 < lev:
+                        break
+                    run.append(idx2)
+                    i = i + 1
+                j = len(run) - 1
+                while j >= 0:
+                    neworder.append(run[j])
+                    j = j - 1
+            else:
+                neworder.append(idx)
+                i = i + 1
+        order = neworder
+        lev = lev - 1
+    return order
+
+def bidi_visual_text(chars: "list[str]", order: "list[i32]", levels: "list[i32]", n: "i32") -> "str":
+    # L4: mirror ky tu o run le + ghep theo visual order.
+    out = ""
+    k = 0
+    while k < n:
+        idx = order[k]
+        ch = chars[idx]
+        lv = levels[idx]
+        if lv % 2 == 1:
+            ch = bidi_mirror_char(ch)
+        out = out + ch
+        k = k + 1
+    return out
+
+# Self-test
+def bidi_selftest() -> "str":
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    
+# Test bidi_get_class with ASCII characters (safe for source encoding)
+    text_check_i(acc, "BIDI class L (A)", bidi_get_class("A"), BIDI_L)
+    text_check_i(acc, "BIDI class L (R)", bidi_get_class("R"), BIDI_L)  # ASCII is LTR
+    text_check_i(acc, "BIDI class L (a)", bidi_get_class("a"), BIDI_L)
+    text_check_i(acc, "BIDI class EN", bidi_get_class("1"), BIDI_EN)
+    text_check_i(acc, "BIDI class WS", bidi_get_class(" "), BIDI_WS)
+    # Skip explicit formatting chars (non-ASCII in source)
+    
+    # Test mirror
+    text_check(acc, "mirror (", bidi_mirror_char("(") == ")")
+    text_check(acc, "mirror )", bidi_mirror_char(")") == "(")
+    text_check(acc, "mirror <", bidi_mirror_char("<") == ">")
+    text_check(acc, "mirror >", bidi_mirror_char(">") == "<")
+    text_check(acc, "mirror [", bidi_mirror_char("[") == "]")
+    text_check(acc, "mirror ]", bidi_mirror_char("]") == "[")
+    text_check(acc, "mirror {", bidi_mirror_char("{") == "}")
+    text_check(acc, "mirror }", bidi_mirror_char("}") == "{")
+    
+    # Test paragraph level (ASCII only)
+    text_check_i(acc, "para level LTR", bidi_paragraph_level("Hello"), 0)
+    text_check_i(acc, "para level digits", bidi_paragraph_level("123"), 0)
+    text_check_i(acc, "para level empty", bidi_paragraph_level(""), 0)
+    
+    # Test strong/weak/neutral
+    text_check(acc, "is strong L", bidi_is_strong(BIDI_L) == 1)
+    text_check(acc, "is strong R", bidi_is_strong(BIDI_R) == 1)
+    text_check(acc, "is strong AL", bidi_is_strong(BIDI_AL) == 1)
+    text_check(acc, "is weak EN", bidi_is_weak(BIDI_EN) == 1)
+    text_check(acc, "is weak ES", bidi_is_weak(BIDI_ES) == 1)
+    text_check(acc, "is neutral WS", bidi_is_neutral(BIDI_WS) == 1)
+    text_check(acc, "is neutral ON", bidi_is_neutral(BIDI_ON) == 1)
+    text_check(acc, "is explicit LRE", bidi_is_explicit(BIDI_LRE) == 1)
+    text_check(acc, "is explicit RLE", bidi_is_explicit(BIDI_RLE) == 1)
+
+    # --- shaping plan (pure, khong goi DLL) ---
+    text_check_i(acc, "hb dir para 0 -> LTR", bidi_hb_direction_from_para_level(0), HB_DIRECTION_LTR)
+    text_check_i(acc, "hb dir para 1 -> RTL", bidi_hb_direction_from_para_level(1), HB_DIRECTION_RTL)
+    text_check_i(acc, "hb script AL -> ARABIC", hb_script_from_bidi_class(BIDI_AL), HB_SCRIPT_ARABIC)
+    text_check_i(acc, "hb script R -> HEBREW", hb_script_from_bidi_class(BIDI_R), HB_SCRIPT_HEBREW)
+    text_check_i(acc, "hb script L -> LATIN", hb_script_from_bidi_class(BIDI_L), HB_SCRIPT_LATIN)
+    text_check_i(acc, "hb script EN -> COMMON", hb_script_from_bidi_class(BIDI_EN), HB_SCRIPT_COMMON)
+    text_check_i(acc, "hb script text Hello -> LATIN", hb_script_for_text("Hello"), HB_SCRIPT_LATIN)
+    text_check_i(acc, "hb script text rong -> COMMON", hb_script_for_text(""), HB_SCRIPT_COMMON)
+    text_check_i(acc, "hb script text so -> COMMON", hb_script_for_text("123"), HB_SCRIPT_COMMON)
+    plan = hb_shape_plan("Hello", "en")
+    text_check_i(acc, "hb plan Hello dir LTR", plan.direction, HB_DIRECTION_LTR)
+    text_check_i(acc, "hb plan Hello script LATIN", plan.script, HB_SCRIPT_LATIN)
+    text_check_i(acc, "hb plan Hello para 0", plan.para_level, 0)
+    text_check(acc, "hb plan Hello lang en", plan.language == "en")
+    plan2 = hb_shape_plan("", "")
+    text_check_i(acc, "hb plan rong dir LTR", plan2.direction, HB_DIRECTION_LTR)
+    text_check_i(acc, "hb plan rong script COMMON", plan2.script, HB_SCRIPT_COMMON)
+
+    # --- shape pipeline (guard, khong crash khi thieu DLL) ---
+    present = hb_lib_present()
+    ok = 0
+    if present == 0:
+        ok = 1
+    if present == 1:
+        ok = 1
+    text_check(acc, "hb lib present tra 0/1", ok)
+    cnt = hb_shape_run("Hello", 0, HB_DIRECTION_LTR, HB_SCRIPT_LATIN, "en")
+    ok2 = 0
+    if cnt >= 0:
+        ok2 = 1
+    text_check(acc, "hb shape run khong crash", ok2)
+    # --- shape that (can libharfbuzz.dll; font subset embedded, khong file I/O) ---
+    hbg = []
+    hba = []
+    hbc = []
+    hbn = hb_shape_full("אב", i18n_font_bytes_he(), HB_DIRECTION_LTR, HB_SCRIPT_HEBREW, "he", hbg, hba, hbc)
+    if present == 1:
+        text_check_i(acc, "hb shape heb count", hbn, 2)
+        text_check_gt(acc, "hb shape gid0", hbg[0], 0)
+        text_check_gt(acc, "hb shape gid1", hbg[1], 0)
+        gdif = 0
+        if hbg[0] != hbg[1]:
+            gdif = 1
+        text_check(acc, "hb shape gid khac nhau", gdif)
+        text_check_i(acc, "hb shape cluster0", hbc[0], 0)
+        text_check_i(acc, "hb shape cluster1", hbc[1], 2)
+        text_check_gt(acc, "hb shape adv0", hba[0], 0)
+        hbg2 = []
+        hba2 = []
+        hbc2 = []
+        hbn2 = hb_shape_full("Hello", i18n_font_bytes_he(), HB_DIRECTION_LTR, HB_SCRIPT_LATIN, "en", hbg2, hba2, hbc2)
+        text_check_i(acc, "hb shape lat count", hbn2, 5)
+        text_check_i(acc, "hb shape lat cluster4", hbc2[4], 4)
+        text_check_gt(acc, "hb shape lat adv0", hba2[0], 0)
+    else:
+        text_check_i(acc, "hb shape vang lib -> 0", hbn, 0)
+    # --- P2-B shaping orchestration (pure, khong can DLL) ---
+    text_check_i(acc, "shape unit lat", shape_unit_script("A"), HB_SCRIPT_LATIN)
+    text_check_i(acc, "shape unit digit", shape_unit_script("5"), HB_SCRIPT_COMMON)
+    text_check_i(acc, "shape unit space", shape_unit_script(" "), HB_SCRIPT_COMMON)
+    text_check_i(acc, "shape unit heb", shape_unit_script("א"), HB_SCRIPT_HEBREW)
+    text_check_i(acc, "shape unit arab", shape_unit_script("ا"), HB_SCRIPT_ARABIC)
+    text_check_i(acc, "shape unit deva", shape_unit_script("अ"), HB_SCRIPT_DEVANAGARI)
+    text_check_i(acc, "shape unit beng", shape_unit_script("অ"), HB_SCRIPT_BENGALI)
+    text_check_i(acc, "shape unit tamil", shape_unit_script("அ"), HB_SCRIPT_TAMIL)
+    text_check_i(acc, "shape unit telugu", shape_unit_script("అ"), HB_SCRIPT_TELUGU)
+    text_check_i(acc, "shape unit thai", shape_unit_script("ก"), HB_SCRIPT_THAI)
+    text_check_i(acc, "shape unit han", shape_unit_script("你"), HB_SCRIPT_HAN)
+    # thu tu anchors (bien gan dung Indic duoc kiem keo monotonicity)
+    ordshat = 0
+    if "א" < "ا":
+        if "ا" < "अ":
+            if "अ" < "অ":
+                if "অ" < "அ":
+                    if "அ" < "అ":
+                        if "అ" < "ก":
+                            if "ก" < "你":
+                                ordshat = 1
+    text_check_i(acc, "shape anchors order", ordshat, 1)
+    text_check_i(acc, "shape dir heb rtl", shape_run_dir(HB_SCRIPT_HEBREW), HB_DIRECTION_RTL)
+    text_check_i(acc, "shape dir lat ltr", shape_run_dir(HB_SCRIPT_LATIN), HB_DIRECTION_LTR)
+    runs = []
+    text_check_i(acc, "shape runs mix", shape_split_runs("AאB", runs), 3)
+    text_check_i(acc, "shape run0 s", runs[0], 0)
+    text_check_i(acc, "shape run0 e", runs[1], 1)
+    text_check_i(acc, "shape run0 sc", runs[2], HB_SCRIPT_LATIN)
+    text_check_i(acc, "shape run1 s", runs[4], 1)
+    text_check_i(acc, "shape run1 e", runs[5], 3)
+    text_check_i(acc, "shape run1 sc", runs[6], HB_SCRIPT_HEBREW)
+    text_check_i(acc, "shape run1 dir", runs[7], HB_DIRECTION_RTL)
+    text_check_i(acc, "shape run2 s", runs[8], 3)
+    text_check_i(acc, "shape run2 e", runs[9], 4)
+    runs2 = []
+    text_check_i(acc, "shape runs join", shape_split_runs("AB 12", runs2), 1)
+    text_check_i(acc, "shape join e", runs2[1], 5)
+    runs0 = []
+    text_check_i(acc, "shape runs empty", shape_split_runs("", runs0), 0)
+    cls = []
+    text_check_i(acc, "shape clusters", shape_seq_clusters("Aא", cls), 2)
+    text_check_i(acc, "shape cl0 s", cls[0], 0)
+    text_check_i(acc, "shape cl0 e", cls[1], 1)
+    text_check_i(acc, "shape cl1 s", cls[2], 1)
+    text_check_i(acc, "shape cl1 e", cls[3], 3)
+    cls0 = []
+    text_check_i(acc, "shape clusters empty", shape_seq_clusters("", cls0), 0)
+    fadv = []
+    fcl = []
+    text_check_i(acc, "shape fallback n", shape_run_fallback("AB", 0, 2, fadv, fcl), 2)
+    text_check_i(acc, "shape fallback adv", fadv[1], 6)
+    text_check_i(acc, "shape fallback cl", fcl[1], 1)
+    if present == 1:
+        hgids = []
+        hadv = []
+        hcl = []
+        hn = shape_run_hb("אב", 0, 4, i18n_font_bytes_he(), HB_SCRIPT_HEBREW, HB_DIRECTION_RTL, "he", hgids, hadv, hcl)
+        text_check_i(acc, "shape hb heb n", hn, 2)
+        text_check_i(acc, "shape hb heb cl1", hcl[1], 2)
+    else:
+        hgids = []
+        hadv = []
+        hcl = []
+        text_check_i(acc, "shape hb vang lib", shape_run_hb("אב", 0, 4, i18n_font_bytes_he(), HB_SCRIPT_HEBREW, HB_DIRECTION_RTL, "he", hgids, hadv, hcl), 0)
+
+    # --- X/W/N/I + visual tren parallel list ---
+    tc = []
+    tc.append("A")
+    tc.append("1")
+    tc.append(" ")
+    cl = bidi_classify_all(tc, 3)
+    text_check_i(acc, "bidi classify A", cl[0], 0)
+    text_check_i(acc, "bidi classify 1", cl[1], 3)
+    text_check_i(acc, "bidi classify space", cl[2], 12)
+    pl1 = []
+    pl1.append(0)
+    pl1.append(3)
+    text_check_i(acc, "bidi para_of L", bidi_para_level_of(pl1, 2), 0)
+    pl2 = []
+    pl2.append(1)
+    text_check_i(acc, "bidi para_of R", bidi_para_level_of(pl2, 1), 1)
+    pl3 = []
+    pl3.append(3)
+    text_check_i(acc, "bidi para_of EN -> 0", bidi_para_level_of(pl3, 1), 0)
+    pl4 = []
+    pl4.append(3)
+    pl4.append(2)
+    text_check_i(acc, "bidi para_of AL", bidi_para_level_of(pl4, 2), 1)
+    li = bidi_levels_init(3, 1)
+    text_check_i(acc, "bidi levels len", len(li), 3)
+    text_check_i(acc, "bidi levels init 0", li[0], 1)
+    text_check_i(acc, "bidi levels init 2", li[2], 1)
+    w1a = []
+    w1a.append(8)
+    bidi_weak_resolve(w1a, 1)
+    text_check_i(acc, "bidi W1 NSM dau -> ON", w1a[0], 13)
+    w1b = []
+    w1b.append(0)
+    w1b.append(8)
+    bidi_weak_resolve(w1b, 2)
+    text_check_i(acc, "bidi W1 NSM <- L", w1b[1], 0)
+    w3 = []
+    w3.append(2)
+    bidi_weak_resolve(w3, 1)
+    text_check_i(acc, "bidi W3 AL -> R", w3[0], 1)
+    w2 = []
+    w2.append(2)
+    w2.append(3)
+    bidi_weak_resolve(w2, 2)
+    text_check_i(acc, "bidi W2 EN <- AL -> AN", w2[1], 6)
+    w4 = []
+    w4.append(3)
+    w4.append(7)
+    w4.append(3)
+    bidi_weak_resolve(w4, 3)
+    text_check_i(acc, "bidi W4 CS giua EN", w4[1], 3)
+    w5 = []
+    w5.append(3)
+    w5.append(5)
+    bidi_weak_resolve(w5, 2)
+    text_check_i(acc, "bidi W5 ET <- EN", w5[1], 3)
+    w6 = []
+    w6.append(4)
+    bidi_weak_resolve(w6, 1)
+    text_check_i(acc, "bidi W6 ES -> ON", w6[0], 13)
+    w7 = []
+    w7.append(0)
+    w7.append(3)
+    bidi_weak_resolve(w7, 2)
+    text_check_i(acc, "bidi W7 EN <- L", w7[1], 0)
+    n1 = []
+    n1.append(0)
+    n1.append(13)
+    n1.append(0)
+    bidi_neutral_resolve(n1, 3, 0)
+    text_check_i(acc, "bidi N1 ON giua L", n1[1], 0)
+    n2 = []
+    n2.append(1)
+    n2.append(13)
+    n2.append(1)
+    bidi_neutral_resolve(n2, 3, 0)
+    text_check_i(acc, "bidi N1 ON giua R", n2[1], 1)
+    n3 = []
+    n3.append(13)
+    bidi_neutral_resolve(n3, 1, 0)
+    text_check_i(acc, "bidi N2 ON -> para L", n3[0], 0)
+    n4 = []
+    n4.append(13)
+    bidi_neutral_resolve(n4, 1, 1)
+    text_check_i(acc, "bidi N2 ON -> para R", n4[0], 1)
+    im1c = []
+    im1c.append(1)
+    im1l = []
+    im1l.append(0)
+    bidi_implicit_resolve(im1c, im1l, 1)
+    text_check_i(acc, "bidi I1 R@0 -> 1", im1l[0], 1)
+    im2c = []
+    im2c.append(0)
+    im2l = []
+    im2l.append(1)
+    bidi_implicit_resolve(im2c, im2l, 1)
+    text_check_i(acc, "bidi I2 L@1 -> 2", im2l[0], 2)
+    im3c = []
+    im3c.append(0)
+    im3l = []
+    im3l.append(0)
+    bidi_implicit_resolve(im3c, im3l, 1)
+    text_check_i(acc, "bidi I1 L@0 -> 0", im3l[0], 0)
+    od = []
+    od.append(0)
+    od.append(0)
+    od.append(1)
+    od.append(1)
+    od.append(0)
+    vo = bidi_visual_order(od, 5)
+    text_check_i(acc, "bidi order 0", vo[0], 0)
+    text_check_i(acc, "bidi order 2 (dao)", vo[2], 3)
+    text_check_i(acc, "bidi order 4", vo[4], 4)
+    vc = []
+    vc.append("a")
+    vc.append("b")
+    vc.append("(")
+    vc.append(")")
+    vo2 = []
+    vo2.append(0)
+    vo2.append(1)
+    vo2.append(3)
+    vo2.append(2)
+    vl = []
+    vl.append(0)
+    vl.append(0)
+    vl.append(1)
+    vl.append(1)
+    text_check(acc, "bidi visual text ab()", bidi_visual_text(vc, vo2, vl, 4) == "ab()")
+
+    # --- seq split + draw visual ---
+    sq = bidi_seq_classes("AB1 ")
+    text_check_i(acc, "bidi seq AB1_ len", len(sq), 4)
+    text_check_i(acc, "bidi seq A", sq[0], 0)
+    text_check_i(acc, "bidi seq 1", sq[2], 3)
+    text_check_i(acc, "bidi seq space", sq[3], 12)
+    sv = bidi_seq_classes("Việt")
+    text_check_i(acc, "bidi seq Viet len", len(sv), 4)
+    text_check_i(acc, "bidi seq Viet e-moc", sv[2], 0)
+    text_check_i(acc, "bidi seq off 0", bidi_seq_offset("Việt", 6, 0), 0)
+    text_check_i(acc, "bidi seq off 2", bidi_seq_offset("Việt", 6, 2), 2)
+    text_check_i(acc, "bidi seq off 3", bidi_seq_offset("Việt", 6, 3), 5)
+    vbuf = []
+    surface_ensure_capacity(vbuf, 4800)
+    vsurf = PixelSurface(200, 24, 200)
+    empty = ColorRgba(0, 0, 0, 0)
+    white = ColorRgba(255, 255, 255, 255)
+    surface_clear(vbuf, vsurf, empty)
+    text_check_i(acc, "bidi draw visual tra 1", bidi_draw_visual(vbuf, vsurf, "Việt", 0.0, 0.0, 1.0, white, 0), 1)
+    vpix = text_count_nonzero(vbuf, 4800, 0, 4800)
+    surface_clear(vbuf, vsurf, empty)
+    draw_string(vbuf, vsurf, "Việt", 0.0, 0.0, 1.0, white)
+    text_check_i(acc, "bidi draw visual = draw_string", vpix, text_count_nonzero(vbuf, 4800, 0, 4800))
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual(vbuf, vsurf, "AB", 0.0, 0.0, 1.0, white, 1)
+    text_check_gt(acc, "bidi draw RTL Latin co pixel", text_count_nonzero(vbuf, 4800, 0, 4800), 0)
+
+    # --- UTF-8 range classifier (Hebrew/Arabic/CJK/emoji that) ---
+    hb2 = bidi_seq_classes("אב")
+    text_check_i(acc, "bidi seq Heb len", len(hb2), 2)
+    text_check_i(acc, "bidi seq Alef R", hb2[0], 1)
+    text_check_i(acc, "bidi seq Bet R", hb2[1], 1)
+    ab2 = bidi_seq_classes("اب")
+    text_check_i(acc, "bidi seq Arab len", len(ab2), 2)
+    text_check_i(acc, "bidi seq Alef-Arab AL", ab2[0], 2)
+    text_check_i(acc, "bidi seq Ba AL", ab2[1], 2)
+    text_check_i(acc, "bidi para Heb", bidi_para_level_of(hb2, 2), 1)
+    text_check_i(acc, "bidi para Arab", bidi_para_level_of(ab2, 2), 1)
+    mx = bidi_seq_classes("אA")
+    ml = bidi_levels_init(2, 1)
+    bidi_implicit_resolve(mx, ml, 2)
+    mo = bidi_visual_order(ml, 2)
+    text_check_i(acc, "bidi order HebRTL dau", mo[0], 1)
+    text_check_i(acc, "bidi order HebRTL sau", mo[1], 0)
+    sh = bidi_seq_classes("שלום")
+    text_check_i(acc, "bidi seq Shalom len", len(sh), 4)
+    text_check_i(acc, "bidi seq Shin R", sh[0], 1)
+    text_check_i(acc, "bidi seq Mem-sofit R", sh[3], 1)
+    nh = bidi_seq_classes("你好")
+    text_check_i(acc, "bidi seq Nihao len", len(nh), 2)
+    text_check_i(acc, "bidi seq Ni L", nh[0], 0)
+    text_check_i(acc, "bidi seq Hao L", nh[1], 0)
+    em = bidi_seq_classes("🌍")
+    text_check_i(acc, "bidi seq emoji len", len(em), 1)
+    text_check_i(acc, "bidi seq emoji ON", em[0], 13)
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 1)
+    t1 = text_count_nonzero(vbuf, 4800, 0, 4800)
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 2)
+    t2 = text_count_nonzero(vbuf, 4800, 0, 4800)
+    text_check_i(acc, "bidi draw RTL/LTR cung pixel", t1, t2)
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 1)
+    l1 = 0
+    r1 = 0
+    zi = 0
+    while zi < 8:
+        l1 = l1 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
+        r1 = r1 + text_count_nonzero(vbuf, 4800, zi * 200 + 12, zi * 200 + 18)
+        zi = zi + 1
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 2)
+    l2 = 0
+    r2 = 0
+    zi = 0
+    while zi < 8:
+        l2 = l2 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
+        r2 = r2 + text_count_nonzero(vbuf, 4800, zi * 200 + 12, zi * 200 + 18)
+        zi = zi + 1
+    text_check_i(acc, "bidi draw swap ngoai", l1, r2)
+    text_check_i(acc, "bidi draw swap ngoai 2", r1, l2)
+    surface_clear(vbuf, vsurf, empty)
+    text_check_i(acc, "bidi draw milestone tra 1", bidi_draw_visual(vbuf, vsurf, "你好 🌍 שלום", 0.0, 0.0, 1.0, white, 0), 1)
+    text_check_gt(acc, "bidi draw milestone co pixel", text_count_nonzero(vbuf, 4800, 0, 4800), 0)
+    # --- visual order + glyph that (atlas i18n): milestone Phase 1 ---
+    iatl = text_atlas_record_i18n(1)
+    iab = atlas_buffer(iatl)
+    text_check_i(acc, "bidi atlas bake count", text_atlas_bake_i18n_all(iatl, iab), 10)
+    surface_clear(vbuf, vsurf, empty)
+    text_check_i(acc, "bidi atlas milestone tra 1", bidi_draw_visual_atlas(vbuf, vsurf, iab, iatl, "你好 🌍 שלום", 0.0, 0.0, 1.0, white, 0), 1)
+    text_check_gt(acc, "bidi atlas milestone co pixel", text_count_nonzero(vbuf, 4800, 0, 4800), 0)
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual_atlas(vbuf, vsurf, iab, iatl, "אA", 0.0, 0.0, 1.0, white, 1)
+    at1 = text_count_nonzero(vbuf, 4800, 0, 4800)
+    al1 = 0
+    ar1 = 0
+    zi = 0
+    while zi < 8:
+        al1 = al1 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
+        ar1 = ar1 + text_count_nonzero(vbuf, 4800, zi * 200 + 6, zi * 200 + 12)
+        zi = zi + 1
+    surface_clear(vbuf, vsurf, empty)
+    bidi_draw_visual_atlas(vbuf, vsurf, iab, iatl, "אA", 0.0, 0.0, 1.0, white, 2)
+    at2 = text_count_nonzero(vbuf, 4800, 0, 4800)
+    al2 = 0
+    ar2 = 0
+    zi = 0
+    while zi < 8:
+        al2 = al2 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
+        ar2 = ar2 + text_count_nonzero(vbuf, 4800, zi * 200 + 6, zi * 200 + 12)
+        zi = zi + 1
+    text_check_i(acc, "bidi atlas RTL/LTR cung pixel", at1, at2)
+    text_check_i(acc, "bidi atlas swap trai", al1, ar2)
+    text_check_i(acc, "bidi atlas swap phai", ar1, al2)
+    
+    print("--- bidi selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "BIDI_OK"
+    return "BIDI_FAIL"

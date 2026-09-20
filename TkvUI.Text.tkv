@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""TkvUI.Text - bitmap font + renderer (Task 3), needs TkvUI.Core"""
-__tkv_import__ = ["TkvUI.Core"]
+"""TkvUI.Text - bitmap font + renderer (Task 3) + TTF rasterizer (P2.8) + Vietnamese (TkvUI.Viet), needs TkvUI.Core"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Viet", "TkvUI.I18nData"]
 # P2.1: pinvoke GetTickCount de do thoi gian (benchmark atlas vs classic)
 __tkv_extern_pinvoke__ = [{"name": "text_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
 # TASK 3: TEXT - Embedded Bitmap Font 5x7 + Renderer + Glyph Atlas (P2.1)
@@ -50,25 +50,64 @@ ATLAS_COLS = 16
 ATLAS_GLYPH_W = 6
 ATLAS_GLYPH_H = 7
 ATLAS_COUNT = 95
-# Luu y rang buoc §0: hang so module VONG (KeyError) khi dung trong than method -
-# cac method dung LITERAL so (16, 6, 7, 95) truc tiep; const chi la tai lieu.
+
+# Precomputed bit masks for fast pixel testing
+def get_bit_mask(col: "i32") -> "i32":
+    if col == 0:
+        return 16
+    if col == 1:
+        return 8
+    if col == 2:
+        return 4
+    if col == 3:
+        return 2
+    return 1
+
+# Fast glyph pattern lookup - just delegate to existing glyph_pattern
+def get_glyph_pattern(ch: "str", row: "i32") -> "i32":
+    c = char_code(ch)
+    if c >= 32 and c <= 126:
+        return glyph_pattern(ch, row)
+    return 0
 
 class GlyphAtlas:
     cols: "i32"
     glyph_w: "i32"
     glyph_h: "i32"
+    glyph_pw: "i32"
     scale: "i32"
     width: "i32"
     height: "i32"
     codes: "list[i32]"
-    def __init__(self, cols, glyph_w, glyph_h, scale, width, height):
+    glyph_ox: "list[i32]"
+    glyph_oy: "list[i32]"
+    glyph_has_ink: "list[i32]"
+    glyph_row_masks: "list[i32]"
+    glyph_px_r: "list[i32]"
+    glyph_px_c: "list[i32]"
+    glyph_px_start: "list[i32]"
+    glyph_px_len: "list[i32]"
+    glyph_adv: "list[i32]"
+    glyph_gid: "list[i32]"
+    def __init__(self, cols, glyph_w, glyph_h, glyph_pw, scale, width, height):
         self.cols = cols
         self.glyph_w = glyph_w
         self.glyph_h = glyph_h
+        self.glyph_pw = glyph_pw
         self.scale = scale
         self.width = width
         self.height = height
         self.codes = []
+        self.glyph_ox = []
+        self.glyph_oy = []
+        self.glyph_has_ink = []
+        self.glyph_row_masks = []
+        self.glyph_px_r = []
+        self.glyph_px_c = []
+        self.glyph_px_start = []
+        self.glyph_px_len = []
+        self.glyph_adv = []
+        self.glyph_gid = []
 
 def atlas_width_for(cols: "i32", glyph_w: "i32", scale: "i32") -> "i32":
     return cols * glyph_w * scale
@@ -79,9 +118,9 @@ def atlas_rows_needed(count: "i32", cols: "i32") -> "i32":
         rows = rows + 1
     return rows
 
-def atlas_make_record(cols: "i32", gw: "i32", gh: "i32", scale: "i32", w: "i32", h: "i32") -> "GlyphAtlas":
+def atlas_make_record(cols: "i32", gw: "i32", gh: "i32", gpw: "i32", scale: "i32", w: "i32", h: "i32") -> "GlyphAtlas":
     # Factory vi hang so ATLAS_* vo hinh trong method - truyen tu mot ham thuong
-    return GlyphAtlas(cols, gw, gh, scale, w, h)
+    return GlyphAtlas(cols, gw, gh, gpw, scale, w, h)
 
 def atlas_create(scale: "i32") -> "GlyphAtlas":
     # P2.1: han so module van an toan trong ham thuong (dung duoc o day vi
@@ -93,11 +132,35 @@ def atlas_create(scale: "i32") -> "GlyphAtlas":
     cols = int(16)
     gw = int(6)
     gh = int(7)
+    gpw = int(5)
     cnt = int(95)
     w = cols * gw * sc
     rows = atlas_rows_needed(cnt, cols)
     h = rows * gh * sc
-    return atlas_make_record(cols, gw, gh, sc, w, h)
+    atlas = atlas_make_record(cols, gw, gh, gpw, sc, w, h)
+    # Pre-compute glyph origins for all 95 glyphs
+    i = int(0)
+    while i < 95:
+        col = i % cols
+        row = i // cols
+        ox = col * gw * sc
+        oy = row * gh * sc
+        atlas.glyph_ox.append(ox)
+        atlas.glyph_oy.append(oy)
+        atlas.glyph_has_ink.append(0)
+        atlas.glyph_px_start.append(0)
+        atlas.glyph_px_len.append(0)
+        atlas.glyph_adv.append(gw * sc)
+        atlas.glyph_gid.append(-1)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        atlas.glyph_row_masks.append(0)
+        i = i + 1
+    return atlas
 
 def atlas_buffer(atlas: "GlyphAtlas") -> "list[i64]":
     out = []
@@ -126,12 +189,16 @@ def atlas_bake(atlas: "GlyphAtlas", abuf: "list[i64]") -> "i32":
     charset = text_charset()
     for code in range(ATLAS_COUNT):
         ch = charset[code]
-        origin = atlas_glyph_origin(atlas, code)
-        ox = int(origin.x)
-        oy = int(origin.y)
+        ox = atlas.glyph_ox[code]
+        oy = atlas.glyph_oy[code]
         sc = atlas.scale
+        has_ink = 0
+        px_start = len(atlas.glyph_px_r)
+        px_count = 0
         for row in range(7):
             mask = glyph_pattern(ch, row)
+            # Store row mask for fast blit (5 bits: col 0=16, 1=8, 2=4, 3=2, 4=1)
+            atlas.glyph_row_masks[code * 7 + row] = mask
             for col in range(5):
                 p = 16
                 if col == 1:
@@ -164,12 +231,178 @@ def atlas_bake(atlas: "GlyphAtlas", abuf: "list[i64]") -> "i32":
                     if p == 1:
                         on = 1
                 if on == 1:
+                    has_ink = 1
+                    # Record pattern pixel for ink-list fast blit
+                    atlas.glyph_px_r.append(row)
+                    atlas.glyph_px_c.append(col)
+                    px_count = px_count + 1
                     for sy in range(sc):
                         for sx in range(sc):
                             px = ox + col * sc + sx
                             py = oy + row * sc + sy
                             abuf[py * atlas.width + px] = white.to_uint32() - 0
+        atlas.glyph_has_ink[code] = has_ink
+        atlas.glyph_px_start[code] = px_start
+        atlas.glyph_px_len[code] = px_count
     return ATLAS_COUNT
+
+# =========================================================
+# P2.x: FAST BLIT - inline origins, reduced bounds checks, batch support
+# =========================================================
+
+def atlas_blit_glyph_fast(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", code: "i32", dx: "i32", dy: "i32", color: "ColorRgba", alpha: "i64") -> "i32":
+    # Fast path: alpha=255, inline origins, pre-check bounds once
+    if code < 0 or code >= ATLAS_COUNT:
+        return 0
+    ox = atlas.glyph_ox[code]
+    oy = atlas.glyph_oy[code]
+    gw = atlas.glyph_pw * atlas.scale
+    gh = atlas.glyph_h * atlas.scale
+    cr = color.r
+    cg = color.g
+    cb = color.b
+    ca = alpha
+    if ca == 0:
+        return 0
+    if ca < 255:
+        # Slow path - delegate to full function
+        return atlas_blit_glyph(abuf, atlas, buf, surf, code, dx, dy, color, alpha)
+    # FAST PATH: opaque overwrite
+    packed = ca * 16777216 + cr * 65536 + cg * 256 + cb
+    sw = surf.width
+    sh = surf.height
+    stride = surf.stride
+    # Pre-compute clipped bounds
+    start_ly = 0
+    if dy < 0:
+        start_ly = -dy
+    end_ly = gh
+    if dy + gh > sh:
+        end_ly = sh - dy
+    if start_ly >= end_ly:
+        return 1
+    start_lx = 0
+    if dx < 0:
+        start_lx = -dx
+    end_lx = gw
+    if dx + gw > sw:
+        end_lx = sw - dx
+    if start_lx >= end_lx:
+        return 1
+    # Blit only visible region
+    for ly in range(start_ly, end_ly):
+        py = dy + ly
+        arow = (oy + ly) * atlas.width + ox
+        drow = py * stride + dx
+        for lx in range(start_lx, end_lx):
+            apix = abuf[arow + lx]
+            if apix != 0:
+                buf[drow + lx] = packed
+    return 1
+
+def atlas_blit_batch(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", codes: "list[i32]", dx: "i32", dy: "i32", adv: "i32", color: "ColorRgba", alpha: "i64") -> "i32":
+    # Batch blit multiple glyphs - optimized per-glyph with hoisted invariants
+    if alpha < 255:
+        # Fall back to individual blits for transparent
+        i = int(0)
+        cur_x = dx
+        n = len(codes)
+        while i < n:
+            atlas_blit_glyph_fast(abuf, atlas, buf, surf, codes[i], cur_x, dy, color, alpha)
+            cur_x = cur_x + adv
+            i = i + 1
+        return 1
+    # Fast opaque batch blit - hoisted invariants
+    cr = color.r
+    cg = color.g
+    cb = color.b
+    ca = alpha
+    packed = ca * 16777216 + cr * 65536 + cg * 256 + cb
+    sw = surf.width
+    sh = surf.height
+    stride = surf.stride
+    gw = atlas.glyph_pw * atlas.scale
+    gh = atlas.glyph_h * atlas.scale
+    aw = atlas.width
+    sc = atlas.scale
+    # Check if fully visible (common case) - skip all clipping
+    fully_visible = 1
+    if dy < 0:
+        fully_visible = 0
+    if dy + gh > sh:
+        fully_visible = 0
+    if dx < 0:
+        fully_visible = 0
+    # Check last glyph position
+    last_dx = dx + (len(codes) - 1) * adv
+    if last_dx + gw > sw:
+        fully_visible = 0
+    if fully_visible == 1:
+        if sc == 1:
+            # FAST PATH: scale 1, fully visible - direct ink-pixel writes.
+            # No atlas loads, no bit tests, no per-pixel branches.
+            cur_x = dx
+            i = int(0)
+            n = len(codes)
+            while i < n:
+                code = codes[i]
+                if code >= 0 and code < ATLAS_COUNT:
+                    pxs = atlas.glyph_px_start[code]
+                    pxn = atlas.glyph_px_len[code]
+                    k = int(0)
+                    while k < pxn:
+                        pr = atlas.glyph_px_r[pxs + k]
+                        pc = atlas.glyph_px_c[pxs + k]
+                        buf[(dy + pr) * stride + cur_x + pc] = packed
+                        k = k + 1
+                cur_x = cur_x + adv
+                i = i + 1
+            return 1
+    # Pre-compute vertical clipping once
+    start_ly = 0
+    if dy < 0:
+        start_ly = -dy
+    end_ly = gh
+    if dy + gh > sh:
+        end_ly = sh - dy
+    if start_ly >= end_ly:
+        return 1
+    # Process each glyph (sequential, better cache locality than scanline)
+    cur_x = dx
+    i = int(0)
+    n = len(codes)
+    while i < n:
+        code = codes[i]
+        if code >= 0 and code < ATLAS_COUNT:
+            # Skip entirely transparent glyphs (space, etc.)
+            if atlas.glyph_has_ink[code] == 0:
+                cur_x = cur_x + adv
+                i = i + 1
+                continue
+            ox = atlas.glyph_ox[code]
+            oy = atlas.glyph_oy[code]
+            # Horizontal clipping
+            start_lx = 0
+            if cur_x < 0:
+                start_lx = -cur_x
+            end_lx = gw
+            if cur_x + gw > sw:
+                end_lx = sw - cur_x
+            if start_lx < end_lx:
+                # Hoist row calculations
+                ly = start_ly
+                while ly < end_ly:
+                    py = dy + ly
+                    arow = (oy + ly) * aw + ox
+                    drow = py * stride + cur_x
+                    for lx in range(start_lx, end_lx):
+                        apix = abuf[arow + lx]
+                        if apix != 0:
+                            buf[drow + lx] = packed
+                    ly = ly + 1
+        cur_x = cur_x + adv
+        i = i + 1
+    return 1
 
 def atlas_blit_glyph(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", code: "i32", dx: "i32", dy: "i32", color: "ColorRgba", alpha: "i64") -> "i32":
     # Blit 1 glyph tu atlas sang buffer dich. Anh sang den: doc kenh r cua atlas pixel
@@ -186,7 +419,7 @@ def atlas_blit_glyph(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", s
     origin = atlas_glyph_origin(atlas, code)
     ox = int(origin.x)
     oy = int(origin.y)
-    gw = atlas.glyph_w * atlas.scale
+    gw = atlas.glyph_pw * atlas.scale
     gh = atlas.glyph_h * atlas.scale
     cr = color.r
     cg = color.g
@@ -215,9 +448,8 @@ def atlas_blit_glyph(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", s
                 if px >= sw:
                     continue
                 apix = abuf[arow + lx]
-                if (apix // 65536) % 256 == 0:
-                    continue
-                buf[drow + lx] = packed
+                if apix != 0:
+                    buf[drow + lx] = packed
         return 1
     # SLOW PATH: alpha trong suot dan -> SrcOver day du
     for ly in range(gh):
@@ -1767,7 +1999,8 @@ def glyph_pattern(ch: "str", row: "i32") -> "i32":
     return 17
 
 def measure_string(text: "str", scale: "f64") -> "TextMetrics":
-    w = float(len(text) * 6) * scale
+    # Rong = 6px moi SEQUENCE (ky tu Viet 2-3 don vi van 1 cot).
+    w = float(vi_strlen(text) * 6) * scale
     h = 7 * scale
     return TextMetrics(w, h)
 
@@ -1775,9 +2008,11 @@ def draw_string(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y
     sc = int(scale)
     if sc < 1:
         sc = 1
+    n = len(text)
+    nseq = vi_strlen(text)
     tw = 0.0
-    if len(text) > 0:
-        tw = float(len(text) * 6 * sc) + tracking * float(len(text) - 1)
+    if nseq > 0:
+        tw = float(nseq * 6 * sc) + tracking * float(nseq - 1)
     cur_x = int(x)
     if align == 1:
         if box_w > tw:
@@ -1787,63 +2022,68 @@ def draw_string(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y
             cur_x = int(x) + int(box_w - tw)
     cur_y = int(y)
     adv = 6 * sc + int(tracking)
-    for idx in range(len(text)):
+    idx = 0
+    while idx < n:
         ch = text[idx]
         code = char_code(ch)
         if code >= 0:
             for row in range(7):
-                mask = glyph_pattern(ch, row)
+                # Fast glyph pattern lookup from precomputed cache
+                mask = get_glyph_pattern(ch, row)
                 for col in range(5):
-                    # we compute bit by division instead of bitwise shift
-                    # Alternate: check if mask has col bit via table
-                    # Use precomputed powers: 16,8,4,2,1
-                    p = 16
+                    # Bit check without & operator using helper functions
+                    # Bit positions: col 0=16, 1=8, 2=4, 3=2, 4=1
+                    draw = 0
+                    if col == 0:
+                        draw = bit16(mask)
                     if col == 1:
-                        p = 8
+                        draw = bit8(mask)
                     if col == 2:
-                        p = 4
+                        draw = bit4(mask)
                     if col == 3:
-                        p = 2
+                        draw = bit2(mask)
                     if col == 4:
-                        p = 1
-                    on = 0
-                    if mask >= p:
-                        # crude: check via subtraction loop
-                        tmp = mask
-                        if tmp >= 16:
-                            if p == 16:
-                                on = 1
-                            tmp = tmp - 16
-                        if tmp >= 8:
-                            if p == 8:
-                                on = 1
-                            tmp = tmp - 8
-                        if tmp >= 4:
-                            if p == 4:
-                                on = 1
-                            tmp = tmp - 4
-                        if tmp >= 2:
-                            if p == 2:
-                                on = 1
-                            tmp = tmp - 2
-                        if tmp >= 1:
-                            if p == 1:
-                                on = 1
-                            tmp = tmp - 1
-                        # P2.1 fix: else cu gan on=0 sai (day lenh if tmp>=1 khac cap
-                        # voi cap if col) - chi dung khi mask < p dau vao, da duoc
-                        # xu ly o phia tren. Bo else nay va them tmp -= 1 de khep kin.
-                        if on == 1:
-                            for sy in range(sc):
-                                for sx in range(sc):
-                                    surface_blend_pixel(buf, surf, cur_x + col * sc + sx, cur_y + row * sc + sy, color)
-        cur_x = cur_x + adv
+                        draw = bit1(mask)
+                    if draw != 0:
+                        for sy in range(sc):
+                            for sx in range(sc):
+                                surface_blend_pixel(buf, surf, cur_x + col * sc + sx, cur_y + row * sc + sy, color)
+            cur_x = cur_x + adv
+            idx = idx + 1
+        else:
+            # Don vi khong ASCII: thu sequence Viet 2 roi 3 don vi, con lai box.
+            stepped = 0
+            if idx + 1 < n:
+                p2 = ch + text[idx + 1]
+                b2 = vi_bits(p2)
+                if b2 >= 0:
+                    vi_draw_bits(buf, surf, b2, cur_x, cur_y, sc, color)
+                    cur_x = cur_x + adv
+                    idx = idx + 2
+                    stepped = 1
+            if stepped == 0:
+                if idx + 2 < n:
+                    p3 = ch + text[idx + 1] + text[idx + 2]
+                    b3 = vi_bits(p3)
+                    if b3 >= 0:
+                        vi_draw_bits(buf, surf, b3, cur_x, cur_y, sc, color)
+                        cur_x = cur_x + adv
+                        idx = idx + 3
+                        stepped = 1
+            if stepped == 0:
+                vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
+                cur_x = cur_x + adv
+                idx = idx + 1
     return 1
 
-def text_atlas_draw_string(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+def text_atlas_draw_string_ex(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", scratch: "list[i32]", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
     # P2.1: draw_string bang glyph atlas (da bake dung scale cua atlas).
     # Khac biet voi draw_string: khong co scale (atlas da scale) va ma ASCII
     # danh chi so atlas truc tiep (nhanh hon glyph_pattern per-pixel).
+    # Atlas chi co ASCII: gap don vi la -> uy thac ca chuoi cho draw_string.
+    # Single-pass: validate + build codes trong 1 vong (1 char_code/ky tu).
+    # scratch: caller-owned codes buffer (tai dung capacity qua nhieu calls,
+    # bot churn gen0). Ham tu clear + fill; khong giu tham chieu sau return.
     sc = atlas.scale
     tw = 0.0
     if len(text) > 0:
@@ -1866,22 +2106,33 @@ def text_atlas_draw_string(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i6
         while i < 95:
             code_cache.append(-2)
             i = i + 1
-    for idx in range(len(text)):
-        ch = text[idx]
+    # Tai dung scratch: xoa cu + fill codes (capacity on dinh sau lan dau).
+    # NOTE compiler: dung scratch TRUC TIEP (codes = scratch bi suy kieu sai
+    # thanh i32 -> MissingMethodException luc chay). Khong alias param.
+    while len(scratch) > 0:
+        scratch.pop()
+    n = len(text)
+    i = int(0)
+    while i < n:
+        ch = text[i]
         ci = char_code(ch)
-        slot = -1
-        if ci >= 0:
-            slot = ci - 32
-        code = -1
-        if slot >= 0:
-            code = code_cache[slot]
+        if ci < 0:
+            return draw_string(buf, surf, text, x, y, float(atlas.scale), color, align, box_w, tracking)
+        slot = ci - 32
+        code = code_cache[slot]
         if code == -2:
-            code = char_code(ch)
+            code = ci
             code_cache[slot] = code
-        if code >= 0:
-            atlas_blit_glyph(abuf, atlas, buf, surf, code - 32, cur_x, cur_y, color, color.a)
-        cur_x = cur_x + adv
+        scratch.append(code - 32)
+        i = i + 1
+    # Batch blit all glyphs at once
+    atlas_blit_batch(abuf, atlas, buf, surf, scratch, cur_x, cur_y, adv, color, color.a)
     return 1
+
+def text_atlas_draw_string(abuf: "list[i64]", atlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    # Wrapper giu nguyen signature/API cu: cap scratch tam roi uy thac _ex.
+    scratch = []
+    return text_atlas_draw_string_ex(abuf, atlas, buf, surf, text, scratch, x, y, color, align, box_w, tracking)
 
 def text_atlas_make(scale: "i32") -> "list[i64]":
     # Factory: tra list 2 phan tu (GlyphAtlas o [0], buffer o [1]) - record khong chua duoc list (rang buoc §0)
@@ -1916,23 +2167,26 @@ def text_line_count(text: "str", scale: "f64", max_w: "f64") -> "i32":
     lines = 0
     pos = 0
     while pos < n:
-        remaining = n - pos
-        take = per_line
-        if take > remaining:
-            take = remaining
-        brk = -1
-        k = 0
-        while k < take:
-            if text[pos + k] == " ":
-                brk = k
-            k = k + 1
-        end = pos + take
-        if take == per_line:
-            if remaining > per_line:
+        # Dem theo SEQUENCE (ky tu Viet 2-3 don vi = 1 cot), cat o bien sequence.
+        count = 0
+        end = pos
+        brk = 0 - 1
+        while end < n:
+            if count >= per_line:
+                break
+            adv = vi_seq_len_at(text, end, n)
+            if adv == 1:
+                if text[end] == " ":
+                    brk = end
+            end = end + adv
+            count = count + 1
+        seg_end = end
+        if count >= per_line:
+            if end < n:
                 if brk >= 0:
-                    end = pos + brk
+                    seg_end = brk
         lines = lines + 1
-        pos = end
+        pos = seg_end
         if pos < n:
             if text[pos] == " ":
                 pos = pos + 1
@@ -1956,26 +2210,33 @@ def measure_block(text: "str", scale: "f64", max_w: "f64", line_h: "f64") -> "Te
     maxw = int(0)
     pos = int(0)
     while pos < n:
-        remaining = n - pos
-        take = per_line
-        if take > remaining:
-            take = remaining
+        # Dem theo SEQUENCE (ky tu Viet 2-3 don vi = 1 cot), cat o bien sequence.
+        count = 0
+        end = pos
         brk = int(0) - 1
-        k = int(0)
-        while k < take:
-            if text[pos + k] == " ":
-                brk = k
-            k = k + 1
-        end = pos + take
-        if take == per_line:
-            if remaining > per_line:
+        brk_count = 0
+        while end < n:
+            if count >= per_line:
+                break
+            adv = vi_seq_len_at(text, end, n)
+            if adv == 1:
+                if text[end] == " ":
+                    brk = end
+                    brk_count = count
+            end = end + adv
+            count = count + 1
+        seg_count = count
+        seg_end = end
+        if count >= per_line:
+            if end < n:
                 if brk >= 0:
-                    end = pos + brk
-        segw = (end - pos) * char_w
+                    seg_end = brk
+                    seg_count = brk_count
+        segw = seg_count * char_w
         if segw > maxw:
             maxw = segw
         lines = lines + 1
-        pos = end
+        pos = seg_end
         if pos < n:
             if text[pos] == " ":
                 pos = pos + 1
@@ -2002,24 +2263,27 @@ def draw_text_block(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64
     lines_done = 0
     pos = 0
     while pos < n:
-        remaining = n - pos
-        take = per_line
-        if take > remaining:
-            take = remaining
-        brk = -1
-        k = 0
-        while k < take:
-            if text[pos + k] == " ":
-                brk = k
-            k = k + 1
-        end = pos + take
-        if take == per_line:
-            if remaining > per_line:
+        # Dem theo SEQUENCE (ky tu Viet 2-3 don vi = 1 cot), cat o bien sequence.
+        count = 0
+        end = pos
+        brk = 0 - 1
+        while end < n:
+            if count >= per_line:
+                break
+            adv = vi_seq_len_at(text, end, n)
+            if adv == 1:
+                if text[end] == " ":
+                    brk = end
+            end = end + adv
+            count = count + 1
+        seg_end = end
+        if count >= per_line:
+            if end < n:
                 if brk >= 0:
-                    end = pos + brk
-        seg = text[pos:end]
+                    seg_end = brk
+        seg = text[pos:seg_end]
         has_more = 1
-        if end >= n:
+        if seg_end >= n:
             has_more = 0
         if max_lines > 0:
             if lines_done + 1 >= max_lines:
@@ -2027,20 +2291,1708 @@ def draw_text_block(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64
                     room = per_line - 3
                     if room < 0:
                         room = 0
-                    if len(seg) > room:
-                        seg = seg[0:room]
+                    seg = vi_truncate(seg, room)
                     seg = seg + "..."
                 draw_string(buf, surf, seg, x, float(y_cur), scale, color, align, max_w)
                 lines_done = lines_done + 1
                 break
         draw_string(buf, surf, seg, x, float(y_cur), scale, color, align, max_w)
         lines_done = lines_done + 1
-        pos = end
+        pos = seg_end
         if pos < n:
             if text[pos] == " ":
                 pos = pos + 1
         y_cur = y_cur + int(lh)
     return lines_done
+
+# =========================================================
+# P2.8: TTF RASTERIZER - parse TTF, quadratic Bezier scanline fill, font atlas
+# =========================================================
+# Minimal TTF parser: head, hhea, hmtx, cmap (format 4), glyf (quadratic)
+# No hinting, no composite glyphs, no kerning. Rasterize -> alpha mask.
+# ------------------------------------------------------------------
+# Bit check helpers (no & operator allowed)
+def bit1(v: "i32") -> "i32":
+    return v % 2
+
+def bit2(v: "i32") -> "i32":
+    if v % 4 >= 2:
+        return 1
+    return 0
+
+def bit4(v: "i32") -> "i32":
+    if v % 8 >= 4:
+        return 1
+    return 0
+
+def bit8(v: "i32") -> "i32":
+    if v % 16 >= 8:
+        return 1
+    return 0
+
+def bit16(v: "i32") -> "i32":
+    if v % 32 >= 16:
+        return 1
+    return 0
+
+def bit32(v: "i32") -> "i32":
+    if v % 64 >= 32:
+        return 1
+    return 0
+
+def bit64(v: "i32") -> "i32":
+    if v % 128 >= 64:
+        return 1
+    return 0
+
+def bit128(v: "i32") -> "i32":
+    if v % 256 >= 128:
+        return 1
+    return 0
+
+def bit256(v: "i32") -> "i32":
+    if v % 512 >= 256:
+        return 1
+    return 0
+
+def ttf_read_u16(data: "list[i64]", off: "i32") -> "i32":
+    b0 = int(data[off] % 256)
+    b1 = int(data[off + 1] % 256)
+    return b0 * 256 + b1
+
+def ttf_read_i16(data: "list[i64]", off: "i32") -> "i32":
+    val = ttf_read_u16(data, off)
+    if val >= 32768:
+        val = val - 65536
+    return val
+
+def ttf_read_u32(data: "list[i64]", off: "i32") -> "i64":
+    b0 = int(data[off] % 256)
+    b1 = int(data[off + 1] % 256)
+    b2 = int(data[off + 2] % 256)
+    b3 = int(data[off + 3] % 256)
+    return b0 * 16777216 + b1 * 65536 + b2 * 256 + b3
+
+def ttf_read_tag(data: "list[i64]", off: "i32") -> "i64":
+    return ttf_read_u32(data, off)
+
+def ttf_parse_head(data: "list[i64]", table_off: "i32") -> "list[i32]":
+    # head table: version(4), fontRevision(4), checkSum(4), magic(4), flags(2), unitsPerEm(2), ...
+    # return [unitsPerEm, xMin, yMin, xMax, yMax]
+    upem = ttf_read_u16(data, table_off + 18)
+    xmin = ttf_read_i16(data, table_off + 36)
+    ymin = ttf_read_i16(data, table_off + 38)
+    xmax = ttf_read_i16(data, table_off + 40)
+    ymax = ttf_read_i16(data, table_off + 42)
+    out = []
+    out.append(upem)
+    out.append(xmin)
+    out.append(ymin)
+    out.append(xmax)
+    out.append(ymax)
+    return out
+
+def ttf_parse_hhea(data: "list[i64]", table_off: "i32") -> "list[i32]":
+    # hhea: version(4), ascent(2), descent(2), lineGap(2), advanceWidthMax(2), ...
+    ascent = ttf_read_i16(data, table_off + 4)
+    descent = ttf_read_i16(data, table_off + 6)
+    line_gap = ttf_read_i16(data, table_off + 8)
+    num_hmtx = ttf_read_u16(data, table_off + 34)
+    out = []
+    out.append(ascent)
+    out.append(descent)
+    out.append(line_gap)
+    out.append(num_hmtx)
+    return out
+
+def ttf_parse_hmtx(data: "list[i64]", table_off: "i32", num_hmtx: "i32", num_glyphs: "i32") -> "list[i32]":
+    # hmtx: array of num_hmtx {advanceWidth, lsb}, then (num_glyphs - num_hmtx) lsb only
+    # return flat list: [adv0, lsb0, adv1, lsb1, ...] length = num_glyphs * 2
+    out = []
+    i = int(0)
+    off = table_off
+    while i < num_glyphs:
+        if i < num_hmtx:
+            adv = ttf_read_u16(data, off)
+            lsb = ttf_read_i16(data, off + 2)
+            off = off + 4
+        else:
+            adv = ttf_read_u16(data, off - 4)
+            lsb = ttf_read_i16(data, off)
+            off = off + 2
+        out.append(adv)
+        out.append(lsb)
+        i = i + 1
+    return out
+
+def ttf_parse_kern(data: "list[i64]", kern_off: "i32") -> "list[i32]":
+    # Bang kern format 0: flat [left0, right0, val0, ...] (chi subtable
+    # horizontal). Subtable la tra ve rong (khong fail ca bang).
+    out = []
+    if kern_off == 0:
+        return out
+    if kern_off + 4 > len(data):
+        return out
+    ntables = ttf_read_u16(data, kern_off + 2)
+    off = kern_off + 4
+    t = int(0)
+    while t < ntables:
+        if off + 14 > len(data):
+            return out
+        ver = ttf_read_u16(data, off)
+        sublen = ttf_read_u16(data, off + 2)
+        cov = ttf_read_u16(data, off + 4)
+        if ver == 0 and bit1(cov) != 0:
+            npairs = ttf_read_u16(data, off + 6)
+            poff = off + 14
+            p = int(0)
+            while p < npairs:
+                if poff + 6 > len(data):
+                    return out
+                left = ttf_read_u16(data, poff)
+                right = ttf_read_u16(data, poff + 2)
+                val = ttf_read_i16(data, poff + 4)
+                out.append(left)
+                out.append(right)
+                out.append(val)
+                poff = poff + 6
+                p = p + 1
+        if sublen < 14:
+            return out
+        off = off + sublen
+        t = t + 1
+    return out
+
+def ttf_kern_adjust(kern: "list[i32]", left: "i32", right: "i32") -> "i32":
+    # Dieu chinh kerning (font units, co dau) cho cap glyph; 0 neu khong co.
+    i = int(0)
+    while i + 3 <= len(kern):
+        if kern[i] == left:
+            if kern[i + 1] == right:
+                return kern[i + 2]
+        i = i + 3
+    return 0
+
+def ttf_cbdt_blit(data: "list[i64]", off: "i32", w: "i32", h: "i32", buf: "list[i64]", surf: "PixelSurface", dx: "i32", dy: "i32", color: "ColorRgba") -> "i32":
+    # CBDT bitmap formats 1/2 (1bpp, MSB-first, rows padded to byte).
+    # Ghi mau dac (opaque fast path); tra so pixel / -1 neu data cut.
+    # PNG formats (17/18/19) KHONG ho tro (can PNG decoder) - tra -1.
+    if w <= 0 or h <= 0:
+        return 0
+    if color.a == 0:
+        return 0
+    rowbytes = (w + 7) // 8
+    if off < 0 or off + rowbytes * h > len(data):
+        return -1
+    packed = color.a * 16777216 + color.r * 65536 + color.g * 256 + color.b
+    sw = surf.width
+    sh = surf.height
+    stride = surf.stride
+    n = int(0)
+    y = int(0)
+    while y < h:
+        py = dy + y
+        if py >= 0 and py < sh:
+            drow = py * stride
+            x = int(0)
+            while x < w:
+                if dx + x >= 0 and dx + x < sw:
+                    bv = int(data[off + y * rowbytes + x // 8] % 256)
+                    p = 7 - (x - (x // 8) * 8)
+                    div = int(1)
+                    if p == 7:
+                        div = 128
+                    else:
+                        if p == 6:
+                            div = 64
+                        else:
+                            if p == 5:
+                                div = 32
+                            else:
+                                if p == 4:
+                                    div = 16
+                                else:
+                                    if p == 3:
+                                        div = 8
+                                    else:
+                                        if p == 2:
+                                            div = 4
+                                        else:
+                                            if p == 1:
+                                                div = 2
+                    if (bv // div) % 2 != 0:
+                        buf[drow + dx + x] = packed
+                        n = n + 1
+                x = x + 1
+        y = y + 1
+    return n
+
+def ttf_parse_cpal(data: "list[i64]", cpal_off: "i32") -> "list[i32]":
+    # CPAL: flat [nEntries, nPalettes, recIdx0.., r0,g0,b0,a0, ...].
+    # Mau luu BGRA bytes trong file.
+    out = []
+    if cpal_off == 0:
+        return out
+    if cpal_off + 12 > len(data):
+        return out
+    ver = ttf_read_u16(data, cpal_off)
+    if ver != 0 and ver != 1:
+        return out
+    ne = ttf_read_u16(data, cpal_off + 2)
+    np = ttf_read_u16(data, cpal_off + 4)
+    nr = ttf_read_u16(data, cpal_off + 6)
+    first = int(ttf_read_u32(data, cpal_off + 8))
+    out.append(ne)
+    out.append(np)
+    i = int(0)
+    while i < np:
+        if cpal_off + 12 + i * 2 + 2 > len(data):
+            return out
+        out.append(ttf_read_u16(data, cpal_off + 12 + i * 2))
+        i = i + 1
+    j = int(0)
+    while j < nr:
+        base = cpal_off + first + j * 4
+        if base + 4 > len(data):
+            return out
+        b = int(data[base] % 256)
+        g = int(data[base + 1] % 256)
+        r = int(data[base + 2] % 256)
+        a = int(data[base + 3] % 256)
+        out.append(r)
+        out.append(g)
+        out.append(b)
+        out.append(a)
+        j = j + 1
+    return out
+
+def ttf_cpal_color(cpal: "list[i32]", pal: "i32", idx: "i32") -> "i64":
+    # Mau packed ARGB (i64), 0 neu miss.
+    if len(cpal) < 2:
+        return 0
+    ne = cpal[0]
+    np = cpal[1]
+    if pal < 0 or pal >= np:
+        return 0
+    if idx < 0 or idx >= ne:
+        return 0
+    if 2 + pal >= len(cpal):
+        return 0
+    rec = cpal[2 + pal] + idx
+    base = 2 + np + rec * 4
+    if base + 3 >= len(cpal):
+        return 0
+    r = cpal[base]
+    g = cpal[base + 1]
+    b = cpal[base + 2]
+    a = cpal[base + 3]
+    return a * 16777216 + r * 65536 + g * 256 + b
+
+def ttf_parse_colr(data: "list[i64]", colr_off: "i32") -> "list[i32]":
+    # COLR v0: flat [nb, nl, (gid,first,num)*nb, (lgid,pal)*nl].
+    # pal 65535 = foreground (giai quyet luc draw).
+    out = []
+    if colr_off == 0:
+        return out
+    if colr_off + 14 > len(data):
+        return out
+    ver = ttf_read_u16(data, colr_off)
+    if ver != 0:
+        return out
+    nb = ttf_read_u16(data, colr_off + 2)
+    offB = colr_off + int(ttf_read_u32(data, colr_off + 4))
+    offL = colr_off + int(ttf_read_u32(data, colr_off + 8))
+    nl = ttf_read_u16(data, colr_off + 12)
+    out.append(nb)
+    out.append(nl)
+    b = int(0)
+    while b < nb:
+        if offB + b * 8 + 8 > len(data):
+            return out
+        gid = int(ttf_read_u32(data, offB + b * 8))
+        first = ttf_read_u16(data, offB + b * 8 + 4)
+        num = ttf_read_u16(data, offB + b * 8 + 6)
+        out.append(gid)
+        out.append(first)
+        out.append(num)
+        b = b + 1
+    l = int(0)
+    while l < nl:
+        if offL + l * 4 + 4 > len(data):
+            return out
+        out.append(ttf_read_u16(data, offL + l * 4))
+        out.append(ttf_read_u16(data, offL + l * 4 + 2))
+        l = l + 1
+    return out
+
+def ttf_colr_layers(colr: "list[i32]", gid: "i32", out: "list[i32]") -> "i32":
+    # Ghi [lgid, pal]*k cua base gid vao out. Tra k (0 neu khong co).
+    if len(colr) < 2:
+        return 0
+    nb = colr[0]
+    nl = colr[1]
+    b = int(0)
+    while b < nb:
+        if 2 + b * 3 + 2 >= len(colr):
+            return 0
+        if colr[2 + b * 3] == gid:
+            first = colr[2 + b * 3 + 1]
+            num = colr[2 + b * 3 + 2]
+            base = 2 + nb * 3
+            k = int(0)
+            while k < num:
+                li = base + (first + k) * 2
+                if li + 1 >= len(colr):
+                    return k
+                out.append(colr[li])
+                out.append(colr[li + 1])
+                k = k + 1
+            return num
+        b = b + 1
+    return 0
+
+def ttf_draw_colr(data: "list[i64]", glyf_off: "i32", loca_off: "i32", loc_fmt: "i32", cpal: "list[i32]", colr: "list[i32]", gid: "i32", scale: "f64", out_w: "i32", out_h: "i32", buf: "list[i64]", surf: "PixelSurface", dx: "i32", dy: "i32", fg: "ColorRgba") -> "i32":
+    # Ve glyph COLR: rasterize tung layer (tai dung parser incl. composite),
+    # tint palette color, blend SrcOver. pal 65535 = mau fg. Tra so layer.
+    layers = []
+    n = ttf_colr_layers(colr, gid, layers)
+    if n <= 0:
+        return 0
+    if out_w <= 0 or out_h <= 0:
+        return 0
+    drawn = int(0)
+    k = int(0)
+    while k < n:
+        lg = layers[k * 2]
+        pal = layers[k * 2 + 1]
+        gd = ttf_parse_glyf(data, glyf_off, loca_off, loc_fmt, lg)
+        if len(gd) > 0:
+            cr = fg.r
+            cg = fg.g
+            cb = fg.b
+            pa = 255
+            if pal != 65535:
+                packed = ttf_cpal_color(cpal, 0, pal)
+                if packed != 0:
+                    pa = int(packed // 16777216)
+                    cr = int((packed // 65536) % 256)
+                    cg = int((packed // 256) % 256)
+                    cb = int(packed % 256)
+            mask = []
+            m = int(0)
+            total = out_w * out_h
+            while m < total:
+                mask.append(0)
+                m = m + 1
+            ttf_rasterize_glyph(gd, scale, out_w, out_h, 0, 0, mask, out_w)
+            mi = int(0)
+            while mi < total:
+                apix = mask[mi]
+                cov = (apix // 65536) % 256
+                if cov != 0:
+                    lx = mi % out_w
+                    ly = mi // out_w
+                    px = dx + lx
+                    py = dy + ly
+                    if px >= 0 and py >= 0:
+                        if px < surf.width and py < surf.height:
+                            ea = (cov * pa) // 255
+                            di = py * surf.stride + px
+                            dst = buf[di]
+                            da = dst // 16777216
+                            rem = dst % 16777216
+                            dr = rem // 65536
+                            rem2 = rem % 65536
+                            dg = rem2 // 256
+                            db2 = rem2 % 256
+                            inv = 255 - ea
+                            nr = (cr * ea + dr * inv) // 255
+                            ng = (cg * ea + dg * inv) // 255
+                            nb2 = (cb * ea + db2 * inv) // 255
+                            na = ea + (da * inv) // 255
+                            if na > 255:
+                                na = 255
+                            buf[di] = na * 16777216 + nr * 65536 + ng * 256 + nb2
+                mi = mi + 1
+            drawn = drawn + 1
+        k = k + 1
+    return drawn
+
+def ttf_find_table(data: "list[i64]", tag: "i64") -> "i32":
+    # TTF header: sfnt_version(4), numTables(2), searchRange(2), entrySelector(2), rangeShift(2)
+    # then table directory: tag(4), checksum(4), offset(4), length(4) per entry
+    num_tables = ttf_read_u16(data, 4)
+    dir_off = 12
+    i = int(0)
+    while i < num_tables:
+        t = ttf_read_tag(data, dir_off)
+        if t == tag:
+            return int(ttf_read_u32(data, dir_off + 8))
+        dir_off = dir_off + 16
+        i = i + 1
+    return 0
+
+def ttf_parse_cmap_format4(data: "list[i64]", cmap_off: "i32", sub_off: "i32") -> "list[i32]":
+    # cmap format 4: segCountX2(2), searchRange(2), entrySelector(2), rangeShift(2)
+    # endCode[segCount], reservedPad(2), startCode[segCount], idDelta[segCount], idRangeOffset[segCount], glyphIdArray[]
+    fmt_off = cmap_off + sub_off
+    format_val = ttf_read_u16(data, fmt_off)
+    if format_val != 4:
+        return []
+    seg_count_x2 = ttf_read_u16(data, fmt_off + 6)
+    seg_count = seg_count_x2 // 2
+    end_codes_off = fmt_off + 14
+    start_codes_off = end_codes_off + seg_count_x2 + 2
+    id_delta_off = start_codes_off + seg_count_x2
+    id_range_off = id_delta_off + seg_count_x2
+    out = []
+    i = int(0)
+    while i < seg_count:
+        end_code = ttf_read_u16(data, end_codes_off + i * 2)
+        start_code = ttf_read_u16(data, start_codes_off + i * 2)
+        id_delta = ttf_read_i16(data, id_delta_off + i * 2)
+        id_range = ttf_read_u16(data, id_range_off + i * 2)
+        out.append(start_code)
+        out.append(end_code)
+        out.append(id_delta)
+        out.append(id_range)
+        i = i + 1
+    # glyphIdArray follows
+    glyph_array_off = id_range_off + seg_count_x2
+    # append glyph array start offset and seg_count for runtime mapping
+    out.append(glyph_array_off)
+    out.append(seg_count)
+    return out
+
+def ttf_parse_cmap(data: "list[i64]") -> "list[i32]":
+    cmap_off = ttf_find_table(data, 1668112752)  # 'cmap'
+    if cmap_off == 0:
+        return []
+    version = ttf_read_u16(data, cmap_off)
+    num_subtables = ttf_read_u16(data, cmap_off + 2)
+    sub_off = cmap_off + 4
+    i = int(0)
+    while i < num_subtables:
+        platform_id = ttf_read_u16(data, sub_off)
+        encoding_id = ttf_read_u16(data, sub_off + 2)
+        subtable_off = int(ttf_read_u32(data, sub_off + 4))
+        # Windows Unicode (3,1) or Mac Unicode (0,3) or (0,4)
+        if (platform_id == 3 and encoding_id == 1) or (platform_id == 0 and (encoding_id == 3 or encoding_id == 4)):
+            return ttf_parse_cmap_format4(data, cmap_off, subtable_off)
+        sub_off = sub_off + 8
+        i = i + 1
+    return []
+
+def ttf_char_to_glyph(cmap_data: "list[i32]", ch: "i32", data: "list[i64]") -> "i32":
+    # cmap_data: [start0, end0, delta0, range0, ..., glyphArrayOff, segCount]
+    if len(cmap_data) < 6:
+        return 0
+    glyph_array_off = cmap_data[len(cmap_data) - 2]
+    seg_count = cmap_data[len(cmap_data) - 1]
+    i = int(0)
+    while i < seg_count:
+        base = i * 4
+        start = cmap_data[base]
+        end = cmap_data[base + 1]
+        delta = cmap_data[base + 2]
+        range_off = cmap_data[base + 3]
+        if ch >= start and ch <= end:
+            if range_off == 0:
+                code = (ch + delta) % 65536
+                return code
+            else:
+                glyph_idx = (ch - start) + range_off // 2
+                if glyph_array_off + glyph_idx * 2 < len(cmap_data) * 8:
+                    return ttf_read_u16(data, glyph_array_off + glyph_idx * 2)
+                return 0
+        i = i + 1
+    return 0
+
+def ttf_parse_glyf(data: "list[i64]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", glyph_id: "i32") -> "list[i32]":
+    return ttf_parse_glyf_depth(data, glyf_off, loca_off, index_to_loc_format, glyph_id, 0)
+
+def ttf_merge_composite(data: "list[i64]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", glyph_start: "i32", depth: "i32") -> "list[i32]":
+    # Glyph composite (nContours=-1): parse components, transform, merge ve
+    # dung flat layout interleaved (x,y) nhu simple path. Engine contract:
+    # toa do TUYET DOI (giong font synth test) - transform truc tiep gia tri.
+    # Chi ho tro ARGS_ARE_XY_VALUES; matched-points -> bo glyph (ve []).
+    # De quy sau toi da 4 (chong font doc).
+    out_nc = int(0)
+    out_ends = []
+    out_flags = []
+    out_pts = []
+    xmin = int(0)
+    ymin = int(0)
+    xmax = int(0)
+    ymax = int(0)
+    haspt = int(0)
+    out_total = int(0)
+    off = glyph_start + 10
+    more = int(1)
+    guard = int(0)
+    while more == 1:
+        if guard > 64:
+            return []
+        guard = guard + 1
+        if off + 4 > len(data):
+            return []
+        flags = ttf_read_u16(data, off)
+        gid = ttf_read_u16(data, off + 2)
+        off = off + 4
+        if bit2(flags) == 0:
+            return []
+        dx = int(0)
+        dy = int(0)
+        if bit1(flags) != 0:
+            if off + 4 > len(data):
+                return []
+            dx = ttf_read_i16(data, off)
+            dy = ttf_read_i16(data, off + 2)
+            off = off + 4
+        else:
+            if off + 2 > len(data):
+                return []
+            b1 = int(data[off] % 256)
+            b2 = int(data[off + 1] % 256)
+            if b1 >= 128:
+                b1 = b1 - 256
+            if b2 >= 128:
+                b2 = b2 - 256
+            dx = b1
+            dy = b2
+            off = off + 2
+        m00 = 1.0
+        m01 = 0.0
+        m10 = 0.0
+        m11 = 1.0
+        if bit8(flags) != 0:
+            if off + 2 > len(data):
+                return []
+            s = float(ttf_read_i16(data, off)) / 16384.0
+            m00 = s
+            m11 = s
+            off = off + 2
+        else:
+            if bit64(flags) != 0:
+                if off + 4 > len(data):
+                    return []
+                m00 = float(ttf_read_i16(data, off)) / 16384.0
+                m11 = float(ttf_read_i16(data, off + 2)) / 16384.0
+                off = off + 4
+            else:
+                if bit128(flags) != 0:
+                    if off + 8 > len(data):
+                        return []
+                    m00 = float(ttf_read_i16(data, off)) / 16384.0
+                    m01 = float(ttf_read_i16(data, off + 2)) / 16384.0
+                    m10 = float(ttf_read_i16(data, off + 4)) / 16384.0
+                    m11 = float(ttf_read_i16(data, off + 6)) / 16384.0
+                    off = off + 8
+        if bit256(flags) != 0:
+            if off + 2 > len(data):
+                return []
+            ninstr = ttf_read_u16(data, off)
+            off = off + 2 + ninstr
+        sub = ttf_parse_glyf_depth(data, glyf_off, loca_off, index_to_loc_format, gid, depth + 1)
+        if len(sub) > 0:
+            snc = sub[0]
+            if snc > 0:
+                tp = sub[5 + snc - 1] + 1
+                base = out_total
+                j = int(0)
+                while j < snc:
+                    out_ends.append(base + sub[5 + j])
+                    j = j + 1
+                j = int(0)
+                while j < tp:
+                    f = sub[5 + snc + j]
+                    out_flags.append(f)
+                    x = float(sub[5 + snc + tp + j + j])
+                    y = float(sub[5 + snc + tp + j + j + 1])
+                    xp = m00 * x + m01 * y + float(dx)
+                    yp = m10 * x + m11 * y + float(dy)
+                    ixp = int(xp)
+                    iyp = int(yp)
+                    out_pts.append(ixp)
+                    out_pts.append(iyp)
+                    if haspt == 0:
+                        xmin = ixp
+                        ymin = iyp
+                        xmax = ixp
+                        ymax = iyp
+                        haspt = 1
+                    else:
+                        if ixp < xmin:
+                            xmin = ixp
+                        if iyp < ymin:
+                            ymin = iyp
+                        if ixp > xmax:
+                            xmax = ixp
+                        if iyp > ymax:
+                            ymax = iyp
+                    j = j + 1
+                out_nc = out_nc + snc
+                out_total = out_total + tp
+        if bit32(flags) != 0:
+            more = 1
+        else:
+            more = 0
+    if out_nc == 0:
+        return []
+    out = []
+    out.append(out_nc)
+    out.append(xmin)
+    out.append(ymin)
+    out.append(xmax)
+    out.append(ymax)
+    i = int(0)
+    while i < len(out_ends):
+        out.append(out_ends[i])
+        i = i + 1
+    i = int(0)
+    while i < len(out_flags):
+        out.append(out_flags[i])
+        i = i + 1
+    i = int(0)
+    while i < len(out_pts):
+        out.append(out_pts[i])
+        i = i + 1
+    return out
+
+def ttf_parse_glyf_depth(data: "list[i64]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", glyph_id: "i32", depth: "i32") -> "list[i32]":
+    # Parse simple glyph; composite -> merge (depth cap 4). Return flat list: [nContours, xMin, yMin, xMax, yMax, endPts[], flags[], points[], ...]
+    # If empty/unsupported, return empty.
+    if glyf_off == 0:
+        return []
+    # loca table: offset for each glyph
+    entry_mul = 2
+    if index_to_loc_format == 1:
+        entry_mul = 4
+    loca_entry = glyph_id * entry_mul
+    if index_to_loc_format == 1:
+        glyph_start = glyf_off + ttf_read_u32(data, loca_off + loca_entry)
+    else:
+        glyph_start = glyf_off + ttf_read_u16(data, loca_off + loca_entry) * 2
+    if index_to_loc_format == 1:
+        glyph_end = glyf_off + ttf_read_u32(data, loca_off + loca_entry + 4)
+    else:
+        glyph_end = glyf_off + ttf_read_u16(data, loca_off + loca_entry + 2) * 2
+    if glyph_start == glyph_end:
+        return []  # empty glyph
+    n_contours = ttf_read_i16(data, glyph_start)
+    if n_contours < 0:
+        if depth >= 4:
+            return []
+        return ttf_merge_composite(data, glyf_off, loca_off, index_to_loc_format, glyph_start, depth)
+    if n_contours == 0:
+        return []
+    x_min = ttf_read_i16(data, glyph_start + 2)
+    y_min = ttf_read_i16(data, glyph_start + 4)
+    x_max = ttf_read_i16(data, glyph_start + 6)
+    y_max = ttf_read_i16(data, glyph_start + 8)
+    end_pts_off = glyph_start + 10
+    end_pts = []
+    i = int(0)
+    while i < n_contours:
+        end_pts.append(ttf_read_u16(data, end_pts_off + i * 2))
+        i = i + 1
+    instr_len = ttf_read_u16(data, end_pts_off + n_contours * 2)
+    flags_off = end_pts_off + n_contours * 2 + 2 + instr_len
+    total_pts = end_pts[n_contours - 1] + 1
+    # flags
+    flags = []
+    j = int(0)
+    flag_off = flags_off
+    while j < total_pts:
+        if flag_off >= len(data):
+            return []
+        flag = int(data[flag_off] % 256)
+        flags.append(flag)
+        flag_off = flag_off + 1
+        if bit8(flag) != 0:
+            repeat = int(data[flag_off] % 256)
+            flag_off = flag_off + 1
+            k = int(0)
+            while k < repeat:
+                flags.append(flag)
+                j = j + 1
+                k = k + 1
+        j = j + 1
+    # points: interleave (x,y) per point (khop consumer pts[j*2]/[j*2+1])
+    xs = []
+    coord_off = flag_off
+    # x coordinates
+    j = int(0)
+    while j < total_pts:
+        flag = flags[j]
+        dx = 0
+        if bit2(flag) != 0:
+            dx = int(data[coord_off] % 256)
+            if bit16(flag) != 0:
+                dx = 0 - dx
+            coord_off = coord_off + 1
+        elif bit16(flag) == 0:
+            dx = ttf_read_i16(data, coord_off)
+            coord_off = coord_off + 2
+        xs.append(dx)
+        j = j + 1
+    # y coordinates
+    ys = []
+    j = int(0)
+    while j < total_pts:
+        flag = flags[j]
+        dy = 0
+        if bit4(flag) != 0:
+            dy = int(data[coord_off] % 256)
+            if bit32(flag) != 0:
+                dy = 0 - dy
+            coord_off = coord_off + 1
+        elif bit32(flag) == 0:
+            dy = ttf_read_i16(data, coord_off)
+            coord_off = coord_off + 2
+        ys.append(dy)
+        j = j + 1
+    out = []
+    out.append(n_contours)
+    out.append(x_min)
+    out.append(y_min)
+    out.append(x_max)
+    out.append(y_max)
+    i = int(0)
+    while i < n_contours:
+        out.append(end_pts[i])
+        i = i + 1
+    i = int(0)
+    while i < total_pts:
+        out.append(flags[i])
+        i = i + 1
+    i = int(0)
+    while i < total_pts:
+        out.append(xs[i])
+        out.append(ys[i])
+        i = i + 1
+    return out
+
+# Quadratic Bezier rasterization (scanline fill)
+def ttf_bezier_eval(p0x: "f64", p0y: "f64", p1x: "f64", p1y: "f64", p2x: "f64", p2y: "f64", t: "f64") -> "Point2D":
+    u = 1.0 - t
+    x = u * u * p0x + 2.0 * u * t * p1x + t * t * p2x
+    y = u * u * p0y + 2.0 * u * t * p1y + t * t * p2y
+    return Point2D(x, y)
+
+def ttf_flatten_quad(p0x: "f64", p0y: "f64", p1x: "f64", p1y: "f64", p2x: "f64", p2y: "f64", pts: "list[f64]") -> "i32":
+    # Flatten quadratic Bezier to line segments (adaptive: max 16 segments)
+    # pts: output list, append (x,y) pairs. Returns number of segments added.
+    # Use midpoint subdivision error check
+    stack_p0x = []
+    stack_p0y = []
+    stack_p1x = []
+    stack_p1y = []
+    stack_p2x = []
+    stack_p2y = []
+    stack_p0x.append(p0x)
+    stack_p0y.append(p0y)
+    stack_p1x.append(p1x)
+    stack_p1y.append(p1y)
+    stack_p2x.append(p2x)
+    stack_p2y.append(p2y)
+    segs = int(0)
+    while len(stack_p0x) > 0:
+        a0x = stack_p0x[-1]
+        a0y = stack_p0y[-1]
+        a1x = stack_p1x[-1]
+        a1y = stack_p1y[-1]
+        a2x = stack_p2x[-1]
+        a2y = stack_p2y[-1]
+        stack_p0x.pop()
+        stack_p0y.pop()
+        stack_p1x.pop()
+        stack_p1y.pop()
+        stack_p2x.pop()
+        stack_p2y.pop()
+        # distance from p1 to line p0-p2
+        dx = a2x - a0x
+        dy = a2y - a0y
+        dist = 0.0
+        if dx != 0.0 or dy != 0.0:
+            dist = abs(dx * (a0y - a1y) - dy * (a0x - a1x)) / (dx * dx + dy * dy) ** 0.5
+        if dist < 0.5 or segs >= 64:
+            pts.append(a0x)
+            pts.append(a0y)
+            segs = segs + 1
+        else:
+            # subdivide
+            q0x = (a0x + a1x) * 0.5
+            q0y = (a0y + a1y) * 0.5
+            q1x = (a1x + a2x) * 0.5
+            q1y = (a1y + a2y) * 0.5
+            rx = (q0x + q1x) * 0.5
+            ry = (q0y + q1y) * 0.5
+            # push right then left (stack LIFO -> process left first)
+            stack_p0x.append(rx)
+            stack_p0y.append(ry)
+            stack_p1x.append(q1x)
+            stack_p1y.append(q1y)
+            stack_p2x.append(a2x)
+            stack_p2y.append(a2y)
+            stack_p0x.append(a0x)
+            stack_p0y.append(a0y)
+            stack_p1x.append(q0x)
+            stack_p1y.append(q0y)
+            stack_p2x.append(rx)
+            stack_p2y.append(ry)
+    # add final endpoint
+    pts.append(p2x)
+    pts.append(p2y)
+    return segs
+
+def ttf_rasterize_glyph(glyph_data: "list[i32]", scale: "f64", out_w: "i32", out_h: "i32", atlas_x: "i32", atlas_y: "i32", atlas_buf: "list[i64]", atlas_stride: "i32") -> "i32":
+    # glyph_data from ttf_parse_glyf
+    # Render to atlas buffer at (atlas_x, atlas_y) with size (out_w, out_h)
+    # Uses even-odd rule scanline fill
+    if len(glyph_data) < 5:
+        return 0
+    n_contours = glyph_data[0]
+    x_min = glyph_data[1]
+    y_min = glyph_data[2]
+    x_max = glyph_data[3]
+    y_max = glyph_data[4]
+    if out_w <= 0 or out_h <= 0:
+        return 0
+    # Extract endPts
+    end_pts = []
+    i = int(0)
+    while i < n_contours:
+        end_pts.append(glyph_data[5 + i])
+        i = i + 1
+    total_pts = end_pts[n_contours - 1] + 1
+    flags_start = 5 + n_contours
+    flags = []
+    i = int(0)
+    while i < total_pts:
+        flags.append(glyph_data[flags_start + i])
+        i = i + 1
+    coords_start = flags_start + total_pts
+    pts = []
+    i = int(0)
+    while i < total_pts * 2:
+        pts.append(float(glyph_data[coords_start + i]))
+        i = i + 1
+    # Scale from font units to pixels (scale is already pre-multiplied by 1/upem)
+    sx = scale
+    sy = scale  # Y up in font, we flip
+    # Ghi edge dang phang: exs/eys song song (tranh list-long-nhau - tkvc
+    # tra null runtime khi index list[list[f64]] cuc bo)
+    max_y = int(out_h)
+    exs = []
+    eys = []
+    contour_start = int(0)
+    i = int(0)
+    while i < n_contours:
+        end_pt = end_pts[i]
+        j = contour_start
+        while j <= end_pt:
+            next_j = j + 1
+            if next_j > end_pt:
+                next_j = contour_start
+            x0 = pts[j * 2] * sx
+            y0 = float(out_h) - pts[j * 2 + 1] * sy  # flip Y
+            x1 = pts[next_j * 2] * sx
+            y1 = float(out_h) - pts[next_j * 2 + 1] * sy
+            flag = flags[j]
+            # on-curve point
+            if bit1(flag) != 0:
+                # line segment
+                if y0 != y1:
+                    y_start = int(y0)
+                    y_end = int(y1)
+                    if y_start > y_end:
+                        tswap_i = y_start
+                        y_start = y_end
+                        y_end = tswap_i
+                        tswap_f = x0
+                        x0 = x1
+                        x1 = tswap_f
+                        tswap_f = y0
+                        y0 = y1
+                        y1 = tswap_f
+                    if y_start < max_y and y_end >= 0:
+                        if y_start < 0:
+                            y_start = 0
+                        if y_end >= max_y:
+                            y_end = max_y - 1
+                        y = y_start
+                        while y <= y_end:
+                            if y1 != y0:
+                                t = (float(y) - y0 + 0.5) / (y1 - y0)
+                                if t < 0.0:
+                                    t = 0.0
+                                if t > 1.0:
+                                    t = 1.0
+                                ix = x0 + (x1 - x0) * t
+                            else:
+                                ix = x0
+                            exs.append(ix)
+                            eys.append(y)
+                            y = y + 1
+            else:
+                # off-curve: quadratic Bezier to next on-curve
+                # Find next on-curve point
+                k = next_j
+                while k != contour_start and bit1(flags[k]) == 0:
+                    k = k + 1
+                    if k > end_pt:
+                        k = contour_start
+                if k == contour_start and bit1(flags[k]) == 0:
+                    # no on-curve found
+                    i = i + 0
+                else:
+                    cx = pts[k * 2] * sx
+                    cy = float(out_h) - pts[k * 2 + 1] * sy
+                    # flatten
+                    flat = []
+                    ttf_flatten_quad(x0, y0, x1, y1, cx, cy, flat)
+                    m = int(0)
+                    while m + 3 < len(flat):
+                        fx0 = flat[m]
+                        fy0 = flat[m + 1]
+                        fx1 = flat[m + 2]
+                        fy1 = flat[m + 3]
+                        if fy0 != fy1:
+                            y_start = int(fy0)
+                            y_end = int(fy1)
+                            if y_start > y_end:
+                                tswap_i = y_start
+                                y_start = y_end
+                                y_end = tswap_i
+                                tswap_f = fx0
+                                fx0 = fx1
+                                fx1 = tswap_f
+                                tswap_f = fy0
+                                fy0 = fy1
+                                fy1 = tswap_f
+                            if y_start < max_y and y_end >= 0:
+                                if y_start < 0:
+                                    y_start = 0
+                                if y_end >= max_y:
+                                    y_end = max_y - 1
+                                y = y_start
+                                while y <= y_end:
+                                    if fy1 != fy0:
+                                        t = (float(y) - fy0 + 0.5) / (fy1 - fy0)
+                                        if t < 0.0:
+                                            t = 0.0
+                                        if t > 1.0:
+                                            t = 1.0
+                                        ix = fx0 + (fx1 - fx0) * t
+                                    else:
+                                        ix = fx0
+                                    exs.append(ix)
+                                    eys.append(y)
+                                    y = y + 1
+                        m = m + 2
+            j = j + 1
+        contour_start = end_pt + 1
+        i = i + 1
+    # Fill scanlines: gom edge theo tung dong, sort, fill cap even-odd
+    y = int(0)
+    while y < max_y:
+        row = []
+        k = int(0)
+        while k < len(exs):
+            if eys[k] == y:
+                row.append(exs[k])
+            k = k + 1
+        n = len(row)
+        a = int(0)
+        while a < n - 1:
+            b = int(0)
+            while b < n - a - 1:
+                if row[b] > row[b + 1]:
+                    tmp = row[b]
+                    row[b] = row[b + 1]
+                    row[b + 1] = tmp
+                b = b + 1
+            a = a + 1
+        k = int(0)
+        while k + 1 < n:
+            x_left = int(row[k])
+            x_right = int(row[k + 1])
+            if x_left < 0:
+                x_left = 0
+            if x_right >= out_w:
+                x_right = out_w - 1
+            if x_left <= x_right:
+                dst_idx = (atlas_y + y) * atlas_stride + atlas_x + x_left
+                fill_count = x_right - x_left + 1
+                m = int(0)
+                while m < fill_count:
+                    atlas_buf[dst_idx + m] = 16777216 + 16711680
+                    m = m + 1
+            k = k + 2
+        y = y + 1
+    return 1
+
+class TtfFont:
+    upem: "i32"
+    ascent: "i32"
+    descent: "i32"
+    line_gap: "i32"
+    glyf_off: "i32"
+    loca_off: "i32"
+    index_to_loc_format: "i32"
+    num_glyphs: "i32"
+    def __init__(self, upem, ascent, descent, line_gap, glyf_off, loca_off, index_to_loc_format, num_glyphs):
+        self.upem = upem
+        self.ascent = ascent
+        self.descent = descent
+        self.line_gap = line_gap
+        self.glyf_off = glyf_off
+        self.loca_off = loca_off
+        self.index_to_loc_format = index_to_loc_format
+        self.num_glyphs = num_glyphs
+        self.glyf_off = glyf_off
+        self.loca_off = loca_off
+        self.index_to_loc_format = index_to_loc_format
+        self.num_glyphs = num_glyphs
+
+def ttf_load_font(ttf_bytes: "list[i64]") -> "TtfFont":
+    data = ttf_bytes
+    # Check sfnt version
+    ver = ttf_read_u32(data, 0)
+    if ver != 65536 and ver != 1330851631:
+        return TtfFont(0, 0, 0, 0, 0, 0, 0, 0)
+    num_tables = ttf_read_u16(data, 4)
+    # Find tables
+    head_off = ttf_find_table(data, 1751474532)  # 'head'
+    hhea_off = ttf_find_table(data, 1751672161)  # 'hhea'
+    hmtx_off = ttf_find_table(data, 1752003704)  # 'hmtx'
+    cmap_off = ttf_find_table(data, 1668112752)  # 'cmap'
+    glyf_off = ttf_find_table(data, 1735162214)  # 'glyf'
+    loca_off = ttf_find_table(data, 1819239265)  # 'loca'
+    maxp_off = ttf_find_table(data, 1835104368)  # 'maxp'
+    # head
+    head_info = ttf_parse_head(data, head_off)
+    upem = head_info[0]
+    # hhea
+    hhea_info = ttf_parse_hhea(data, hhea_off)
+    ascent = hhea_info[0]
+    descent = hhea_info[1]
+    line_gap = hhea_info[2]
+    num_hmtx = hhea_info[3]
+    # maxp for num_glyphs
+    num_glyphs = ttf_read_u16(data, maxp_off + 4)
+    # hmtx
+    hmtx = ttf_parse_hmtx(data, hmtx_off, num_hmtx, num_glyphs)
+    # cmap
+    cmap_data = ttf_parse_cmap(data)
+    # indexToLocFormat from head
+    index_to_loc_format = ttf_read_u16(data, head_off + 50)
+    return TtfFont(upem, ascent, descent, line_gap, glyf_off, loca_off, index_to_loc_format, num_glyphs)
+
+def ttf_get_glyph_metrics(hmtx: "list[i32]", num_glyphs: "i32", glyph_id: "i32") -> "list[i32]":
+    # return [advance, lsb]
+    if glyph_id < 0 or glyph_id >= num_glyphs:
+        return [0, 0]
+    return [hmtx[glyph_id * 2], hmtx[glyph_id * 2 + 1]]
+
+def ttf_get_glyph_id(cmap_data: "list[i32]", data: "list[i64]", ch: "i32") -> "i32":
+    return ttf_char_to_glyph(cmap_data, ch, data)
+
+def ttf_rasterize_glyph_to_atlas(data: "list[i64]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", glyph_id: "i32", scale: "f64", atlas_buf: "list[i64]", atlas: "GlyphAtlas", code: "i32") -> "i32":
+    origin = atlas_glyph_origin(atlas, code)
+    ox = int(origin.x)
+    oy = int(origin.y)
+    gw = atlas.glyph_w * atlas.scale
+    gh = atlas.glyph_h * atlas.scale
+    glyph_data = ttf_parse_glyf(data, glyf_off, loca_off, index_to_loc_format, glyph_id)
+    if len(glyph_data) == 0:
+        return 0
+    return ttf_rasterize_glyph(glyph_data, scale, gw, gh, ox, oy, atlas_buf, atlas.width)
+
+def ttf_atlas_bake(data: "list[i64]", hmtx: "list[i32]", cmap_data: "list[i32]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", upem: "i32", ascent: "i32", descent: "i32", num_glyphs: "i32", atlas: "GlyphAtlas", abuf: "list[i64]", charset: "str") -> "i32":
+    total = atlas.width * atlas.height
+    i = int(0)
+    while i < total:
+        abuf[i] = 0
+        i = i + 1
+    count = int(0)
+    for code in range(len(charset)):
+        ch = charset[code]
+        gid = ttf_get_glyph_id(cmap_data, data, code + 32)
+        if gid > 0:
+            scale = float(atlas.glyph_h * atlas.scale) / (float(ascent - descent) * 0.9)
+            ttf_rasterize_glyph_to_atlas(data, glyf_off, loca_off, index_to_loc_format, gid, scale, abuf, atlas, code)
+            count = count + 1
+    return count
+
+def text_atlas_bake_i18n(data: "list[i64]", hmtx: "list[i32]", cmap_data: "list[i32]", glyf_off: "i32", loca_off: "i32", index_to_loc_format: "i32", upem: "i32", ascent: "i32", descent: "i32", num_glyphs: "i32", atlas: "GlyphAtlas", abuf: "list[i64]", cps: "list[i32]", slot_off: "i32") -> "i32":
+    # Bake glyph that tu TTF subset theo codepoint THAT (khac ttf_atlas_bake:
+    # ham cu map code+32 ASCII). cps = list codepoint, slot = slot_off + i.
+    # Khong xoa abuf (caller xoa 1 lan khi bake nhieu font). Tra so glyph.
+    count = int(0)
+    cscale = float(atlas.glyph_h * atlas.scale) / (float(ascent - descent) * 0.9)
+    i = int(0)
+    while i < len(cps):
+        cp = cps[i]
+        gid = ttf_get_glyph_id(cmap_data, data, cp)
+        if gid > 0:
+            ttf_rasterize_glyph_to_atlas(data, glyf_off, loca_off, index_to_loc_format, gid, cscale, abuf, atlas, slot_off + i)
+            mm = ttf_get_glyph_metrics(hmtx, num_glyphs, gid)
+            slot = slot_off + i
+            while len(atlas.glyph_adv) <= slot:
+                atlas.glyph_adv.append(6 * atlas.scale)
+            while len(atlas.glyph_gid) <= slot:
+                atlas.glyph_gid.append(-1)
+            avx = float(mm[0]) * cscale
+            atlas.glyph_adv[slot] = int(avx)
+            atlas.glyph_gid[slot] = gid
+            count = count + 1
+        i = i + 1
+    return count
+
+def text_atlas_record_i18n(scale: "i32") -> "GlyphAtlas":
+    # Atlas rieng cho 10 glyph i18n baked (8 Hebrew/Arabic + 2 CJK).
+    sc = scale
+    if sc < 1:
+        sc = 1
+    cols = int(16)
+    gw = int(6)
+    gh = int(7)
+    gpw = int(5)
+    w = cols * gw * sc
+    rows = atlas_rows_needed(10, cols)
+    h = rows * gh * sc
+    return atlas_make_record(cols, gw, gh, gpw, sc, w, h)
+
+def text_atlas_bake_i18n_all(atlas: "GlyphAtlas", abuf: "list[i64]") -> "i32":
+    # Xoa abuf roi bake ca 2 subset embedded (he slots 0.., cjk tiep theo).
+    # Khong doc file luc chay (ne compiler gap file I/O). Tra tong glyph.
+    total = atlas.width * atlas.height
+    i = int(0)
+    while i < total:
+        abuf[i] = 0
+        i = i + 1
+    count = int(0)
+    dhe = i18n_font_bytes_he()
+    fhe = ttf_load_font(dhe)
+    if fhe.upem != 0:
+        hhea_he = ttf_parse_hhea(dhe, ttf_find_table(dhe, 1751672161))
+        hmtx_he = ttf_parse_hmtx(dhe, ttf_find_table(dhe, 1752003704), hhea_he[3], fhe.num_glyphs)
+        cmap_he = ttf_parse_cmap(dhe)
+        count = count + text_atlas_bake_i18n(dhe, hmtx_he, cmap_he, fhe.glyf_off, fhe.loca_off, fhe.index_to_loc_format, fhe.upem, fhe.ascent, fhe.descent, fhe.num_glyphs, atlas, abuf, i18n_cps_he(), 0)
+    dcjk = i18n_font_bytes_cjk()
+    fcjk = ttf_load_font(dcjk)
+    if fcjk.upem != 0:
+        hhea_cjk = ttf_parse_hhea(dcjk, ttf_find_table(dcjk, 1751672161))
+        hmtx_cjk = ttf_parse_hmtx(dcjk, ttf_find_table(dcjk, 1752003704), hhea_cjk[3], fcjk.num_glyphs)
+        cmap_cjk = ttf_parse_cmap(dcjk)
+        count = count + text_atlas_bake_i18n(dcjk, hmtx_cjk, cmap_cjk, fcjk.glyf_off, fcjk.loca_off, fcjk.index_to_loc_format, fcjk.upem, fcjk.ascent, fcjk.descent, fcjk.num_glyphs, atlas, abuf, i18n_cps_cjk(), 8)
+    return count
+
+def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    # Ve chuoi hon hop: seq co trong atlas i18n thi blit glyph that, seq la
+    # thi box theo don vi (giong draw_string). Tach seq bang utf8_seq_len.
+    # Advance TI LE theo glyph (atlas.glyph_adv, bake tu hmtx); slot chua bake
+    # -> fallback monospace 6*sc. Kern pairwise de danh P2-D (can kern table
+    # + scale o draw time; API ttf_kern_adjust da san).
+    sc = iatlas.scale
+    if sc < 1:
+        sc = 1
+    mono = 6 * sc + int(tracking)
+    n = len(text)
+    tw = 0.0
+    steps = 0
+    idx = 0
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        slot = -1
+        cp = i18n_codepoint(seg)
+        if cp >= 0:
+            slot = i18n_slot_for(cp)
+        sa = mono
+        if slot >= 0:
+            if slot < len(iatlas.glyph_adv):
+                sa = iatlas.glyph_adv[slot] + int(tracking)
+        if slot >= 0:
+            tw = tw + float(sa)
+            steps = steps + 1
+        else:
+            k = 0
+            while k < adv:
+                tw = tw + float(mono)
+                steps = steps + 1
+                k = k + 1
+        idx = idx + adv
+    if steps > 0:
+        tw = tw + tracking * float(steps - 1)
+    cur_x = int(x)
+    if align == 1:
+        if box_w > tw:
+            cur_x = int(x) + int((box_w - tw) / 2.0)
+    if align == 2:
+        if box_w > tw:
+            cur_x = int(x) + int(box_w - tw)
+    cur_y = int(y)
+    idx = 0
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        slot = -1
+        cp = i18n_codepoint(seg)
+        if cp >= 0:
+            slot = i18n_slot_for(cp)
+        if slot >= 0:
+            sa = mono
+            if slot < len(iatlas.glyph_adv):
+                sa = iatlas.glyph_adv[slot] + int(tracking)
+            atlas_blit_glyph(iabuf, iatlas, buf, surf, slot, cur_x, cur_y, color, color.a)
+            cur_x = cur_x + sa
+        else:
+            k = 0
+            while k < adv:
+                vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
+                cur_x = cur_x + mono
+                k = k + 1
+        idx = idx + adv
+    return 1
+
+def font_family_resolve(seq: "str") -> "i32":
+    # FontConfig-like resolver (Phase 1 fallback chain): 0=ASCII bitmap,
+    # 1=Viet bitmap, 2=i18n-he, 3=i18n-cjk, 4=fallback box.
+    if len(seq) == 1:
+        if vi_is_ascii(seq) == 1:
+            return 0
+        return 4
+    if len(seq) == 2 or len(seq) == 3:
+        if vi_bits(seq) >= 0:
+            return 1
+    cp = i18n_codepoint(seq)
+    if cp < 0:
+        return 4
+    if i18n_slot_for(cp) < 8:
+        return 2
+    return 3
+
+def text_draw_fallback(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    # Ve chuoi hon hop qua fallback chain: ASCII -> atlas bitmap, Viet ->
+    # vi bitmap, i18n -> blit glyph that, la -> box theo don vi. Hai atlas
+    # cung scale. Space ve blank (khac text_atlas_draw_i18n cu: box sai).
+    sc = atlas.scale
+    if sc < 1:
+        sc = 1
+    advpx = 6 * sc + int(tracking)
+    n = len(text)
+    tw = 0.0
+    steps = 0
+    idx = 0
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        fid = font_family_resolve(seg)
+        if fid == 4:
+            k = 0
+            while k < adv:
+                tw = tw + float(advpx)
+                steps = steps + 1
+                k = k + 1
+        else:
+            tw = tw + float(advpx)
+            steps = steps + 1
+        idx = idx + adv
+    if steps > 0:
+        tw = tw + tracking * float(steps - 1)
+    cur_x = int(x)
+    if align == 1:
+        if box_w > tw:
+            cur_x = int(x) + int((box_w - tw) / 2.0)
+    if align == 2:
+        if box_w > tw:
+            cur_x = int(x) + int(box_w - tw)
+    cur_y = int(y)
+    idx = 0
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        fid = font_family_resolve(seg)
+        if fid == 0:
+            code = char_code(seg)
+            atlas_blit_glyph(abuf, atlas, buf, surf, code - 32, cur_x, cur_y, color, color.a)
+            cur_x = cur_x + advpx
+        else:
+            if fid == 1:
+                vi_draw_bits(buf, surf, vi_bits(seg), cur_x, cur_y, sc, color)
+                cur_x = cur_x + advpx
+            else:
+                if fid == 2 or fid == 3:
+                    atlas_blit_glyph(iabuf, iatlas, buf, surf, i18n_slot_for(i18n_codepoint(seg)), cur_x, cur_y, color, color.a)
+                    cur_x = cur_x + advpx
+                else:
+                    k = 0
+                    while k < adv:
+                        vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
+                        cur_x = cur_x + advpx
+                        k = k + 1
+        idx = idx + adv
+    return 1
+
+# ---- test helpers: emit bytes + synthetic TTF toi thieu (chi dung trong selftest) ----
+def ttf_put_u16(data: "list[i64]", v: "i32") -> "i32":
+    if v < 0:
+        v = v + 65536
+    hi = v // 256
+    lo = v - hi * 256
+    data.append(hi)
+    data.append(lo)
+    return 2
+
+def ttf_put_u32(data: "list[i64]", v: "i64") -> "i32":
+    b3 = int(v % 256)
+    b2 = int((v // 256) % 256)
+    b1 = int((v // 65536) % 256)
+    b0 = int(v // 16777216)
+    data.append(b0)
+    data.append(b1)
+    data.append(b2)
+    data.append(b3)
+    return 4
+
+def ttf_test_font_bytes() -> "list[i64]":
+    # Synthetic TTF toi thieu (314 byte): sfnt 1.0, 7 bang (head/hhea/maxp/hmtx/
+    # cmap/loca/glyf), 2 glyph (.notdef rong + tam giac 3 diem on-curve),
+    # cmap format-4 anh xa 'A'(65) -> glyph 1, upem 1000, loca short.
+    # Toa do glyf luu TUYET DOI (khong delta) theo dung cach ttf_parse_glyf doc.
+    d = []
+    ttf_put_u32(d, 65536)
+    ttf_put_u16(d, 7)
+    ttf_put_u16(d, 64)
+    ttf_put_u16(d, 2)
+    ttf_put_u16(d, 48)
+    ttf_put_u32(d, 1751474532)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 124)
+    ttf_put_u32(d, 54)
+    ttf_put_u32(d, 1751672161)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 180)
+    ttf_put_u32(d, 36)
+    ttf_put_u32(d, 1835104368)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 216)
+    ttf_put_u32(d, 6)
+    ttf_put_u32(d, 1752003704)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 224)
+    ttf_put_u32(d, 8)
+    ttf_put_u32(d, 1668112752)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 232)
+    ttf_put_u32(d, 44)
+    ttf_put_u32(d, 1819239265)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 276)
+    ttf_put_u32(d, 6)
+    ttf_put_u32(d, 1735162214)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 284)
+    ttf_put_u32(d, 30)
+    ttf_put_u32(d, 65536)
+    ttf_put_u32(d, 0)
+    ttf_put_u32(d, 0)
+    d.append(95)
+    d.append(15)
+    d.append(60)
+    d.append(245)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 1000)
+    i = int(0)
+    while i < 16:
+        d.append(0)
+        i = i + 1
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 900)
+    ttf_put_u16(d, 700)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 2)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    d.append(0)
+    d.append(0)
+    ttf_put_u32(d, 65536)
+    ttf_put_u16(d, 800)
+    ttf_put_u16(d, 65336)
+    ttf_put_u16(d, 200)
+    i = int(0)
+    while i < 24:
+        d.append(0)
+        i = i + 1
+    ttf_put_u16(d, 2)
+    ttf_put_u32(d, 20480)
+    ttf_put_u16(d, 2)
+    d.append(0)
+    d.append(0)
+    ttf_put_u16(d, 600)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 600)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 3)
+    ttf_put_u16(d, 1)
+    ttf_put_u32(d, 12)
+    ttf_put_u16(d, 4)
+    ttf_put_u16(d, 32)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 4)
+    ttf_put_u16(d, 4)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 65)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 65)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 65472)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(15)
+    d.append(0)
+    d.append(0)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 900)
+    ttf_put_u16(d, 700)
+    ttf_put_u16(d, 2)
+    ttf_put_u16(d, 0)
+    d.append(1)
+    d.append(1)
+    d.append(1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 500)
+    ttf_put_u16(d, 900)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 700)
+    ttf_put_u16(d, 0)
+    d.append(0)
+    return d
+
+def ttf_test_composite_bytes() -> "list[i64]":
+    # Raw glyf+loca toi thieu (khong full sfnt): loca short + 2 glyph.
+    # glyph0: hinh vuong 1 contour, 4 diem on-curve, toa do TUYET DOI
+    #   (convention engine - giong ttf_test_font_bytes).
+    # glyph1: composite = glyph0 + glyph0 dich (+300, 0), flags WORDS+XY.
+    # Layout: [loca 6B][glyph0 34B][glyph1 26B]; glyf_off=6, loca_off=0.
+    d = []
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 17)
+    ttf_put_u16(d, 30)
+    ttf_put_u16(d, 40)
+    ttf_put_u16(d, 53)
+    # glyph0: simple square (100,100)-(200,200)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 3)
+    ttf_put_u16(d, 0)
+    d.append(1)
+    d.append(1)
+    d.append(1)
+    d.append(1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    # glyph1: composite, bbox bao ca 2 ban (100..500)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 500)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 35)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 3)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 300)
+    ttf_put_u16(d, 0)
+    # glyph2: composite 1 component, WE_HAVE_A_SCALE 0.5 (8192 = 0.5*16384).
+    # Thu tu spec: flags, gid, args(dx,dy), scale.
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 11)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 8192)
+    # glyph3: composite 1 component, 2x2 identity + dx 500.
+    # Thu tu spec: flags, gid, args(dx,dy), 2x2.
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 400)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 700)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 131)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 500)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 16384)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 16384)
+    return d
+
+def ttf_test_composite_edge_bytes() -> "list[i64]":
+    # loca + square (copy glyph0) + self-ref composite + no-XY composite.
+    # glyph1 -> gid 1 (chinh no; ket thuc nho depth cap) ; glyph2 flags WORDS
+    # ma thieu ARGS_ARE_XY_VALUES (matched-points -> reject).
+    d = []
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 17)
+    ttf_put_u16(d, 26)
+    ttf_put_u16(d, 35)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 3)
+    ttf_put_u16(d, 0)
+    d.append(1)
+    d.append(1)
+    d.append(1)
+    d.append(1)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 200)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 400)
+    ttf_put_u16(d, 400)
+    ttf_put_u16(d, 3)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 100)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 5)
+    ttf_put_u16(d, 7)
+    return d
+
+def ttf_test_kern_bytes() -> "list[i64]":
+    # Bang kern format 0 toi thieu: 1 subtable horizontal, 1 pair (65,86,-20).
+    # 4 byte pad dau de offset != 0 (0 = missing-table theo convention parser).
+    d = []
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 20)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 65)
+    ttf_put_u16(d, 86)
+    ttf_put_u16(d, 65516)
+    return d
+
+def ttf_test_cpal_bytes() -> "list[i64]":
+    # CPAL: 1 palette, 2 colors (red, blue). 4 byte pad dau.
+    d = []
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 2)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 2)
+    ttf_put_u32(d, 14)
+    ttf_put_u16(d, 0)
+    d.append(0)
+    d.append(0)
+    d.append(255)
+    d.append(255)
+    d.append(255)
+    d.append(0)
+    d.append(0)
+    d.append(255)
+    return d
+
+def ttf_test_colr_bytes() -> "list[i64]":
+    # COLR v0: base 5->[(0,red)], 6->[(0,red),(0,blue)], 7->[(0,fg)],
+    # 8->[(9,red)] (gid 9 miss). 4 byte pad dau.
+    d = []
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    d.append(0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 3)
+    ttf_put_u32(d, 14)
+    ttf_put_u32(d, 38)
+    ttf_put_u16(d, 4)
+    ttf_put_u32(d, 5)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 1)
+    ttf_put_u32(d, 6)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 2)
+    ttf_put_u32(d, 7)
+    ttf_put_u16(d, 2)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 1)
+    ttf_put_u16(d, 0)
+    ttf_put_u16(d, 65535)
+    ttf_put_u16(d, 9)
+    ttf_put_u16(d, 0)
+    return d
 
 # =========================================================
 # P2 SELFTEST - bitmap font + renderer (headless)
@@ -2055,6 +4007,15 @@ def text_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
     return 0
 
 def text_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def text_check_i64(acc: "list[i32]", name: "str", got: "i64", want: "i64") -> "i32":
     acc[1] = acc[1] + 1
     if got == want:
         acc[0] = acc[0] + 1
@@ -2093,6 +4054,193 @@ def text_count_nonzero(buf: "list[i64]", n: "i32", from_i: "i32", to_i: "i32") -
         i = i + 1
     return c
 
+
+def text_selftest_ttfxtra(acc: "list[i32]", white: "ColorRgba") -> "i32":
+    # TTF extended (composite/kern/cpal/colr): tach rieng de moi
+    # method duoi 256 locals (gioi han ldloc.s/stloc.s 1-byte).
+    # composite: square + square@dx300 -> 2 contours, 8 points, bbox hop
+    cd = ttf_test_composite_bytes()
+    gsq = ttf_parse_glyf(cd, 10, 0, 0, 0)
+    text_check_i(acc, "ttf comp base contours", gsq[0], 1)
+    gc = ttf_parse_glyf(cd, 10, 0, 0, 1)
+    text_check_i(acc, "ttf comp contours", gc[0], 2)
+    text_check_i(acc, "ttf comp len", len(gc), 31)
+    text_check_i(acc, "ttf comp end0", gc[5], 3)
+    text_check_i(acc, "ttf comp end1", gc[6], 7)
+    text_check_i(acc, "ttf comp xmin", gc[1], 100)
+    text_check_i(acc, "ttf comp xmax", gc[3], 500)
+    text_check_i(acc, "ttf comp x0", gc[15], 100)
+    text_check_i(acc, "ttf comp y0", gc[16], 100)
+    text_check_i(acc, "ttf comp x2", gc[19], 200)
+    text_check_i(acc, "ttf comp x4", gc[23], 400)
+    # scale 0.5 component: square 100..200 -> 50..100
+    g2 = ttf_parse_glyf(cd, 10, 0, 0, 2)
+    text_check_i(acc, "ttf comp scale contours", g2[0], 1)
+    text_check_i(acc, "ttf comp scale xmin", g2[1], 50)
+    text_check_i(acc, "ttf comp scale xmax", g2[3], 100)
+    text_check_i(acc, "ttf comp scale x0", g2[10], 50)
+    text_check_i(acc, "ttf comp scale y0", g2[11], 50)
+    # 2x2 identity + dx500: square -> 600..700
+    g3 = ttf_parse_glyf(cd, 10, 0, 0, 3)
+    text_check_i(acc, "ttf comp 2x2 contours", g3[0], 1)
+    text_check_i(acc, "ttf comp 2x2 xmin", g3[1], 600)
+    text_check_i(acc, "ttf comp 2x2 xmax", g3[3], 700)
+    text_check_i(acc, "ttf comp 2x2 x0", g3[10], 600)
+    # raster: merged ink = 2x single (2 hinh khong giao nhau)
+    cb1 = []
+    ci = int(0)
+    while ci < 4096:
+        cb1.append(0)
+        ci = ci + 1
+    text_check_i(acc, "ttf comp raster sq", ttf_rasterize_glyph(gsq, 0.1, 64, 64, 0, 0, cb1, 64), 1)
+    ink1 = text_count_nonzero(cb1, 4096, 0, 4096)
+    cb2 = []
+    ci = int(0)
+    while ci < 4096:
+        cb2.append(0)
+        ci = ci + 1
+    text_check_i(acc, "ttf comp raster merged", ttf_rasterize_glyph(gc, 0.1, 64, 64, 0, 0, cb2, 64), 1)
+    ink2 = text_count_nonzero(cb2, 4096, 0, 4096)
+    text_check_i(acc, "ttf comp ink 2x", ink2, ink1 + ink1)
+    # scaled square ink nam giua 0 va single (nho hon nhung > 0)
+    cb3 = []
+    ci = int(0)
+    while ci < 4096:
+        cb3.append(0)
+        ci = ci + 1
+    text_check_i(acc, "ttf comp raster scaled", ttf_rasterize_glyph(g2, 0.1, 64, 64, 0, 0, cb3, 64), 1)
+    ink3 = text_count_nonzero(cb3, 4096, 0, 4096)
+    scok = 0
+    if ink3 > 0:
+        if ink3 < ink1:
+            scok = 1
+    text_check(acc, "ttf comp ink scaled", scok)
+    # kern format 0: 1 pair (65,86,-20), offset 4 (0 = missing)
+    kd = ttf_test_kern_bytes()
+    kk = ttf_parse_kern(kd, 4)
+    text_check_i(acc, "ttf kern len", len(kk), 3)
+    text_check_i(acc, "ttf kern adjust", ttf_kern_adjust(kk, 65, 86), -20)
+    text_check_i(acc, "ttf kern miss", ttf_kern_adjust(kk, 65, 65), 0)
+    text_check_i(acc, "ttf kern empty", ttf_kern_adjust([], 65, 86), 0)
+    text_check_i(acc, "ttf kern noff", len(ttf_parse_kern(kd, 0)), 0)
+    # CPAL: 1 palette, red + blue
+    cpd = ttf_test_cpal_bytes()
+    cp = ttf_parse_cpal(cpd, 4)
+    text_check_i(acc, "ttf cpal len", len(cp), 11)
+    text_check_i64(acc, "ttf cpal red", ttf_cpal_color(cp, 0, 0), 255 * 16777216 + 255 * 65536)
+    text_check_i64(acc, "ttf cpal blue", ttf_cpal_color(cp, 0, 1), 255 * 16777216 + 255)
+    text_check_i64(acc, "ttf cpal miss pal", ttf_cpal_color(cp, 1, 0), 0)
+    text_check_i64(acc, "ttf cpal miss idx", ttf_cpal_color(cp, 0, 5), 0)
+    text_check_i(acc, "ttf cpal noff", len(ttf_parse_cpal(cpd, 0)), 0)
+    # COLR v0: layers per base
+    crd = ttf_test_colr_bytes()
+    cr = ttf_parse_colr(crd, 4)
+    text_check_i(acc, "ttf colr len", len(cr), 19)
+    lay = []
+    text_check_i(acc, "ttf colr base5", ttf_colr_layers(cr, 5, lay), 1)
+    text_check_i(acc, "ttf colr l0 gid", lay[0], 0)
+    text_check_i(acc, "ttf colr l0 pal", lay[1], 0)
+    lay2 = []
+    text_check_i(acc, "ttf colr base6", ttf_colr_layers(cr, 6, lay2), 2)
+    layfg = []
+    text_check_i(acc, "ttf colr base7", ttf_colr_layers(cr, 7, layfg), 1)
+    text_check_i(acc, "ttf colr fg pal", layfg[1], 65535)
+    lay3 = []
+    text_check_i(acc, "ttf colr miss", ttf_colr_layers(cr, 99, lay3), 0)
+    text_check_i(acc, "ttf colr noff", len(ttf_parse_colr(crd, 0)), 0)
+    # COLR draw: red square == ink truc tiep; overpaint xanh het do
+    cbuf = []
+    ci = int(0)
+    while ci < 4096:
+        cbuf.append(0)
+        ci = ci + 1
+    csurf = PixelSurface(64, 64, 64)
+    white = ColorRgba(255, 255, 255, 255)
+    text_check_i(acc, "ttf colr draw red", ttf_draw_colr(cd, 10, 0, 0, cp, cr, 5, 0.1, 64, 64, cbuf, csurf, 0, 0, white), 1)
+    reds = int(0)
+    i = int(0)
+    while i < 4096:
+        pix = cbuf[i]
+        if pix != 0:
+            if (pix // 65536) % 256 == 255:
+                if (pix // 256) % 256 == 0:
+                    if pix % 256 == 0:
+                        reds = reds + 1
+        i = i + 1
+    text_check_i(acc, "ttf colr red ink", reds, ink1)
+    cbuf2 = []
+    ci = int(0)
+    while ci < 4096:
+        cbuf2.append(0)
+        ci = ci + 1
+    text_check_i(acc, "ttf colr draw overpaint", ttf_draw_colr(cd, 10, 0, 0, cp, cr, 6, 0.1, 64, 64, cbuf2, csurf, 0, 0, white), 2)
+    blues = int(0)
+    reds2 = int(0)
+    i = int(0)
+    while i < 4096:
+        pix = cbuf2[i]
+        if pix != 0:
+            if (pix // 65536) % 256 == 0:
+                if (pix // 256) % 256 == 0:
+                    if pix % 256 == 255:
+                        blues = blues + 1
+            if (pix // 65536) % 256 == 255:
+                if (pix // 256) % 256 == 0:
+                    if pix % 256 == 0:
+                        reds2 = reds2 + 1
+        i = i + 1
+    text_check_i(acc, "ttf colr blue ink", blues, ink1)
+    text_check_i(acc, "ttf colr no red left", reds2, 0)
+    green = ColorRgba(0, 255, 0, 255)
+    cbuf3 = []
+    ci = int(0)
+    while ci < 4096:
+        cbuf3.append(0)
+        ci = ci + 1
+    text_check_i(acc, "ttf colr draw fg", ttf_draw_colr(cd, 10, 0, 0, cp, cr, 7, 0.1, 64, 64, cbuf3, csurf, 0, 0, green), 1)
+    greens = int(0)
+    i = int(0)
+    while i < 4096:
+        pix = cbuf3[i]
+        if pix != 0:
+            if (pix // 65536) % 256 == 0:
+                if (pix // 256) % 256 == 255:
+                    if pix % 256 == 0:
+                        greens = greens + 1
+        i = i + 1
+    text_check_i(acc, "ttf colr fg ink", greens, ink1)
+    text_check_i(acc, "ttf colr draw miss", ttf_draw_colr(cd, 10, 0, 0, cp, cr, 8, 0.1, 64, 64, cbuf3, csurf, 0, 0, white), 0)
+    # CBDT bitmap 1bpp: 4x4 block + 9-wide (rowbytes 2) + truncate/empty
+    bbd = []
+    bbd.append(240)
+    bbd.append(144)
+    bbd.append(144)
+    bbd.append(240)
+    bbd.append(255)
+    bbd.append(128)
+    bbd.append(255)
+    bbd.append(128)
+    bsurf = PixelSurface(16, 16, 16)
+    bbuf = []
+    bi = int(0)
+    while bi < 256:
+        bbuf.append(0)
+        bi = bi + 1
+    text_check_i(acc, "ttf cbdt 4x4", ttf_cbdt_blit(bbd, 0, 4, 4, bbuf, bsurf, 0, 0, white), 12)
+    bok = 0
+    if bbuf[0] != 0:
+        if bbuf[17] == 0:
+            bok = 1
+    text_check(acc, "ttf cbdt spot", bok)
+    text_check_i(acc, "ttf cbdt 9wide", ttf_cbdt_blit(bbd, 4, 9, 2, bbuf, bsurf, 0, 6, white), 18)
+    text_check_i(acc, "ttf cbdt trunc", ttf_cbdt_blit(bbd, 100, 4, 4, bbuf, bsurf, 0, 0, white), -1)
+    text_check_i(acc, "ttf cbdt empty", ttf_cbdt_blit(bbd, 0, 0, 4, bbuf, bsurf, 0, 0, white), 0)
+    # composite edge: self-ref (depth cap, ket thuc) + no-XY (reject)
+    ed = ttf_test_composite_edge_bytes()
+    text_check_i(acc, "ttf comp selfref", len(ttf_parse_glyf(ed, 8, 0, 0, 1)), 0)
+    text_check_i(acc, "ttf comp noxy", len(ttf_parse_glyf(ed, 8, 0, 0, 2)), 0)
+    text_check_i(acc, "ttf comp edge base", ttf_parse_glyf(ed, 8, 0, 0, 0)[0], 1)
+    return 1
 def text_selftest() -> "str":
     print("=== TkvUI.Text selftest (P2) ===")
     acc = []
@@ -2320,6 +4468,248 @@ def text_selftest() -> "str":
     c1 = text_count_nonzero(bench_buf1, 4800, 0, 4800)
     c2 = text_count_nonzero(bench_buf2, 4800, 0, 4800)
     text_check_i(acc, "bench: classic va atlas cung so px", c2, c1)
+    # --- TTF rasterizer: readers + bit helpers
+    rd = []
+    rd.append(18)
+    rd.append(52)
+    rd.append(255)
+    rd.append(254)
+    rd.append(0)
+    rd.append(16)
+    rd.append(32)
+    rd.append(48)
+    text_check_i(acc, "ttf u16", ttf_read_u16(rd, 0), 4660)
+    text_check_i(acc, "ttf i16 neg", ttf_read_i16(rd, 2), -2)
+    text_check_i(acc, "ttf u32", int(ttf_read_u32(rd, 4)), 1056816)
+    tg = []
+    tg.append(104)
+    tg.append(101)
+    tg.append(97)
+    tg.append(100)
+    text_check_i(acc, "ttf tag head", int(ttf_read_tag(tg, 0)), 1751474532)
+    text_check_i(acc, "ttf bit1", bit1(3), 1)
+    text_check_i(acc, "ttf bit1 zero", bit1(4), 0)
+    text_check_i(acc, "ttf bit2", bit2(2), 1)
+    text_check_i(acc, "ttf bit2 zero", bit2(1), 0)
+    text_check_i(acc, "ttf bit4", bit4(4), 1)
+    text_check_i(acc, "ttf bit8", bit8(8), 1)
+    text_check_i(acc, "ttf bit8 zero", bit8(7), 0)
+    text_check_i(acc, "ttf bit16", bit16(16), 1)
+    text_check_i(acc, "ttf bit32", bit32(32), 1)
+    text_check_i(acc, "ttf bit32 zero", bit32(31), 0)
+    pw = []
+    ttf_put_u16(pw, 4660)
+    text_check_i(acc, "ttf put u16", ttf_read_u16(pw, 0), 4660)
+    ttf_put_u16(pw, -64)
+    text_check_i(acc, "ttf put u16 neg", ttf_read_u16(pw, 2), 65472)
+    ttf_put_u32(pw, 1056816)
+    text_check_i(acc, "ttf put u32", int(ttf_read_u32(pw, 4)), 1056816)
+    # --- TTF bezier + flatten
+    bp = ttf_bezier_eval(0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0)
+    text_check_f(acc, "ttf bezier t0 x", bp.x, 0.0, 0.001)
+    text_check_f(acc, "ttf bezier t0 y", bp.y, 0.0, 0.001)
+    bp = ttf_bezier_eval(0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 1.0)
+    text_check_f(acc, "ttf bezier t1 x", bp.x, 10.0, 0.001)
+    text_check_f(acc, "ttf bezier t1 y", bp.y, 10.0, 0.001)
+    bp = ttf_bezier_eval(0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.5)
+    text_check_f(acc, "ttf bezier t05 x", bp.x, 7.5, 0.001)
+    text_check_f(acc, "ttf bezier t05 y", bp.y, 2.5, 0.001)
+    fl = []
+    fsg = ttf_flatten_quad(0.0, 0.0, 5.0, 0.0, 10.0, 0.0, fl)
+    text_check_i(acc, "ttf flatten straight segs", fsg, 1)
+    text_check_i(acc, "ttf flatten pts len", len(fl), 4)
+    text_check_f(acc, "ttf flatten x0", fl[0], 0.0, 0.001)
+    text_check_f(acc, "ttf flatten x1", fl[2], 10.0, 0.001)
+    # --- TTF bad font (version sai -> font rong)
+    bad = []
+    bi = int(0)
+    while bi < 8:
+        bad.append(0)
+        bi = bi + 1
+    bf = ttf_load_font(bad)
+    text_check_i(acc, "ttf bad version upem", bf.upem, 0)
+    # --- TTF synthetic font end-to-end
+    fd = ttf_test_font_bytes()
+    text_check_i(acc, "ttf synth len", len(fd), 314)
+    text_check_i(acc, "ttf find head", ttf_find_table(fd, 1751474532), 124)
+    text_check_i(acc, "ttf find hhea", ttf_find_table(fd, 1751672161), 180)
+    text_check_i(acc, "ttf find hmtx", ttf_find_table(fd, 1752003704), 224)
+    text_check_i(acc, "ttf find cmap", ttf_find_table(fd, 1668112752), 232)
+    text_check_i(acc, "ttf find glyf", ttf_find_table(fd, 1735162214), 284)
+    text_check_i(acc, "ttf find loca", ttf_find_table(fd, 1819239265), 276)
+    text_check_i(acc, "ttf find maxp", ttf_find_table(fd, 1835104368), 216)
+    text_check_i(acc, "ttf find missing", ttf_find_table(fd, 1700000000), 0)
+    ff = ttf_load_font(fd)
+    text_check_i(acc, "ttf upem", ff.upem, 1000)
+    text_check_i(acc, "ttf ascent", ff.ascent, 800)
+    text_check_i(acc, "ttf descent", ff.descent, -200)
+    text_check_i(acc, "ttf num glyphs", ff.num_glyphs, 2)
+    text_check_i(acc, "ttf glyf off", ff.glyf_off, 284)
+    text_check_i(acc, "ttf loca off", ff.loca_off, 276)
+    text_check_i(acc, "ttf loc fmt", ff.index_to_loc_format, 0)
+    cm = ttf_parse_cmap(fd)
+    text_check_i(acc, "ttf gid A", ttf_get_glyph_id(cm, fd, 65), 1)
+    text_check_i(acc, "ttf gid B miss", ttf_get_glyph_id(cm, fd, 66), 0)
+    text_check_i(acc, "ttf gid NUL", ttf_get_glyph_id(cm, fd, 0), 0)
+    g0 = ttf_parse_glyf(fd, 284, 276, 0, 0)
+    text_check_i(acc, "ttf empty glyph", len(g0), 0)
+    g1 = ttf_parse_glyf(fd, 284, 276, 0, 1)
+    text_check_i(acc, "ttf contours", g1[0], 1)
+    text_check_i(acc, "ttf xmin", g1[1], 100)
+    text_check_i(acc, "ttf ymin", g1[2], 0)
+    text_check_i(acc, "ttf xmax", g1[3], 900)
+    text_check_i(acc, "ttf ymax", g1[4], 700)
+    tb = []
+    ti = int(0)
+    while ti < 256:
+        tb.append(0)
+        ti = ti + 1
+    text_check_i(acc, "ttf raster ret", ttf_rasterize_glyph(g1, 0.016, 16, 16, 0, 0, tb, 16), 1)
+    trc = text_count_nonzero(tb, 256, 0, 256)
+    tok = 0
+    if trc > 40:
+        tok = 1
+    text_check(acc, "ttf raster ink", tok)
+    ttop = 0
+    if tb[8] == 0:
+        ttop = 1
+    text_check(acc, "ttf raster top empty", ttop)
+    tbot = 0
+    if tb[248] != 0:
+        tbot = 1
+    text_check(acc, "ttf raster bottom filled", tbot)
+    text_check_i(acc, "ttf raster empty", ttf_rasterize_glyph(g0, 0.016, 16, 16, 0, 0, tb, 16), 0)
+    hx = ttf_parse_hmtx(fd, 224, 2, 2)
+    mm = ttf_get_glyph_metrics(hx, 2, 1)
+    text_check_i(acc, "ttf adv", mm[0], 600)
+    text_check_i(acc, "ttf lsb", mm[1], 100)
+    mo = ttf_get_glyph_metrics(hx, 2, 9)
+    text_check_i(acc, "ttf metrics oob len", len(mo), 2)
+    text_check_i(acc, "ttf metrics oob adv", mo[0], 0)
+    text_check(acc, "ttf xtra section", text_selftest_ttfxtra(acc, white))
+    ta = text_atlas_record(1)
+    tab = []
+    tj = int(0)
+    while tj < 4032:
+        tab.append(0)
+        tj = tj + 1
+    tcs = text_charset()
+    text_check_i(acc, "ttf atlas bake count", ttf_atlas_bake(fd, hx, cm, 284, 276, 0, 1000, 800, -200, 2, ta, tab, tcs), 1)
+    tbc = text_count_nonzero(tab, 4032, 0, 4032)
+    bok = 0
+    if tbc > 8:
+        bok = 1
+    text_check(acc, "ttf atlas bake ink", bok)
+    # --- Vietnamese bitmap (TkvUI.Viet, pure TokenVector) ---
+    text_check_i64(acc, "vi a-grave bits", vi_bits("à"), 16692328578)
+    text_check_i64(acc, "vi e-hook-below bits", vi_bits("ể"), 15601285476)
+    text_check_i64(acc, "vi unknown -> -1", vi_bits("zz"), 0 - 1)
+    text_check_i(acc, "vi strlen Viet", vi_strlen("Việt"), 4)
+    text_check_i(acc, "vi strlen ascii", vi_strlen("ABC"), 3)
+    text_check_i(acc, "vi strlen rong", vi_strlen(""), 0)
+    text_check_i(acc, "vi seq V", vi_seq_len_at("Việt", 0, 6), 1)
+    text_check_i(acc, "vi seq e-3dv", vi_seq_len_at("Việt", 2, 6), 3)
+    text_check_i(acc, "vi seq t", vi_seq_len_at("Việt", 5, 6), 1)
+    vm = measure_string("Việt", 1.0)
+    text_check_f(acc, "vi measure w=4 cot", vm.w, 24.0, 0.001)
+    text_check_i(acc, "vi line_count 2 dong", text_line_count("Việt Nam", 1.0, 24.0), 2)
+    vb = measure_block("Việt", 1.0, 100.0, 9.0)
+    text_check_f(acc, "vi block w=4 cot", vb.w, 24.0, 0.001)
+    vt = vi_truncate("Việt Nam", 4)
+    text_check_i(acc, "vi truncate 4 cot", vi_strlen(vt), 4)
+    text_check_i(acc, "vi truncate units", len(vt), 6)
+    vtok = 0
+    if vi_truncate("ABCDEF", 4) == "ABCD":
+        vtok = 1
+    text_check(acc, "vi truncate ascii nhu cu", vtok)
+    surface_clear(buf, surf, empty)
+    vrc = draw_string(buf, surf, "Việt", 0.0, 0.0, 1.0, white)
+    text_check_i(acc, "vi draw tra 1", vrc, 1)
+    text_check_gt(acc, "vi draw co pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    vout = 0
+    vi = 0
+    while vi < 8:
+        vout = vout + text_count_nonzero(buf, 4800, vi * 200 + 24, vi * 200 + 200)
+        vi = vi + 1
+    text_check_i(acc, "vi draw gon trong 4 cot", vout, 0)
+    text_check_i(acc, "vi block 2 dong", draw_text_block(buf, surf, "Việt Nam", 0.0, 0.0, 1.0, 24.0, 9.0, white), 2)
+    text_check_i(acc, "vi block ellipsis 1 dong", draw_text_block(buf, surf, "Việt Nam Hà Nội", 0.0, 0.0, 1.0, 30.0, 9.0, white, 0, 1), 1)
+    # --- i18n baked glyphs (subset that: times Hebrew/Arabic, msyh CJK) ---
+    text_check_i(acc, "i18n cp ni", i18n_codepoint("你"), 20320)
+    text_check_i(acc, "i18n cp alef", i18n_codepoint("א"), 1488)
+    text_check_i(acc, "i18n cp A miss", i18n_codepoint("A"), -1)
+    text_check_i(acc, "i18n cp emoji miss", i18n_codepoint("🌍"), -1)
+    text_check_i(acc, "i18n slot alef", i18n_slot_for(1488), 0)
+    text_check_i(acc, "i18n slot ni", i18n_slot_for(20320), 8)
+    text_check_i(acc, "i18n slot miss", i18n_slot_for(65), -1)
+    text_check_i(acc, "u8 ni", utf8_seq_len("你好", 0), 3)
+    text_check_i(acc, "u8 emoji", utf8_seq_len("🌍", 0), 4)
+    text_check_i(acc, "u8 alef", utf8_seq_len("אב", 0), 2)
+    iat = text_atlas_record_i18n(1)
+    ibf = atlas_buffer(iat)
+    text_check_i(acc, "i18n bake count", text_atlas_bake_i18n_all(iat, ibf), 10)
+    text_check_gt(acc, "i18n bake ink", text_count_nonzero(ibf, len(ibf), 0, len(ibf)), 20)
+    # advances ti le tu hmtx (khong con fixed 6px); gid luu per-slot
+    text_check_i(acc, "i18n adv len", len(iat.glyph_adv), 10)
+    text_check_i(acc, "i18n gid len", len(iat.glyph_gid), 10)
+    advok = 0
+    if iat.glyph_adv[0] > 0:
+        if iat.glyph_adv[0] <= 8:
+            advok = 1
+    text_check(acc, "i18n adv sane", advok)
+    gidok = 0
+    if iat.glyph_gid[0] > 0:
+        gidok = 1
+    text_check(acc, "i18n gid stored", gidok)
+    # fallback: atlas chua bake (adv rong) ve khong crash, dung monospace
+    fat = text_atlas_record_i18n(1)
+    fbf = []
+    fj = int(0)
+    while fj < 672:
+        fbf.append(0)
+        fj = fj + 1
+    text_check_i(acc, "i18n draw unbake", text_atlas_draw_i18n(fbf, fat, buf, surf, "א", 0.0, 0.0, white), 1)
+    text_check_i(acc, "i18n draw tra 1", text_atlas_draw_i18n(ibf, iat, buf, surf, "你好 שלום", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "i18n draw co pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    surface_clear(buf, surf, empty)
+    text_atlas_draw_i18n(ibf, iat, buf, surf, "א", 0.0, 0.0, white)
+    text_check_gt(acc, "i18n alef co muc", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    aout = 0
+    aix = 0
+    while aix < 8:
+        aout = aout + text_count_nonzero(buf, 4800, aix * 200 + 6, aix * 200 + 200)
+        aix = aix + 1
+    text_check_i(acc, "i18n alef gon 1 cot", aout, 0)
+    surface_clear(buf, surf, empty)
+    draw_string(buf, surf, "א", 0.0, 0.0, 1.0, white)
+    text_check_gt(acc, "i18n bitmap tran cot", text_count_nonzero(buf, 4800, 6, 4800), 0)
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "i18n milestone tra 1", text_atlas_draw_i18n(ibf, iat, buf, surf, "你好 🌍 שלום", 0.0, 0.0, white), 1)
+    # --- fallback chain (ASCII/Viet/i18n/box) ---
+    text_check_i(acc, "fb ascii", font_family_resolve("A"), 0)
+    text_check_i(acc, "fb space", font_family_resolve(" "), 0)
+    text_check_i(acc, "fb viet", font_family_resolve("ệ"), 1)
+    text_check_i(acc, "fb heb", font_family_resolve("א"), 2)
+    text_check_i(acc, "fb cjk", font_family_resolve("你"), 3)
+    text_check_i(acc, "fb emoji box", font_family_resolve("🌍"), 4)
+    fas = text_atlas_record(1)
+    fab = atlas_buffer(fas)
+    atlas_bake(fas, fab)
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "fb draw tra 1", text_draw_fallback(fab, fas, ibf, iat, buf, surf, "Aא你🌍", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "fb draw co pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    surface_clear(buf, surf, empty)
+    text_draw_fallback(fab, fas, ibf, iat, buf, surf, " ", 0.0, 0.0, white)
+    text_check_i(acc, "fb space blank", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "fb milestone tra 1", text_draw_fallback(fab, fas, ibf, iat, buf, surf, "你好 🌍 שלום", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "fb milestone co pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    fsp = 0
+    fix = 0
+    while fix < 8:
+        fsp = fsp + text_count_nonzero(buf, 4800, fix * 200 + 12, fix * 200 + 18)
+        fix = fix + 1
+    text_check_i(acc, "fb space cot blank", fsp, 0)
     print("--- text selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
     if acc[0] == acc[1]:
         return "TEXT_OK"
