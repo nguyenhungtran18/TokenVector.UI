@@ -2,6 +2,23 @@
 
 Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy từ `tkvui_version()` trong `TokenVector.UI.tkv`.
 
+## Unreleased (chưa commit)
+
+- **P2 Typography** (`TkvUI.Text` 46 → 227 check, `TkvUI.Bidi` + shaping 150 check): composite glyf merge (scale/xyscale/2x2, depth cap), kern format-0, CPAL + COLR v0 parse/draw từng layer, CBDT-bitmap blit, per-slot hmtx advances (hết fixed-6px), shaping orchestration (script runs/clusters/fallback/HB-bridge). Sửa 2 bug nền: rasterizer mirror upward-edges, parser X-block vs consumer interleaved. Quy tắc compiler mới: method < 240 locals (`tools/check_locals.py`), `float()` tường minh khi nhân int×float, không alias param list.
+- **P1 SQL persistence** (`TkvUI.SQLite` 22 → 51 check): format TKVSQL1 text dual-slot + generation (atomic không cần rename), save/load, rebuild PK index, rollback invalidate; crash-safety matrix; bench file-backed save ~70ms + load ~3ms/1000 rows. Chi tiết `docs/SQL_PERSISTENCE.md`.
+- **Perf engine**: `mv_sort_build` bubble → mergesort ổn định + key precompute (125ms → 1–4ms); rowid-index cho INTEGER PK đơn (UPDATE 14ms → 0–3ms, DELETE 20ms → 1–3ms); `fill_round_rect_packed` band-split (render ~86ms → ~30ms/1000 buttons). CRUD total 157ms → ~8ms/rep (thắng SQLite `:memory:` ~14ms).
+- **P3 accessibility** (`TkvUI.A11yBridge` 89 check, `TkvUI.Uia` 33 check): roles 15–23 + 8 builders (table/tree/menubar/toolbar/scrollbar/splitter/spinbox/tooltip); Win32 mirror (mỗi node → HWND thật, headless-safe); quy trình probe NVDA trong `docs/A11Y_NVDA.md`.
+- **P4 delegates + stylesheet** (`TkvUI.Data` 52 check, `TkvUI.Theme` 79 check): `mv_paint_cell` (text/check/progress/slider) + `mv_render_typed` (dạng function — method call 11 params crash runtime); QSS-subset (Type/.class/#id, 9 palette roles, cascade, copy semantics).
+- **P5 MemoryPlatform** (`TkvUI.Platform` 82 check): backend headless thật (mọi platform/CI), present/diff đếm pixel; GPU loader probe sống, creation vẫn stub đúng chỗ (thiếu out-struct primitives); media decode defer.
+- **Benchmark chuẩn hoá** (`docs/BENCH.md`, `tools/bench_all.sh/.ps1`): cùng workload/reps, report per-op; Text 9.4ms/block (thắng PyQt6 ~40%), Widgets render ~30ms, CRUD in-memory thắng, MEM thua ~3x (floor CLR + doubling, cần `reserve` từ compiler).
+
+- **TTF parser/rasterizer verified** (`TkvUI.Text`, text 46 → 110 check): synthetic font 314B end-to-end (load/cmap/glyf/raster/atlas-bake/metrics) + readers/bit/bezier/flatten/error-paths. Sửa 4 bug do thiếu test: literal tag `hhea`/`hmtx`/`maxp` sai, `segCountX2` đọc nhầm offset +2 (đúng +6), thiếu `j = j + 1` trong contour loop (+ lồng sai `contour_start`/`i`), nested `list[list[f64]]` trả null runtime → viết lại edge table phẳng.
+- **Module media-player `TkvUI.Media`** (mới, 10 widget + `media_format_time`, 80/80): Transport/SeekBar/Volume/Repeat/Shuffle/Speed/Playlist/Equalizer(+preset)/Spectrum/ABLoop. Wire umbrella (`MEDIA_OK`), `tkvui.pkg.json`, `verify.sh`, demo `TkvUI.MediaDemo` (8/8).
+- **WinForms interop thật** (`TkvUI.Platform`, platform 24 → 34 check): `wf_create/set_title/set_bounds/get_bounds/set_opacity/hide/do_events/close` nối thật + verify headless trên Form thật. Còn stub (compiler gap): control-level, `Handle` (IntPtr), `wf_run`.
+- **Ant-inspired widgets** (`TkvUI.Widgets` 15 → 28, widget 43 → 95 check): Tag/Badge/Avatar/Alert/Pagination/Steps/Table/Select/Rate/Spin (+ DPad/ControlButton/Joystick). Phát hiện: field tên `shape` bị parser hiểu nhầm thành indexing `.shape[...]`.
+- **Module `TkvUI.Font`** (đưa vào từ thử nghiệm, optional/Windows-only): bake font thật qua GDI, 11/11 (ngoài umbrella + verify.sh).
+- Suite umbrella: **444 check PASS** (`TKVUI_OK`).
+
 ## 2.3.1 — P2.8 bilinear upsample (2026-09-17)
 
 - `half_res_blur`: thay upsample nearest-neighbor bằng **bilinear nội tuyến 1 chiều trong khối 2×2** — px lẻ lấy trung bình 2 mẫu kề, giảm artifact "bậc thang" khi blur sau text/mép sắc. Chi phí gần như không đổi (vẫn không đọc pixel ngoài khối).
