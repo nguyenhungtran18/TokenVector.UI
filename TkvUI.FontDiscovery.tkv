@@ -1,0 +1,327 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.FontDiscovery - FontConfig-lite font discovery (M2.4).
+
+Phu thuoc: TkvUI.Core, TkvUI.Platform (Win32 registry probe).
+Khong vong import: FontDiscovery -> Core, Platform. Font/FontFallback import FontDiscovery.
+
+Kien truc (giong cac module khac: headless-safe stubs):
+- Registry scan: STUB tra 0. Ly do: HKEY_* constants (0x80000001/0x80000002)
+  vuot int32 va compiler khong giu duoc gia tri >2^31 qua chuoi
+  literal -> TkvInt -> pinvoke i64 (OverflowException luc chay).
+  Khi upstream sua, bo stub va dung pinvoke fd_pinv_* da khai bao san.
+- Phan loi (pure, test duoc): well-known font dirs theo OS + weighted
+  family matching + fallback chain co trong so cho FontFallback.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Platform"]
+
+# Win32 pinvoke de doc registry (giu khai bao cho upstream; chua goi).
+__tkv_extern_pinvoke__ = [
+    {"name": "fd_pinv_reg_open_key", "dll": "advapi32.dll", "symbol": "RegOpenKeyExA", "convention": "stdcall", "params": ["i64", "str", "i32", "i32", "i64"], "returns": "i32"},
+    {"name": "fd_pinv_reg_close_key", "dll": "advapi32.dll", "symbol": "RegCloseKey", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+]
+
+KEY_READ = 131097
+REG_SZ = 1
+REG_EXPAND_SZ = 2
+
+# Font directories (well-known)
+def FONT_DIR_SYSTEM() -> "str":
+    return "Fonts"
+
+def FONT_DIR_USER() -> "str":
+    return "AppData\\Local\\Microsoft\\Windows\\Fonts"
+
+class FontFamily:
+    name: "str"
+    file_path: "str"
+    weight: "i32"
+    style: "i32"
+    is_truetype: "i32"
+    def __init__(self, name, file_path, weight, style, is_truetype):
+        self.name = name
+        self.file_path = file_path
+        self.weight = weight
+        self.style = style
+        self.is_truetype = is_truetype
+
+class FontDiscoveryResult:
+    families: "list[FontFamily]"
+    def __init__(self):
+        self.families = []
+
+def fd_reg_open_key(root: "i64", subkey: "str") -> "i64":
+    # STUB (M2.4): tra 0. Can HKEY_* >2^31 ma compiler khong giu duoc.
+    return 0
+
+def fd_reg_close_key(handle: "i64") -> "i32":
+    if handle != 0:
+        return fd_pinv_reg_close_key(handle)
+    return 0
+
+def fd_get_font_dirs(out_dirs: "list[str]") -> "i32":
+    # Tra ve danh sach thu muc font (system + user).
+    # Windows: C:\Windows\Fonts + user Fonts. Linux/macOS: well-known paths.
+    pid = detect_platform()
+    if pid == 1:
+        out_dirs.append("C:\\Windows\\Fonts")
+        out_dirs.append("C:\\Users\\AppData\\Local\\Microsoft\\Windows\\Fonts")
+    else:
+        if pid == 4:
+            out_dirs.append("/System/Library/Fonts")
+            out_dirs.append("/Library/Fonts")
+        else:
+            out_dirs.append("/usr/share/fonts")
+            out_dirs.append("/usr/local/share/fonts")
+    return len(out_dirs)
+
+def fd_scan_font_dir(dir_path: "str", out_families: "list[FontFamily]") -> "i32":
+    # Quet thu muc tim file .ttf/.ttc/.otf, lay ten font tu file name.
+    # Stub: tra 0, implementation that can duoc them sau (can file I/O runtime).
+    return 0
+
+def fd_registry_scan_fonts(out_families: "list[FontFamily]") -> "i32":
+    # STUB (M2.4): registry scan can HKEY_* >2^31 (xem fd_reg_open_key).
+    # Tra 0; caller van co well-known dirs + built-in fallback chain.
+    return 0
+
+def fd_discover_all_fonts(out_families: "list[FontFamily]") -> "i32":
+    # Discover tat ca font: registry (stub) + font dirs (well-known paths).
+    count = fd_registry_scan_fonts(out_families)
+    dirs = []
+    fd_get_font_dirs(dirs)
+    i = int(0)
+    while i < len(dirs):
+        fd_scan_font_dir(dirs[i], out_families)
+        i = i + 1
+    return len(out_families)
+
+def fd_family_base(name: "str") -> "str":
+    # Base family: cat " (...)" suffix, roi 1 style word cuoi
+    # ("Arial Bold" -> "Arial", "Times New Roman" giu nguyen).
+    base = name
+    i = int(0)
+    cut = len(base)
+    while i < len(base):
+        if base[i] == "(":
+            cut = i
+            break
+        i = i + 1
+    if cut < len(base):
+        base = base[0:cut]
+    # Strip trailing space
+    while len(base) > 0:
+        if base[len(base) - 1] == " ":
+            base = base[0:len(base) - 1]
+        else:
+            break
+    # Strip 1 trailing style word
+    styles = [" BoldItalic", " ItalicBold", " SemiBold", " ExtraBold", " DemiBold", " Bold", " Italic", " Oblique", " Light", " Regular", " Medium", " Black", " Thin", " Condensed", " Extended"]
+    si = int(0)
+    while si < len(styles):
+        st = styles[si]
+        if len(base) > len(st):
+            if base[len(base) - len(st):len(base)] == st:
+                base = base[0:len(base) - len(st)]
+                break
+        si = si + 1
+    return base
+
+def fd_find_font_family(families: "list[FontFamily]", name: "str", weight: "i32", style: "i32") -> "FontFamily":
+    # Tim font family gan nhat theo ten/weight/style.
+    # Thu tu: exact(name+w+st) > same-base+w+st > exact name > same-base >
+    # prefix > first available.
+    best = FontFamily("", "", 400, 0, 0)
+    want_base = fd_family_base(name)
+    i = int(0)
+    while i < len(families):
+        f = families[i]
+        if f.name == name:
+            if f.weight == weight and f.style == style:
+                return f
+        i = i + 1
+    i = int(0)
+    while i < len(families):
+        f = families[i]
+        if fd_family_base(f.name) == want_base:
+            if f.weight == weight and f.style == style:
+                return f
+        i = i + 1
+    i = int(0)
+    while i < len(families):
+        f = families[i]
+        if f.name == name:
+            return f
+        i = i + 1
+    i = int(0)
+    while i < len(families):
+        f = families[i]
+        if fd_family_base(f.name) == want_base:
+            return f
+        i = i + 1
+    pi = int(0)
+    while pi < len(families):
+        f = families[pi]
+        if fd_prefix_score(name, f.name) > 0:
+            return f
+        pi = pi + 1
+    if len(families) > 0:
+        return families[0]
+    return best
+
+def fd_match_score(name_want: "str", weight_want: "i32", style_want: "i32", name_got: "str", weight_got: "i32", style_got: "i32") -> "i32":
+    # Diem weighted cho fallback chain co trong so (M2.4):
+    # +1000 same base family, +500 prefix, -|dWeight|/100, -50 style mismatch.
+    # Cao hon = tot hon. Am = khong dung duoc.
+    score = int(0)
+    if fd_family_base(name_got) == fd_family_base(name_want):
+        score = score + 1000
+    else:
+        # Prefix match (1 trong 2 la prefix cua kia)
+        score = score + fd_prefix_score(name_want, name_got)
+    dw = weight_want - weight_got
+    if dw < 0:
+        dw = 0 - dw
+    score = score - dw // 100
+    if style_want != style_got:
+        score = score - 50
+    return score
+
+def fd_prefix_score(a: "str", b: "str") -> "i32":
+    # 500 neu a la prefix cua b hoac nguoc lai, 0 neu khong.
+    if len(a) == 0 or len(b) == 0:
+        return 0
+    if len(a) <= len(b):
+        if b[0:len(a)] == a:
+            return 500
+    else:
+        if a[0:len(b)] == b:
+            return 500
+    return 0
+
+def fd_find_best(families: "list[FontFamily]", name: "str", weight: "i32", style: "i32") -> "FontFamily":
+    # Weighted best-match (M2.4): chon family diem cao nhat.
+    best = FontFamily("", "", 400, 0, 0)
+    best_score = 0 - 1000000
+    i = int(0)
+    while i < len(families):
+        f = families[i]
+        s = fd_match_score(name, weight, style, f.name, f.weight, f.style)
+        if s > best_score:
+            best_score = s
+            best = f
+        i = i + 1
+    if best.name == "":
+        if len(families) > 0:
+            return families[0]
+    return best
+
+def fd_get_font_file_path(family: "FontFamily") -> "str":
+    # Tra ve duong dan file font (resolve relative path neu can).
+    return family.file_path
+
+def fd_discover_fonts() -> "FontDiscoveryResult":
+    # Entry point: discover tat ca font.
+    result = FontDiscoveryResult()
+    fd_discover_all_fonts(result.families)
+    return result
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def fd_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def fd_selftest() -> "str":
+    print("== TkvUI.FontDiscovery selftest ==")
+    acc = [int(0), int(0)]
+    # Registry stub: tra 0 (headless-safe), khong crash
+    hk = fd_reg_open_key(0, "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts")
+    ok_stub = 0
+    if hk == 0:
+        ok_stub = 1
+    fd_check(acc, "reg stub tra 0", ok_stub)
+    # Font dirs theo platform
+    dirs = []
+    fd_get_font_dirs(dirs)
+    ok_dirs = 0
+    if len(dirs) >= 2:
+        ok_dirs = 1
+    fd_check(acc, "font dirs >= 2", ok_dirs)
+    # Discover (registry stub -> 0, khong crash)
+    fam = []
+    n = fd_discover_all_fonts(fam)
+    ok_disc = 0
+    if n >= 0:
+        ok_disc = 1
+    fd_check(acc, "discover khong crash", ok_disc)
+    # Match exact
+    test_fam = FontFamily("Arial", "arial.ttf", 400, 0, 1)
+    test_fam2 = FontFamily("Arial Bold", "arialbd.ttf", 700, 0, 1)
+    tlist = []
+    tlist.append(test_fam)
+    tlist.append(test_fam2)
+    # Family base extraction (M2.4)
+    okb1 = 0
+    if fd_family_base("Arial Bold") == "Arial":
+        okb1 = 1
+    fd_check(acc, "family base bold", okb1)
+    okb2 = 0
+    if fd_family_base("Times New Roman") == "Times New Roman":
+        okb2 = 1
+    fd_check(acc, "family base multiword", okb2)
+    okb3 = 0
+    if fd_family_base("Arial") == "Arial":
+        okb3 = 1
+    fd_check(acc, "family base plain", okb3)
+    match = fd_find_font_family(tlist, "Arial", 400, 0)
+    ok3 = 0
+    if match.name == "Arial":
+        ok3 = 1
+    fd_check(acc, "match exact", ok3)
+    match2 = fd_find_font_family(tlist, "Arial", 700, 0)
+    ok4 = 0
+    if match2.name == "Arial Bold":
+        ok4 = 1
+    fd_check(acc, "match weight fallback", ok4)
+    match3 = fd_find_font_family(tlist, "Times", 400, 0)
+    ok5 = 0
+    if match3.name == "Arial":
+        ok5 = 1
+    fd_check(acc, "match missing fallback", ok5)
+    # Weighted scoring (M2.4)
+    ok8 = 0
+    if fd_match_score("Arial", 400, 0, "Arial", 400, 0) == 1000:
+        ok8 = 1
+    fd_check(acc, "score exact", ok8)
+    ok9 = 0
+    if fd_match_score("Arial", 400, 0, "Arial", 700, 0) == 997:
+        ok9 = 1
+    fd_check(acc, "score weight dist", ok9)
+    ok10 = 0
+    if fd_prefix_score("Arial", "Arial Bold") == 500:
+        ok10 = 1
+    fd_check(acc, "score prefix", ok10)
+    ok11 = 0
+    if fd_prefix_score("Arial", "Times") == 0:
+        ok11 = 1
+    fd_check(acc, "score noprefix", ok11)
+    best = fd_find_best(tlist, "Arial", 700, 0)
+    ok6 = 0
+    if best.name == "Arial Bold":
+        ok6 = 1
+    fd_check(acc, "best weighted", ok6)
+    best2 = fd_find_best(tlist, "Times", 400, 0)
+    ok7 = 0
+    if best2.name == "Arial":
+        ok7 = 1
+    fd_check(acc, "best fallback", ok7)
+    print("fontdiscovery: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "FONTDISCOVERY_OK"
+    return "FONTDISCOVERY_FAIL"

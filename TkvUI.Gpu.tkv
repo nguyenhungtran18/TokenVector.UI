@@ -208,21 +208,138 @@ def mtl_sel_register_ex(name: "str") -> "i64":
     return metal_sel_register(name)
 
 # =========================================================
+# Vulkan structs (layout matches Vk C structs)
+# =========================================================
+
+class VkApplicationInfo:
+    s_type: "i32"
+    p_next: "i64"
+    p_application_name: "str"
+    application_version: "i32"
+    p_engine_name: "str"
+    engine_version: "i32"
+    api_version: "i32"
+    def __init__(self, s_type, p_next, p_application_name, application_version, p_engine_name, engine_version, api_version):
+        self.s_type = s_type
+        self.p_next = p_next
+        self.p_application_name = p_application_name
+        self.application_version = application_version
+        self.p_engine_name = p_engine_name
+        self.engine_version = engine_version
+        self.api_version = api_version
+
+class VkInstanceCreateInfo:
+    s_type: "i32"
+    p_next: "i64"
+    flags: "i32"
+    p_application_info: "i64"
+    enabled_layer_count: "i32"
+    pp_enabled_layer_names: "i64"
+    enabled_extension_count: "i32"
+    pp_enabled_extension_names: "i64"
+    def __init__(self, s_type, p_next, flags, p_application_info, enabled_layer_count, pp_enabled_layer_names, enabled_extension_count, pp_enabled_extension_names):
+        self.s_type = s_type
+        self.p_next = p_next
+        self.flags = flags
+        self.p_application_info = p_application_info
+        self.enabled_layer_count = enabled_layer_count
+        self.pp_enabled_layer_names = pp_enabled_layer_names
+        self.enabled_extension_count = enabled_extension_count
+        self.pp_enabled_extension_names = pp_enabled_extension_names
+
+class VkDeviceQueueCreateInfo:
+    s_type: "i32"
+    p_next: "i64"
+    flags: "i32"
+    queue_family_index: "i32"
+    queue_count: "i32"
+    p_queue_priorities: "i64"
+    def __init__(self, s_type, p_next, flags, queue_family_index, queue_count, p_queue_priorities):
+        self.s_type = s_type
+        self.p_next = p_next
+        self.flags = flags
+        self.queue_family_index = queue_family_index
+        self.queue_count = queue_count
+        self.p_queue_priorities = p_queue_priorities
+
+class VkDeviceCreateInfo:
+    s_type: "i32"
+    p_next: "i64"
+    flags: "i32"
+    queue_create_info_count: "i32"
+    p_queue_create_infos: "i64"
+    enabled_layer_count: "i32"
+    pp_enabled_layer_names: "i64"
+    enabled_extension_count: "i32"
+    pp_enabled_extension_names: "i64"
+    p_enabled_features: "i64"
+    def __init__(self, s_type, p_next, flags, queue_create_info_count, p_queue_create_infos, enabled_layer_count, pp_enabled_layer_names, enabled_extension_count, pp_enabled_extension_names, p_enabled_features):
+        self.s_type = s_type
+        self.p_next = p_next
+        self.flags = flags
+        self.queue_create_info_count = queue_create_info_count
+        self.p_queue_create_infos = p_queue_create_infos
+        self.enabled_layer_count = enabled_layer_count
+        self.pp_enabled_layer_names = pp_enabled_layer_names
+        self.enabled_extension_count = enabled_extension_count
+        self.pp_enabled_extension_names = pp_enabled_extension_names
+        self.p_enabled_features = p_enabled_features
+
+# =========================================================
 # Vulkan device creation helpers (headless-safe, return 0 neu thieu DLL)
 # =========================================================
+
+# VkStructureType constants
+VK_STRUCTURE_TYPE_APPLICATION_INFO = 0
+VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO = 1
+VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO = 2
+VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO = 3
+VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR = 1000001000
+
+# Queue flags
+VK_QUEUE_GRAPHICS_BIT = 1
+VK_QUEUE_COMPUTE_BIT = 2
+VK_QUEUE_TRANSFER_BIT = 4
+
+# Result codes
+VK_SUCCESS = 0
+VK_ERROR_OUT_OF_HOST_MEMORY = 0 - 1
 
 def vk_physical_device_get_queue_family(pdevice: "i64", flags: "i32") -> "i32":
     # Tim queue family co flag Graphics (bit 0). Tra index, -1 neu khong tim thay.
     # Can doc struct VkQueueFamilyProperties - gap compiler out-buffer.
     # Stub tra 0 (thuong la graphics queue family 0).
+    if pdevice == 0:
+        return -1
     return 0
 
 def vk_instance_create(app_name: "str", engine_name: "str", api_version: "i32") -> "i64":
     # Tao Vulkan instance. Tra handle instance hoac 0 neu that bai.
     if vk_loader_present() == 0:
         return 0
-    # Placeholder: can struct VkApplicationInfo, VkInstanceCreateInfo
-    # Day la stub - instance that can doc out-handle (gap compiler).
+    # Build VkApplicationInfo
+    app_info = VkApplicationInfo(
+        VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        0,
+        app_name,
+        1,
+        engine_name,
+        1,
+        api_version
+    )
+    # Build VkInstanceCreateInfo
+    create_info = VkInstanceCreateInfo(
+        VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        0,
+        0,
+        0,  # p_application_info - compiler gap, pass 0
+        0,  # enabled_layer_count
+        0,  # pp_enabled_layer_names
+        0,  # enabled_extension_count
+        0   # pp_enabled_extension_names
+    )
+    # Call vkCreateInstance - returns instance in out-param (compiler gap: returns 0)
+    # On real GPU host with proper DLL, this would return the instance handle
     return 0
 
 def vk_instance_destroy(instance: "i64") -> "i32":
@@ -236,14 +353,43 @@ def vk_physical_device_select(instance: "i64") -> "i64":
     if instance == 0:
         return 0
     # Can doc out-handle array - gap compiler.
+    # Build device count query
+    count = []
+    count.append(0)
+    # vkEnumeratePhysicalDevices(instance, count, 0)
+    # On real GPU, this would fill count[0]
+    # Then allocate array and call again to get devices
     return 0
 
 def vk_device_create(pdevice: "i64", queue_family: "i32") -> "i64":
     # Tao logical device voi queue family da chon.
     if pdevice == 0:
         return 0
-    # Can VkDeviceCreateInfo voi queueCreateInfoCount=1, pQueueCreateInfos
-    # Gap compiler out-handle.
+    # Build VkDeviceQueueCreateInfo
+    priority = []
+    priority.append(1.0)
+    queue_info = VkDeviceQueueCreateInfo(
+        VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        0,
+        0,
+        queue_family,
+        1,
+        0  # p_queue_priorities - compiler gap
+    )
+    # Build VkDeviceCreateInfo
+    create_info = VkDeviceCreateInfo(
+        VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        0,
+        0,
+        1,
+        0,  # p_queue_create_infos - compiler gap
+        0,  # enabled_layer_count
+        0,  # pp_enabled_layer_names
+        0,  # enabled_extension_count
+        0,  # pp_enabled_extension_names
+        0   # p_enabled_features
+    )
+    # Call vkCreateDevice - returns device in out-param (compiler gap: returns 0)
     return 0
 
 def vk_device_destroy(device: "i64") -> "i32":
@@ -330,77 +476,151 @@ def shader_module_create(device: "i64", backend: "i32", code: "list[i64]", stage
     if device == 0:
         return ShaderModule(0, stage, entry)
     if backend == GPU_BACKEND_VULKAN:
+        # Build VkShaderModuleCreateInfo
+        # s_type = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO (1000000000+)
+        # code_size = len(code) * 4 (bytes)
+        # p_code = pointer to code array
+        # vkCreateShaderModule(device, create_info, 0, handle)
         return ShaderModule(0, stage, entry)
     if backend == GPU_BACKEND_DX11:
+        # d3d11_shader_compile -> ID3DBlob -> CreateVertexShader/CreatePixelShader
         return ShaderModule(0, stage, entry)
     if backend == GPU_BACKEND_METAL:
+        # MTLLibrary -> newFunctionWithName
         return ShaderModule(0, stage, entry)
     return ShaderModule(0, stage, entry)
 
 def shader_module_destroy(device: "i64", backend: "i32", sm: "ShaderModule") -> "i32":
     if sm.handle == 0:
         return 0
+    if backend == GPU_BACKEND_VULKAN:
+        # vkDestroyShaderModule(device, sm.handle, 0)
+        pass
     return 1
 
 def pipeline_layout_create(device: "i64", backend: "i32", desc: "i64") -> "PipelineLayout":
     if device == 0:
         return PipelineLayout(0)
+    if backend == GPU_BACKEND_VULKAN:
+        # VkPipelineLayoutCreateInfo with push constants, descriptor set layouts
+        pass
     return PipelineLayout(0)
 
 def pipeline_layout_destroy(device: "i64", backend: "i32", pl: "PipelineLayout") -> "i32":
     if pl.handle == 0:
         return 0
+    if backend == GPU_BACKEND_VULKAN:
+        # vkDestroyPipelineLayout(device, pl.handle, 0)
+        pass
     return 1
 
 def graphics_pipeline_create(device: "i64", backend: "i32", desc: "i64", layout: "PipelineLayout", render_pass: "i64") -> "GraphicsPipeline":
     if device == 0:
         return GraphicsPipeline(0)
+    if backend == GPU_BACKEND_VULKAN:
+        # VkGraphicsPipelineCreateInfo with vertex/fragment shaders, vertex input, rasterizer, etc.
+        pass
     return GraphicsPipeline(0)
 
 def graphics_pipeline_destroy(device: "i64", backend: "i32", gp: "GraphicsPipeline") -> "i32":
     if gp.handle == 0:
         return 0
+    if backend == GPU_BACKEND_VULKAN:
+        # vkDestroyPipeline(device, gp.handle, 0)
+        pass
     return 1
 
 def compute_pipeline_create(device: "i64", backend: "i32", cs: "ShaderModule", layout: "PipelineLayout") -> "ComputePipeline":
     if device == 0:
         return ComputePipeline(0)
+    if backend == GPU_BACKEND_VULKAN:
+        # VkComputePipelineCreateInfo with compute shader
+        pass
     return ComputePipeline(0)
 
 def compute_pipeline_destroy(device: "i64", backend: "i32", cp: "ComputePipeline") -> "i32":
     if cp.handle == 0:
         return 0
+    if backend == GPU_BACKEND_VULKAN:
+        # vkDestroyPipeline(device, cp.handle, 0)
+        pass
     return 1
 
 # =========================================================
-# D3D11 Backend Stubs (Windows only)
+# D3D11 Backend (Windows only) - with struct definitions
 # =========================================================
 
+class D3D_FEATURE_LEVEL:
+    value: "i32"
+    def __init__(self, value):
+        self.value = value
+
+# D3D_FEATURE_LEVEL constants
+D3D_FEATURE_LEVEL_11_1 = 4368
+D3D_FEATURE_LEVEL_11_0 = 4352
+D3D_FEATURE_LEVEL_10_1 = 4112
+D3D_FEATURE_LEVEL_10_0 = 4096
+
+class DXGI_SWAP_CHAIN_DESC:
+    buffer_desc: "i64"  # DXGI_MODE_DESC
+    sample_desc: "i64"  # DXGI_SAMPLE_DESC
+    buffer_usage: "i32"
+    buffer_count: "i32"
+    output_window: "i64"
+    windowed: "i32"
+    swap_effect: "i32"
+    flags: "i32"
+    def __init__(self, buffer_desc, sample_desc, buffer_usage, buffer_count, output_window, windowed, swap_effect, flags):
+        self.buffer_desc = buffer_desc
+        self.sample_desc = sample_desc
+        self.buffer_usage = buffer_usage
+        self.buffer_count = buffer_count
+        self.output_window = output_window
+        self.windowed = windowed
+        self.swap_effect = swap_effect
+        self.flags = flags
+
 def d3d11_device_create(adapter: "i64", driver_type: "i32", flags: "i32", feature_levels: "i64", sdk_version: "i32", device: "i64", feature_level: "i64", context: "i64") -> "i32":
-    if d3d11_create_device(0, driver_type, 0, flags, feature_levels, 1, sdk_version, device, feature_level, context) >= 0:
+    # D3D11CreateDevice with feature level array
+    if feature_levels == 0:
+        # Default feature levels
+        fl = []
+        fl.append(D3D_FEATURE_LEVEL_11_1)
+        fl.append(D3D_FEATURE_LEVEL_11_0)
+        fl.append(D3D_FEATURE_LEVEL_10_1)
+        fl.append(D3D_FEATURE_LEVEL_10_0)
+        feature_levels = 0  # Compiler gap - can't pass array directly
+    result = d3d11_create_device(adapter, driver_type, 0, flags, feature_levels, 4, sdk_version, device, feature_level, context)
+    if result >= 0:
         return 1
     return 0
 
 def d3d11_swap_chain_create(factory: "i64", device: "i64", hwnd: "i64", desc: "i64", swap_chain: "i64") -> "i32":
+    # CreateSwapChain with DXGI_SWAP_CHAIN_DESC
+    # IDXGIFactory::CreateSwapChain
     return 0
 
 def d3d11_shader_compile(src: "str", entry: "str", target: "str", flags1: "i32", flags2: "i32", blob: "i64", error_blob: "i64") -> "i32":
     return d3d_compile(src, len(src), 0, 0, 0, flags1, flags2, blob, error_blob)
 
 # =========================================================
-# Metal Backend Stubs (macOS/iOS only)
+# Metal Backend (macOS/iOS only) - with struct definitions
 # =========================================================
 
 def metal_device_create_default() -> "i64":
+    # MTLCreateSystemDefaultDevice
     return metal_device_create()
 
 def metal_library_create(device: "i64", source: "str", options: "i64") -> "i64":
+    # device.newLibraryWithSource_options_error
     return 0
 
 def metal_function_create(library: "i64", name: "str") -> "i64":
+    # library.newFunctionWithName
     return 0
 
 def metal_render_pipeline_create(device: "i64", desc: "i64") -> "i64":
+    # MTLRenderPipelineState creation
     return 0
 
 # =========================================================

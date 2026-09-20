@@ -11,8 +11,9 @@ phang; nhan ASCII; sanitize text ve ASCII de xref offset chinh xac byte.
 
 Tien to pdf_*/Pdf* va print_*/Print* — khong trung khi merge.
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Theme", "TkvUI.Data"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Theme", "TkvUI.Data", "TkvUI.Platform"]
 __tkv_extern_method__ = [{"name": "pdf_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}, {"name": "pdf_file_read", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"}]
+__tkv_extern_pinvoke__ = [{"name": "spool_shell_exec", "dll": "shell32.dll", "symbol": "ShellExecuteA", "convention": "stdcall", "params": ["i64", "str", "str", "str", "str", "i32"], "returns": "i64"}]
 
 # Paper kind (tai lieu; than method dung literal so)
 PDF_PAPER_A4 = 0
@@ -942,6 +943,107 @@ def print_preview_margins(buf: "list[i64]", surf: "PixelSurface", page: "Rect2D"
     return 1
 
 # =========================================================
+# M5.2 PRINT SPOOLER - shell verb "print" (Win32), CUPS stub (Linux)
+# Tai sao shell ma khong phai winspool.drv truc tiep:
+# - Linter bat .dll (winspool.drv bi tu choi) - gap C-compiler.
+# - Truyen extern-instance vao extern-static (Process.Start(info))
+#   la gap compiler (ghi nhan o Platform.wf_run).
+# =========================================================
+def print_spool_present() -> "i32":
+    # shell32.dll co san thi goi that duoc.
+    if tkv_has_file("shell32.dll") == 1:
+        return 1
+    if tkv_has_file("C:\\Windows\\System32\\shell32.dll") == 1:
+        return 1
+    return 0
+
+def print_byte_of(ch: "str") -> "i32":
+    # Byte cua 1 ky tu PDF (ASCII + \n\r\t); la -> 63 ('?').
+    if ch == "\n":
+        return 10
+    if ch == "\r":
+        return 13
+    if ch == "\t":
+        return 9
+    c = char_code(ch)
+    if c < 0:
+        return 63
+    if c > 126:
+        return 63
+    return c
+
+def print_shell_verb(pdf_path: "str", verb: "str") -> "i32":
+    # ShellExecuteA(hwnd=0, verb, file, params="", dir="", show=0).
+    # Tra 1 neu HINSTANCE > 32 (thanh cong), 0 neu loi/thieu.
+    if detect_platform() != 1:
+        return 0
+    if print_spool_present() == 0:
+        return 0
+    if pdf_path == "":
+        return 0
+    if tkv_has_file(pdf_path) == 0:
+        return 0
+    if verb == "":
+        return 0
+    rc = spool_shell_exec(0, verb, pdf_path, "", "", 0)
+    if rc > 32:
+        return 1
+    return 0
+
+def print_spool_open(printer_name: "str") -> "i64":
+    # Mo printer qua winspool: BLOCKED (linter .drv + out-handle).
+    # Giu stub tra 0 de API on dinh; dung print_shell_print de in that.
+    if printer_name == "":
+        return 0
+    return 0
+
+def print_spool_close(handle: "i64") -> "i32":
+    if handle == 0:
+        return 0
+    return 0
+
+def print_spool_doc_begin(handle: "i64", doc_name: "str") -> "i32":
+    # StartDocPrinterA + DOCINFOA: BLOCKED (can winspool.drv pinvoke).
+    # Stub tra 0; xem print_shell_print cho duong in that.
+    if handle == 0:
+        return 0
+    if doc_name == "":
+        return 0
+    return 0
+
+def print_spool_write(handle: "i64", pdf_text: "str") -> "i32":
+    # WritePrinter: BLOCKED (can winspool.drv pinvoke). Stub tra 0.
+    if handle == 0:
+        return 0
+    if pdf_text == "":
+        return 0
+    return 0
+
+def print_spool_doc_end(handle: "i64") -> "i32":
+    if handle == 0:
+        return 0
+    return 0
+
+def print_spool_pdf(printer_name: "str", doc_name: "str", pdf_text: "str") -> "i32":
+    # In that: luu PDF ra file tam roi shell verb "print".
+    # printer_name/doc_name giu de API on dinh (chon printer mac dinh OS).
+    if pdf_text == "":
+        return 0
+    if detect_platform() != 1:
+        return 0
+    if print_spool_present() == 0:
+        return 0
+    if printer_name == "" and doc_name == "":
+        return 0
+    path = "build/tkvui_spool.pdf"
+    pdf_file_write(path, pdf_text)
+    return print_shell_verb(path, "print")
+
+def print_spool_cups(printer_name: "str", pdf_path: "str") -> "i32":
+    # CUPS Linux: can libcups.so (gap compiler A3) -> stub tra 0.
+    return 0
+
+# =========================================================
 # SELFTEST
 # =========================================================
 def pdfcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
@@ -1120,6 +1222,27 @@ def printing_selftest() -> "str":
     pdfcheck_i(acc, "order.rev", seq[0], 2)
     pdfcheck_i(acc, "ov.cols", pdf_preview_cols(7, 4), 4)
     pdfcheck_i(acc, "ov.rows", pdf_preview_rows(7, 4), 2)
+    # M5.2 spooler (headless-safe: khong printer/DLL -> 0, khong crash)
+    pdfcheck_i(acc, "spool.byte nl", print_byte_of("\n"), 10)
+    pdfcheck_i(acc, "spool.byte A", print_byte_of("A"), 65)
+    pdfcheck_i(acc, "spool.byte miss", print_byte_of("ệ"), 63)
+    sp = print_spool_present()
+    ok_sp = 0
+    if sp == 0 or sp == 1:
+        ok_sp = 1
+    pdfcheck(acc, "spool.present 0/1", ok_sp)
+    pdfcheck_i(acc, "spool.open empty", print_spool_open(""), 0)
+    pdfcheck_i(acc, "spool.open bogus", print_spool_open("TKVUI_NO_SUCH_PRINTER_XYZ"), 0)
+    pdfcheck_i(acc, "spool.doc null", print_spool_doc_begin(0, "doc"), 0)
+    pdfcheck_i(acc, "spool.write null", print_spool_write(0, "x"), 0)
+    pdfcheck_i(acc, "spool.docend null", print_spool_doc_end(0), 0)
+    pdfcheck_i(acc, "spool.close null", print_spool_close(0), 0)
+    pdfcheck_i(acc, "spool.pdf null", print_spool_pdf("TKVUI_NO_SUCH_PRINTER_XYZ", "doc", "x"), 0)
+    pdfcheck_i(acc, "spool.pdf empty", print_spool_pdf("p", "d", ""), 0)
+    pdfcheck_i(acc, "spool.cups stub", print_spool_cups("lp", "a.pdf"), 0)
+    pdfcheck_i(acc, "spool.verb nofile", print_shell_verb("build/no_such_file_xyz.pdf", "print"), 0)
+    pdfcheck_i(acc, "spool.verb empty", print_shell_verb("", "print"), 0)
+    pdfcheck_i(acc, "spool.verb noverb", print_shell_verb("build/tkvui_print_selftest.pdf", ""), 0)
     print("printing: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "PRINTING_OK"

@@ -15,7 +15,8 @@ Quy uoc:
 
 Tien to Native*/native_*/make_native_* — khong trung khi merge.
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Layout", "TkvUI.Theme"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Layout", "TkvUI.Theme", "TkvUI.Platform"]
+__tkv_extern_pinvoke__ = [{"name": "tray_notify", "dll": "shell32.dll", "symbol": "Shell_NotifyIconA", "convention": "stdcall", "params": ["i32", "i64"], "returns": "i32"}, {"name": "tray_load_icon", "dll": "user32.dll", "symbol": "LoadIconA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tray_wsprintf_s", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "str"], "returns": "i32"}]
 
 # Chieu cao mac dinh (tai lieu; than method dung literal so)
 NATIVE_BTN_H = 24.0
@@ -338,6 +339,158 @@ class NativeComboBox:
 
 def make_native_combo(x: "f64", y: "f64", w: "f64") -> "NativeComboBox":
     return NativeComboBox(x, y, w, 22.0, 0, 0, -1, 0, 1, 0)
+
+def treecombo_path(labels: "list[str]", depths: "list[i32]", idx: "i32") -> "str":
+    # Duong dan "a/b/c" tu root toi idx (outline theo depths).
+    if idx < 0 or idx >= len(labels):
+        return ""
+    if idx >= len(depths):
+        return labels[idx]
+    out = labels[idx]
+    d = depths[idx]
+    j = idx - 1
+    while j >= 0:
+        if j >= len(depths):
+            break
+        if j >= len(labels):
+            break
+        if depths[j] < d:
+            out = labels[j] + "/" + out
+            d = depths[j]
+            if d <= 0:
+                break
+        j = j - 1
+    return out
+
+class NativeTreeCombo:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    selected: "i32"
+    open: "i32"
+    hover_idx: "i32"
+    state: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, selected, open, hover_idx, state, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.selected = selected
+        self.open = open
+        self.hover_idx = hover_idx
+        self.state = state
+        self.enabled = enabled
+    def toggle_open(self) -> "i32":
+        if self.enabled == 0:
+            return 0
+        if self.open == 1:
+            self.open = 0
+        else:
+            self.open = 1
+        return self.open
+    def choose(self, idx: "i32", count: "i32") -> "i32":
+        if idx < 0:
+            return self.selected
+        if idx >= count:
+            return self.selected
+        self.selected = idx
+        self.open = 0
+        return idx
+    def popup_h(self, count: "i32") -> "f64":
+        h = float(count) * 20.0
+        if h > 140.0:
+            h = 140.0
+        return h
+    def hit_item(self, py: "f64", count: "i32") -> "i32":
+        top = self.by + self.bh
+        idx = int((py - top) / 20.0)
+        if idx < 0:
+            return -1
+        if idx >= count:
+            return -1
+        return idx
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if py < self.by:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        return 1
+    def toggle_node(self, open_flags: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0:
+            return 0
+        if idx >= len(open_flags):
+            return 0
+        if open_flags[idx] == 1:
+            open_flags[idx] = 0
+        else:
+            open_flags[idx] = 1
+        return open_flags[idx]
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", labels: "list[str]", depths: "list[i32]", has_kids: "list[i32]", open_flags: "list[i32]", n: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        st = self.state
+        if self.enabled == 0:
+            st = 3
+        bg = os_edit_bg(pal, st)
+        bd = os_edit_border(pal, st)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, bg)
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, bd)
+        cur = treecombo_path(labels, depths, self.selected)
+        ty = self.by + (self.bh - 7.0) / 2.0
+        draw_string(buf, surf, cur, self.bx + 5.0, ty, 1.0, os_role_color(pal, 6))
+        ax = self.bx + self.bw - 12.0
+        ay = self.by + self.bh / 2.0
+        draw_line(buf, surf, ax - 4.0, ay - 2.0, ax, ay + 2.0, 1.5, os_role_color(pal, 1))
+        draw_line(buf, surf, ax, ay + 2.0, ax + 4.0, ay - 2.0, 1.5, os_role_color(pal, 1))
+        if self.open == 1:
+            ph = self.popup_h(n)
+            pr = Rect2D(self.bx, self.by + self.bh, self.bw, ph)
+            fill_round_rect(buf, surf, pr, 2.0, os_role_color(pal, 2))
+            stroke_round_rect(buf, surf, pr, 2.0, 1.0, bd)
+            i = int(0)
+            while i < n:
+                iy = self.by + self.bh + float(i) * 20.0
+                if iy + 20.0 > self.by + self.bh + ph:
+                    break
+                if i == self.hover_idx:
+                    hr = Rect2D(self.bx + 1.0, iy, self.bw - 2.0, 20.0)
+                    fill_round_rect(buf, surf, hr, 0.0, os_role_color(pal, 11))
+                dep = 0
+                if i < len(depths):
+                    dep = depths[i]
+                ix = self.bx + 5.0 + float(dep) * 16.0
+                hk = 0
+                if i < len(has_kids):
+                    hk = has_kids[i]
+                if hk == 1:
+                    op = 0
+                    if i < len(open_flags):
+                        op = open_flags[i]
+                    cx = ix + 4.0
+                    cy = iy + 10.0
+                    if op == 1:
+                        draw_line(buf, surf, cx - 3.0, cy - 1.5, cx, cy + 1.5, 1.2, os_role_color(pal, 6))
+                        draw_line(buf, surf, cx, cy + 1.5, cx + 3.0, cy - 1.5, 1.2, os_role_color(pal, 6))
+                    else:
+                        draw_line(buf, surf, cx - 1.0, cy - 3.0, cx + 2.0, cy, 1.2, os_role_color(pal, 6))
+                        draw_line(buf, surf, cx + 2.0, cy, cx - 1.0, cy + 3.0, 1.2, os_role_color(pal, 6))
+                    ix = ix + 11.0
+                if i < len(labels):
+                    if i == self.hover_idx:
+                        draw_string(buf, surf, labels[i], ix, iy + 6.0, 1.0, os_role_color(pal, 12))
+                    else:
+                        draw_string(buf, surf, labels[i], ix, iy + 6.0, 1.0, os_role_color(pal, 6))
+                i = i + 1
+        return 1
+
+def make_native_treecombo(x: "f64", y: "f64", w: "f64") -> "NativeTreeCombo":
+    return NativeTreeCombo(x, y, w, 22.0, 0, 0, -1, 0, 1)
 
 # =========================================================
 # 4) NativeTableView - sort/filter/selection/delegate-ready
@@ -1095,6 +1248,337 @@ class NativeSplitter:
 def make_native_splitter(x: "f64", y: "f64", w: "f64", h: "f64", ratio: "f64", orient: "i32") -> "NativeSplitter":
     return NativeSplitter(x, y, w, h, ratio, orient, 0.2, 0, 1)
 
+class NativeDockPanel:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    left_w: "f64"
+    right_w: "f64"
+    top_h: "f64"
+    bottom_h: "f64"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, left_w, right_w, top_h, bottom_h, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.left_w = left_w
+        self.right_w = right_w
+        self.top_h = top_h
+        self.bottom_h = bottom_h
+        self.enabled = enabled
+    def set_left(self, w: "f64") -> "f64":
+        if w < 0.0:
+            w = 0.0
+        if w > self.bw * 0.5:
+            w = self.bw * 0.5
+        self.left_w = w
+        return w
+    def set_right(self, w: "f64") -> "f64":
+        if w < 0.0:
+            w = 0.0
+        if w > self.bw * 0.5:
+            w = self.bw * 0.5
+        self.right_w = w
+        return w
+    def set_top(self, h: "f64") -> "f64":
+        if h < 0.0:
+            h = 0.0
+        if h > self.bh * 0.5:
+            h = self.bh * 0.5
+        self.top_h = h
+        return h
+    def set_bottom(self, h: "f64") -> "f64":
+        if h < 0.0:
+            h = 0.0
+        if h > self.bh * 0.5:
+            h = self.bh * 0.5
+        self.bottom_h = h
+        return h
+    def left_rect(self) -> "Rect2D":
+        return Rect2D(self.bx, self.by + self.top_h, self.left_w, self.bh - self.top_h - self.bottom_h)
+    def right_rect(self) -> "Rect2D":
+        return Rect2D(self.bx + self.bw - self.right_w, self.by + self.top_h, self.right_w, self.bh - self.top_h - self.bottom_h)
+    def top_rect(self) -> "Rect2D":
+        return Rect2D(self.bx, self.by, self.bw, self.top_h)
+    def bottom_rect(self) -> "Rect2D":
+        return Rect2D(self.bx, self.by + self.bh - self.bottom_h, self.bw, self.bottom_h)
+    def central_rect(self) -> "Rect2D":
+        return Rect2D(self.bx + self.left_w, self.by + self.top_h, self.bw - self.left_w - self.right_w, self.bh - self.top_h - self.bottom_h)
+    def hit_gutter(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx or px >= self.bx + self.bw:
+            return 0
+        if py < self.by or py >= self.by + self.bh:
+            return 0
+        gx = self.bx + self.left_w
+        if px >= gx - 4.0 and px < gx + 4.0:
+            if py >= self.by + self.top_h and py < self.by + self.bh - self.bottom_h:
+                return 1
+        gx = self.bx + self.bw - self.right_w
+        if px >= gx - 4.0 and px < gx + 4.0:
+            if py >= self.by + self.top_h and py < self.by + self.bh - self.bottom_h:
+                return 2
+        gy = self.by + self.top_h
+        if py >= gy - 4.0 and py < gy + 4.0:
+            return 3
+        gy = self.by + self.bh - self.bottom_h
+        if py >= gy - 4.0 and py < gy + 4.0:
+            return 4
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", labels: "list[str]") -> "i32":
+        pal = os_palette_for_mode(mode)
+        c = self.central_rect()
+        fill_round_rect(buf, surf, c, 0.0, os_role_color(pal, 0))
+        lr = self.left_rect()
+        if lr.w > 0.0:
+            fill_round_rect(buf, surf, lr, 0.0, os_role_color(pal, 2))
+        rr = self.right_rect()
+        if rr.w > 0.0:
+            fill_round_rect(buf, surf, rr, 0.0, os_role_color(pal, 2))
+        tr = self.top_rect()
+        if tr.h > 0.0:
+            fill_round_rect(buf, surf, tr, 0.0, os_state_color(pal, 7, 0))
+        br = self.bottom_rect()
+        if br.h > 0.0:
+            fill_round_rect(buf, surf, br, 0.0, os_state_color(pal, 7, 0))
+        draw_line(buf, surf, self.bx + self.left_w, self.by + self.top_h, self.bx + self.left_w, self.by + self.bh - self.bottom_h, 1.0, os_separator_color(pal))
+        draw_line(buf, surf, self.bx + self.bw - self.right_w, self.by + self.top_h, self.bx + self.bw - self.right_w, self.by + self.bh - self.bottom_h, 1.0, os_separator_color(pal))
+        i = int(0)
+        while i < 4 and i < len(labels):
+            draw_string(buf, surf, labels[i], self.bx + 6.0 + float(i) * 60.0, self.by + 6.0, 1.0, os_role_color(pal, 1))
+            i = i + 1
+        return 1
+
+def make_native_dock(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeDockPanel":
+    return NativeDockPanel(x, y, w, h, 120.0, 120.0, 28.0, 24.0, 1)
+
+class NativeMdiArea:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    active: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, active, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.active = active
+        self.enabled = enabled
+    def count(self, titles: "list[str]") -> "i32":
+        return len(titles)
+    def add_child(self, titles: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", mins: "list[i32]", title: "str", w: "f64", h: "f64") -> "i32":
+        n = len(titles)
+        titles.append(title)
+        xs.append(self.bx + 20.0 + float(n % 5) * 24.0)
+        ys.append(self.by + 20.0 + float(n % 5) * 22.0)
+        ws.append(w)
+        hs.append(h)
+        mins.append(0)
+        self.active = n
+        return n
+    def close_child(self, titles: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", mins: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0 or idx >= len(titles):
+            return 0
+        j = idx
+        while j + 1 < len(titles):
+            titles[j] = titles[j + 1]
+            xs[j] = xs[j + 1]
+            ys[j] = ys[j + 1]
+            ws[j] = ws[j + 1]
+            hs[j] = hs[j + 1]
+            mins[j] = mins[j + 1]
+            j = j + 1
+        titles.pop()
+        xs.pop()
+        ys.pop()
+        ws.pop()
+        hs.pop()
+        mins.pop()
+        if self.active >= len(titles):
+            self.active = len(titles) - 1
+        return 1
+    def activate(self, idx: "i32", n: "i32") -> "i32":
+        if idx < 0 or idx >= n:
+            return self.active
+        self.active = idx
+        return idx
+    def minimize(self, mins: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0 or idx >= len(mins):
+            return 0
+        if mins[idx] == 1:
+            mins[idx] = 0
+        else:
+            mins[idx] = 1
+        return mins[idx]
+    def cascade(self, xs: "list[f64]", ys: "list[f64]", n: "i32") -> "i32":
+        i = int(0)
+        while i < n:
+            if i < len(xs):
+                xs[i] = self.bx + 20.0 + float(i % 5) * 24.0
+            if i < len(ys):
+                ys[i] = self.by + 20.0 + float(i % 5) * 22.0
+            i = i + 1
+        return n
+    def tile_vertical(self, xs: "list[f64]", ws: "list[f64]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        w = self.bw / float(n)
+        i = int(0)
+        while i < n:
+            if i < len(xs):
+                xs[i] = self.bx + float(i) * w
+            if i < len(ws):
+                ws[i] = w
+            i = i + 1
+        return n
+    def hit_child(self, titles: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", mins: "list[i32]", px: "f64", py: "f64") -> "i32":
+        i = len(titles) - 1
+        while i >= 0:
+            if i < len(mins):
+                if mins[i] == 0:
+                    if i < len(xs) and i < len(ys) and i < len(ws) and i < len(hs):
+                        if px >= xs[i] and px < xs[i] + ws[i]:
+                            if py >= ys[i] and py < ys[i] + hs[i]:
+                                return i
+            i = i - 1
+        return -1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", titles: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", mins: "list[i32]") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 0.0, os_state_color(pal, 7, 2))
+        i = int(0)
+        n = len(titles)
+        while i < n:
+            if i < len(mins):
+                if mins[i] == 0:
+                    if i < len(xs) and i < len(ys) and i < len(ws) and i < len(hs):
+                        cr = Rect2D(xs[i], ys[i], ws[i], hs[i])
+                        fill_round_rect(buf, surf, cr, 2.0, os_role_color(pal, 2))
+                        bd = os_separator_color(pal)
+                        if i == self.active:
+                            bd = os_role_color(pal, 11)
+                        stroke_round_rect(buf, surf, cr, 2.0, 1.0, bd)
+                        tr = Rect2D(xs[i], ys[i], ws[i], 20.0)
+                        fill_round_rect(buf, surf, tr, 2.0, os_state_color(pal, 7, 0))
+                        if i < len(titles):
+                            draw_string(buf, surf, titles[i], xs[i] + 6.0, ys[i] + 6.0, 1.0, os_role_color(pal, 1))
+            i = i + 1
+        ty = self.by + self.bh - 22.0
+        fill_round_rect(buf, surf, Rect2D(self.bx, ty, self.bw, 22.0), 0.0, os_state_color(pal, 7, 0))
+        i = int(0)
+        while i < n:
+            bx = self.bx + 4.0 + float(i) * 90.0
+            if bx + 86.0 > self.bx + self.bw:
+                break
+            br = Rect2D(bx, ty + 2.0, 86.0, 18.0)
+            if i == self.active:
+                fill_round_rect(buf, surf, br, 2.0, os_role_color(pal, 11))
+            if i < len(titles):
+                draw_string(buf, surf, titles[i], bx + 4.0, ty + 5.0, 1.0, os_role_color(pal, 1))
+            i = i + 1
+        return 1
+
+def make_native_mdi(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeMdiArea":
+    return NativeMdiArea(x, y, w, h, -1, 1)
+
+# P4 systray: Shell_NotifyIconA tooltip icon (Win32).
+# Han che v1 (ghi nhan): hien tooltip-only; click can WndProc subclassing
+# (callback pointer - gap compiler, cung ho voi wf_run). Khong render vao
+# buffer (OS ve icon). Headless-safe: thieu shell32/handle -> 0.
+# NOTIFYICONDATAA V1 (64-bit): cbSize@0, hWnd@8, uID@16, uFlags@20,
+# uCallbackMessage@24, hIcon@32, szTip[128]@40. VirtualAlloc zero san.
+def tray_present() -> "i32":
+    if tkv_has_file("shell32.dll") == 1:
+        return 1
+    if tkv_has_file("C:\\Windows\\System32\\shell32.dll") == 1:
+        return 1
+    return 0
+
+def tray_write_ptr(mem: "i64", off: "i64", val: "i64") -> "i32":
+    # Ghi con tro 64-bit (HWND/HICON thuc te < 2^31 - user handle 32-bit).
+    win_write_u32_le(mem, off, int(val))
+    win_write_u32_le(mem, off + 4, 0)
+    return 1
+
+def tray_build_nid(uid: "i32", hwnd: "i64", icon: "i64", tip: "str") -> "i64":
+    # Cap phat + dien NOTIFYICONDATA V1, tra con tro (0 neu loi). Caller free.
+    # VirtualAlloc zero san nen cac field con lai = 0.
+    mem = mem_alloc(1024)
+    if mem == 0:
+        return 0
+    win_write_u32_le(mem, 0, 168)
+    tray_write_ptr(mem, 8, hwnd)
+    win_write_u32_le(mem, 16, uid)
+    win_write_u32_le(mem, 20, 7)
+    win_write_u32_le(mem, 24, 1025)
+    tray_write_ptr(mem, 32, icon)
+    t = tip
+    if len(t) > 127:
+        t = t[0:127]
+    rc = tray_wsprintf_s(mem + 40, "%s", t)
+    if rc < 0:
+        mem_free(mem)
+        return 0
+    return mem
+
+class NativeSysTray:
+    uid: "i32"
+    hwnd: "i64"
+    added: "i32"
+    def __init__(self, uid, hwnd, added):
+        self.uid = uid
+        self.hwnd = hwnd
+        self.added = added
+    def show(self, icon: "i64", tip: "str") -> "i32":
+        if tray_present() == 0:
+            return 0
+        if self.hwnd == 0:
+            return 0
+        nid = tray_build_nid(self.uid, self.hwnd, icon, tip)
+        if nid == 0:
+            return 0
+        rc = tray_notify(0, nid)
+        mem_free(nid)
+        if rc == 0:
+            return 0
+        self.added = 1
+        return 1
+    def update_tip(self, tip: "str") -> "i32":
+        if self.added == 0:
+            return 0
+        nid = tray_build_nid(self.uid, self.hwnd, 0, tip)
+        if nid == 0:
+            return 0
+        rc = tray_notify(1, nid)
+        mem_free(nid)
+        if rc == 0:
+            return 0
+        return 1
+    def remove(self) -> "i32":
+        if self.added == 0:
+            return 0
+        nid = tray_build_nid(self.uid, self.hwnd, 0, "")
+        if nid == 0:
+            return 0
+        rc = tray_notify(2, nid)
+        mem_free(nid)
+        if rc == 0:
+            return 0
+        self.added = 0
+        return 1
+
+def make_native_systray(uid: "i32", hwnd: "i64") -> "NativeSysTray":
+    return NativeSysTray(uid, hwnd, 0)
+
+def tray_default_icon() -> "i64":
+    # IDI_APPLICATION (32512) shared - khong can destroy.
+    if tray_present() == 0:
+        return 0
+    return tray_load_icon(0, 32512)
+
 # =========================================================
 # 12) NativeProgressBar
 # =========================================================
@@ -1773,7 +2257,8 @@ class NativeStatusBar:
     def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", panels: "list[str]", n: "i32") -> "i32":
         pal = os_palette_for_mode(mode)
         r = Rect2D(self.bx, self.by, self.bw, self.bh)
-        return 1
+        fill_round_rect(buf, surf, r, 0.0, os_role_color(pal, 2))
+        draw_line(buf, surf, self.bx, self.by, self.bx + self.bw, self.by, 1.0, os_separator_color(pal))
         pw = self.bw / float(self.n_panels)
         i = int(0)
         while i < n and i < self.n_panels:
@@ -1788,6 +2273,301 @@ class NativeStatusBar:
 
 def make_native_statusbar(x: "f64", y: "f64", w: "f64") -> "NativeStatusBar":
     return NativeStatusBar(x, y, w, 22.0, 1, 1)
+
+class NativeWizard:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    npages: "i32"
+    page: "i32"
+    can_finish: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, npages, page, can_finish, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.npages = npages
+        self.page = page
+        self.can_finish = can_finish
+        self.enabled = enabled
+    def next_page(self) -> "i32":
+        if self.page + 1 < self.npages:
+            self.page = self.page + 1
+        return self.page
+    def prev_page(self) -> "i32":
+        if self.page > 0:
+            self.page = self.page - 1
+        return self.page
+    def goto_page(self, i: "i32") -> "i32":
+        if i < 0:
+            i = 0
+        if i >= self.npages:
+            i = self.npages - 1
+        if self.npages <= 0:
+            return 0
+        self.page = i
+        return self.page
+    def is_first(self) -> "i32":
+        if self.page <= 0:
+            return 1
+        return 0
+    def is_last(self) -> "i32":
+        if self.npages <= 0:
+            return 0
+        if self.page >= self.npages - 1:
+            return 1
+        return 0
+    def finished(self) -> "i32":
+        if self.is_last() == 1 and self.can_finish == 1:
+            return 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", titles: "list[str]", n: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        title = "Step"
+        if self.page < len(titles):
+            if self.page >= 0:
+                title = titles[self.page]
+        draw_string(buf, surf, title, self.bx + 8.0, self.by + 8.0, 1.0, os_role_color(pal, 1))
+        info = str(self.page + 1) + "/" + str(self.npages)
+        draw_string(buf, surf, info, self.bx + self.bw - 40.0, self.by + 8.0, 1.0, os_role_color(pal, 1))
+        btn = "Next"
+        if self.is_last() == 1:
+            btn = "Finish"
+        draw_string(buf, surf, "Back", self.bx + 8.0, self.by + self.bh - 18.0, 1.0, os_role_color(pal, 1))
+        draw_string(buf, surf, btn, self.bx + self.bw - 48.0, self.by + self.bh - 18.0, 1.0, os_role_color(pal, 1))
+        return 1
+
+def make_native_wizard(x: "f64", y: "f64", w: "f64", h: "f64", npages: "i32") -> "NativeWizard":
+    return NativeWizard(x, y, w, h, npages, 0, 0, 1)
+
+class NativeFontPicker:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    selected: "i32"
+    size: "i32"
+    bold: "i32"
+    italic: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, selected, size, bold, italic, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.selected = selected
+        self.size = size
+        self.bold = bold
+        self.italic = italic
+        self.enabled = enabled
+    def select(self, i: "i32", n: "i32") -> "i32":
+        if i < 0:
+            i = 0
+        if n > 0 and i >= n:
+            i = n - 1
+        self.selected = i
+        return self.selected
+    def set_size(self, px: "i32") -> "i32":
+        if px < 6:
+            px = 6
+        if px > 72:
+            px = 72
+        self.size = px
+        return self.size
+    def toggle_bold(self) -> "i32":
+        if self.bold == 1:
+            self.bold = 0
+        else:
+            self.bold = 1
+        return self.bold
+    def toggle_italic(self) -> "i32":
+        if self.italic == 1:
+            self.italic = 0
+        else:
+            self.italic = 1
+        return self.italic
+    def family(self, families: "list[str]") -> "str":
+        if self.selected < 0 or self.selected >= len(families):
+            return ""
+        return families[self.selected]
+    def spec(self, families: "list[str]") -> "str":
+        s = self.family(families) + "-" + str(self.size)
+        if self.bold == 1:
+            s = s + "-B"
+        if self.italic == 1:
+            s = s + "-I"
+        return s
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", families: "list[str]", nf: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        y = self.by + 6.0
+        i = int(0)
+        while i < nf and i < len(families):
+            if y + 10.0 > self.by + self.bh - 30.0:
+                break
+            fg = os_role_color(pal, 1)
+            if i == self.selected:
+                fill_round_rect(buf, surf, Rect2D(self.bx + 4.0, y - 1.0, self.bw - 8.0, 10.0), 0.0, os_role_color(pal, 11))
+            draw_string(buf, surf, families[i], self.bx + 8.0, y, 1.0, fg)
+            y = y + 11.0
+            i = i + 1
+        prev = "Ag " + self.spec(families)
+        draw_string(buf, surf, prev, self.bx + 8.0, self.by + self.bh - 16.0, 1.0, os_role_color(pal, 1))
+        return 1
+
+def make_native_fontpicker(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeFontPicker":
+    return NativeFontPicker(x, y, w, h, 0, 12, 0, 0, 1)
+
+class NativeRichEdit:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    cx: "i32"
+    cy: "i32"
+    top: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, cx, cy, top, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.cx = cx
+        self.cy = cy
+        self.top = top
+        self.enabled = enabled
+    def line_count(self, lines: "list[str]") -> "i32":
+        return len(lines)
+    def clamp_caret(self, lines: "list[str]") -> "i32":
+        n = len(lines)
+        if n <= 0:
+            self.cy = 0
+            self.cx = 0
+            self.top = 0
+            return 0
+        if self.cy < 0:
+            self.cy = 0
+        if self.cy >= n:
+            self.cy = n - 1
+        ln = lines[self.cy]
+        if self.cx < 0:
+            self.cx = 0
+        if self.cx > len(ln):
+            self.cx = len(ln)
+        if self.top < 0:
+            self.top = 0
+        if self.top >= n:
+            self.top = n - 1
+        return 1
+    def move_left(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cx > 0:
+            self.cx = self.cx - 1
+            return 1
+        if self.cy > 0:
+            self.cy = self.cy - 1
+            self.clamp_caret(lines)
+            self.cx = len(lines[self.cy])
+            return 1
+        return 0
+    def move_right(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy < 0 or self.cy >= len(lines):
+            return 0
+        if self.cx < len(lines[self.cy]):
+            self.cx = self.cx + 1
+            return 1
+        if self.cy + 1 < len(lines):
+            self.cy = self.cy + 1
+            self.cx = 0
+            return 1
+        return 0
+    def move_up(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy > 0:
+            self.cy = self.cy - 1
+            self.clamp_caret(lines)
+            return 1
+        return 0
+    def move_down(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy + 1 < len(lines):
+            self.cy = self.cy + 1
+            self.clamp_caret(lines)
+            return 1
+        return 0
+    def insert(self, lines: "list[str]", ch: "str") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy < 0 or self.cy >= len(lines):
+            return 0
+        ln = lines[self.cy]
+        lines[self.cy] = ln[0:self.cx] + ch + ln[self.cx:len(ln)]
+        self.cx = self.cx + len(ch)
+        return 1
+    def backspace(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy < 0 or self.cy >= len(lines):
+            return 0
+        if self.cx > 0:
+            ln = lines[self.cy]
+            lines[self.cy] = ln[0:self.cx - 1] + ln[self.cx:len(ln)]
+            self.cx = self.cx - 1
+            return 1
+        if self.cy > 0:
+            prev = lines[self.cy - 1]
+            cur = lines[self.cy]
+            self.cx = len(prev)
+            lines[self.cy - 1] = prev + cur
+            j = self.cy
+            while j + 1 < len(lines):
+                lines[j] = lines[j + 1]
+                j = j + 1
+            lines.pop()
+            self.cy = self.cy - 1
+            return 1
+        return 0
+    def newline(self, lines: "list[str]") -> "i32":
+        self.clamp_caret(lines)
+        if self.cy < 0 or self.cy >= len(lines):
+            return 0
+        ln = lines[self.cy]
+        lines[self.cy] = ln[0:self.cx]
+        rest = ln[self.cx:len(ln)]
+        j = len(lines)
+        lines.append("")
+        while j > self.cy + 1:
+            lines[j] = lines[j - 1]
+            j = j - 1
+        lines[self.cy + 1] = rest
+        self.cy = self.cy + 1
+        self.cx = 0
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", lines: "list[str]") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 0))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        y = self.by + 4.0
+        li = self.top
+        while li < len(lines):
+            if y + 10.0 > self.by + self.bh:
+                break
+            draw_string(buf, surf, lines[li], self.bx + 4.0, y, 1.0, os_role_color(pal, 1))
+            if li == self.cy:
+                fill_round_rect(buf, surf, Rect2D(self.bx + 4.0 + float(self.cx) * 6.0, y, 1.0, 8.0), 0.0, os_role_color(pal, 1))
+            y = y + 10.0
+            li = li + 1
+        return 1
+
+def make_native_richedit(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeRichEdit":
+    return NativeRichEdit(x, y, w, h, 0, 0, 0, 1)
 
 # =========================================================
 # SELFTEST
@@ -1836,6 +2616,9 @@ def nv_alloc_buf(n: "i32") -> "list[i64]":
         buf.append(0)
         i = i + 1
     return buf
+
+def nv_probe2() -> "str":
+    return "UNUSED"
 
 def nv_render_probe() -> "str":
     # Repro: EXACT selftest setup for tab.render.
@@ -2025,13 +2808,200 @@ def native_selftest() -> "str":
     tlabels.append("Bx")
     tabx = make_native_tabs(0.0, 0.0, 200.0, 2)
     nvcheck_i(acc, "tab.render", tabx.render(rbuf, rsurf, 0, tlabels, 2), 1)
-    nvcheck_i(acc, "cal.render", 1, 1)
-    nvcheck_i(acc, "cpk.render", 1, 1)
+    nvcheck_i(acc, "cal.render", cal.render(rbuf, rsurf, 0), 1)
+    nvcheck_i(acc, "cpk.render", cpk.render(rbuf, rsurf, 0), 1)
     sbpan = []
     sbpan.append("Ready")
     sbpan.append("Ln 1")
     sbpan.append("UTF-8")
-    nvcheck_i(acc, "sb.render", sbr.render(rbuf, rsurf, 0, sbpan, 0), 1)
+    nvcheck_i(acc, "sb.render", sbr.render(rbuf, rsurf, 0, sbpan, 3), 1)
+    # Wizard: multi-step flow
+    wz = make_native_wizard(0.0, 0.0, 300.0, 200.0, 3)
+    nvcheck_i(acc, "wiz.page", wz.page, 0)
+    nvcheck_i(acc, "wiz.first", wz.is_first(), 1)
+    nvcheck_i(acc, "wiz.next", wz.next_page(), 1)
+    nvcheck_i(acc, "wiz.next2", wz.next_page(), 2)
+    nvcheck_i(acc, "wiz.clamp", wz.next_page(), 2)
+    nvcheck_i(acc, "wiz.last", wz.is_last(), 1)
+    nvcheck_i(acc, "wiz.nofinish", wz.finished(), 0)
+    wz.can_finish = 1
+    nvcheck_i(acc, "wiz.finish", wz.finished(), 1)
+    nvcheck_i(acc, "wiz.prev", wz.prev_page(), 1)
+    nvcheck_i(acc, "wiz.goto", wz.goto_page(0), 0)
+    nvcheck_i(acc, "wiz.goto.neg", wz.goto_page(-5), 0)
+    wtitles = []
+    wtitles.append("Welcome")
+    wtitles.append("Options")
+    wtitles.append("Done")
+    nvcheck_i(acc, "wiz.render", wz.render(rbuf, rsurf, 0, wtitles, 3), 1)
+    # FontPicker (M2.4 link): family/size/style + preview
+    fp = make_native_fontpicker(0.0, 0.0, 200.0, 150.0)
+    fams = []
+    fams.append("Arial")
+    fams.append("Consolas")
+    fams.append("Segoe UI")
+    nvcheck_i(acc, "fp.sel", fp.select(2, 3), 2)
+    nvcheck_i(acc, "fp.sel.clamp", fp.select(9, 3), 2)
+    nvcheck_i(acc, "fp.size", fp.set_size(16), 16)
+    nvcheck_i(acc, "fp.size.min", fp.set_size(2), 6)
+    fp.set_size(16)
+    nvcheck_i(acc, "fp.bold", fp.toggle_bold(), 1)
+    nvcheck_i(acc, "fp.italic", fp.toggle_italic(), 1)
+    ok_fam = 0
+    if fp.family(fams) == "Segoe UI":
+        ok_fam = 1
+    nvcheck_i(acc, "fp.family", ok_fam, 1)
+    ok_spec = 0
+    if fp.spec(fams) == "Segoe UI-16-B-I":
+        ok_spec = 1
+    nvcheck_i(acc, "fp.spec", ok_spec, 1)
+    fp.toggle_bold()
+    ok_spec2 = 0
+    if fp.spec(fams) == "Segoe UI-16-I":
+        ok_spec2 = 1
+    nvcheck_i(acc, "fp.spec2", ok_spec2, 1)
+    nvcheck_i(acc, "fp.render", fp.render(rbuf, rsurf, 0, fams, 3), 1)
+    # RichEdit lite: multiline caret/edit/render
+    re_ = make_native_richedit(0.0, 0.0, 200.0, 100.0)
+    rlines = []
+    rlines.append("Hello")
+    rlines.append("World")
+    nvcheck_i(acc, "re.lines", re_.line_count(rlines), 2)
+    nvcheck_i(acc, "re.right", re_.move_right(rlines), 1)
+    nvcheck_i(acc, "re.cx", re_.cx, 1)
+    nvcheck_i(acc, "re.insert", re_.insert(rlines, "i"), 1)
+    ok_ins = 0
+    if rlines[0] == "Hiello":
+        ok_ins = 1
+    nvcheck_i(acc, "re.ins.val", ok_ins, 1)
+    nvcheck_i(acc, "re.bs", re_.backspace(rlines), 1)
+    ok_bs = 0
+    if rlines[0] == "Hello":
+        ok_bs = 1
+    nvcheck_i(acc, "re.bs.val", ok_bs, 1)
+    nvcheck_i(acc, "re.down", re_.move_down(rlines), 1)
+    nvcheck_i(acc, "re.cy", re_.cy, 1)
+    nvcheck_i(acc, "re.up", re_.move_up(rlines), 1)
+    nvcheck_i(acc, "re.nl", re_.newline(rlines), 1)
+    nvcheck_i(acc, "re.nl.count", re_.line_count(rlines), 3)
+    nvcheck_i(acc, "re.render", re_.render(rbuf, rsurf, 0, rlines), 1)
+    # TreeCombo: combo field + tree popup + path
+    tc = make_native_treecombo(0.0, 0.0, 200.0)
+    tcl = []
+    tcl.append("root")
+    tcl.append("child")
+    tcl.append("leaf")
+    tcd = [int(0), int(1), int(2)]
+    tck = [int(1), int(1), int(0)]
+    tcf = [int(1), int(0), int(0)]
+    nvcheck_i(acc, "tc.open", tc.toggle_open(), 1)
+    nvcheck_i(acc, "tc.choose", tc.choose(2, 3), 2)
+    nvcheck_i(acc, "tc.closed", tc.open, 0)
+    nvcheck_i(acc, "tc.choose.bad", tc.choose(9, 3), 2)
+    nvcheck_i(acc, "tc.hit", tc.hit_item(42.0, 3), 1)
+    nvcheck_i(acc, "tc.hit.out", tc.hit_item(500.0, 3), -1)
+    nvcheck_i(acc, "tc.toggle", tc.toggle_node(tcf, 0), 0)
+    ok_path = 0
+    if treecombo_path(tcl, tcd, 2) == "root/child/leaf":
+        ok_path = 1
+    nvcheck_i(acc, "tc.path", ok_path, 1)
+    ok_path0 = 0
+    if treecombo_path(tcl, tcd, 0) == "root":
+        ok_path0 = 1
+    nvcheck_i(acc, "tc.path.root", ok_path0, 1)
+    ok_pathbad = 0
+    if treecombo_path(tcl, tcd, 9) == "":
+        ok_pathbad = 1
+    nvcheck_i(acc, "tc.path.bad", ok_pathbad, 1)
+    tc.toggle_open()
+    nvcheck_i(acc, "tc.render", tc.render(rbuf, rsurf, 0, tcl, tcd, tck, tcf, 3), 1)
+    # DockPanel: 4-side layout + gutters
+    dk = make_native_dock(0.0, 0.0, 400.0, 300.0)
+    dkl = dk.left_rect()
+    nvcheck_f(acc, "dock.left", dkl.x, 0.0, 0.001)
+    dkc = dk.central_rect()
+    nvcheck_f(acc, "dock.central.x", dkc.x, 120.0, 0.001)
+    nvcheck_f(acc, "dock.central.w", dkc.w, 160.0, 0.001)
+    nvcheck_f(acc, "dock.set", dk.set_left(200.0), 200.0, 0.001)
+    nvcheck_f(acc, "dock.set.neg", dk.set_top(-5.0), 0.0, 0.001)
+    nvcheck_i(acc, "dock.gutterL", dk.hit_gutter(203.0, 150.0), 1)
+    nvcheck_i(acc, "dock.gutter.none", dk.hit_gutter(300.0, 150.0), 0)
+    nvcheck_i(acc, "dock.gutter.out", dk.hit_gutter(500.0, 500.0), 0)
+    dlabs = []
+    dlabs.append("L")
+    dlabs.append("R")
+    dlabs.append("T")
+    dlabs.append("B")
+    nvcheck_i(acc, "dock.render", dk.render(rbuf, rsurf, 0, dlabs), 1)
+    # MdiArea: child windows + cascade/tile/hit
+    mdi = make_native_mdi(0.0, 0.0, 400.0, 300.0)
+    mt = []
+    mx = []
+    my = []
+    mw = []
+    mh = []
+    mm = []
+    nvcheck_i(acc, "mdi.add0", mdi.add_child(mt, mx, my, mw, mh, mm, "Doc1", 200.0, 150.0), 0)
+    nvcheck_i(acc, "mdi.add1", mdi.add_child(mt, mx, my, mw, mh, mm, "Doc2", 200.0, 150.0), 1)
+    nvcheck_i(acc, "mdi.active", mdi.active, 1)
+    nvcheck_i(acc, "mdi.activate", mdi.activate(0, 2), 0)
+    nvcheck_i(acc, "mdi.activate.bad", mdi.activate(9, 2), 0)
+    nvcheck_i(acc, "mdi.min", mdi.minimize(mm, 1), 1)
+    nvcheck_i(acc, "mdi.min.off", mdi.minimize(mm, 1), 0)
+    mdi.cascade(mx, my, 2)
+    nvcheck_f(acc, "mdi.cascade.x", mx[1], 44.0, 0.001)
+    mdi.tile_vertical(mx, mw, 2)
+    nvcheck_f(acc, "mdi.tile.x", mx[1], 200.0, 0.001)
+    nvcheck_f(acc, "mdi.tile.w", mw[0], 200.0, 0.001)
+    nvcheck_i(acc, "mdi.hit", mdi.hit_child(mt, mx, my, mw, mh, mm, 50.0, 60.0), 0)
+    nvcheck_i(acc, "mdi.hit.out", mdi.hit_child(mt, mx, my, mw, mh, mm, 390.0, 290.0), -1)
+    nvcheck_i(acc, "mdi.render", mdi.render(rbuf, rsurf, 0, mt, mx, my, mw, mh, mm), 1)
+    nvcheck_i(acc, "mdi.close", mdi.close_child(mt, mx, my, mw, mh, mm, 0), 1)
+    nvcheck_i(acc, "mdi.count", mdi.count(mt), 1)
+    nvcheck_i(acc, "mdi.close.bad", mdi.close_child(mt, mx, my, mw, mh, mm, 9), 0)
+    # SysTray: validation + struct (live add/delete chi khi TKVUI_LIVE_TRAY=1)
+    sy = make_native_systray(7, 0)
+    nvcheck_i(acc, "tray.nohwnd", sy.show(0, "hi"), 0)
+    nvcheck_i(acc, "tray.noadd.upd", sy.update_tip("hi"), 0)
+    nvcheck_i(acc, "tray.noadd.del", sy.remove(), 0)
+    nidm = tray_build_nid(7, 0, 0, "Tip")
+    ok_nid = 0
+    if nidm != 0:
+        ok_nid = 1
+    nvcheck(acc, "tray.nid", ok_nid)
+    if nidm != 0:
+        nvcheck_i(acc, "tray.nid.size", mem_read_u32(nidm), 168)
+        mem_free(nidm)
+    sp2 = tray_present()
+    ok_sp2 = 0
+    if sp2 == 0 or sp2 == 1:
+        ok_sp2 = 1
+    nvcheck(acc, "tray.present", ok_sp2)
+    live = tkv_getenv("TKVUI_LIVE_TRAY") + ""
+    if live == "1":
+        if detect_platform() == 1:
+            wh = win_create_window_ex(524416, "STATIC", "tkvui_tray", 0 - 1879048192, 0, 0, 8, 8, 0, 0, 0, 0)
+            ok_wh = 0
+            if wh != 0:
+                ok_wh = 1
+            nvcheck(acc, "tray.live.win", ok_wh)
+            if wh != 0:
+                ic = tray_default_icon()
+                ok_ic = 0
+                if ic != 0:
+                    ok_ic = 1
+                nvcheck(acc, "tray.live.icon", ok_ic)
+                sy2 = make_native_systray(77, wh)
+                nvcheck_i(acc, "tray.live.add", sy2.show(ic, "tkvui"), 1)
+                nvcheck_i(acc, "tray.live.upd", sy2.update_tip("tkvui2"), 1)
+                nvcheck_i(acc, "tray.live.del", sy2.remove(), 1)
+                drc = win_destroy_window(wh)
+                ok_dw = 0
+                if drc == 0 or drc == 1:
+                    ok_dw = 1
+                nvcheck(acc, "tray.live.destroy", ok_dw)
+    else:
+        nvcheck(acc, "tray.live.skip", 1)
     print("native: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "NATIVE_OK"

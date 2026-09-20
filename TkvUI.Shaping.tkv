@@ -1,0 +1,1297 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Shaping - Complex script shaping engine, pure TokenVector (M2.2a).
+
+Kien truc (theo docs/PHASE11_2_COMPLEX_SCRIPT.md):
+- Khong phu thuoc HarfBuzz DLL (FFI multi-char blocked - gap compiler A2).
+- Output dang parallel lists (starts/lens/forms) nhu fb_resolve, khong
+  doi hoi literal presentation-form trong source.
+- Render integration (pixel) can font co glyph + HarfBuzz unblock (sau).
+
+Phu thuoc: Core, Text (char_code), Viet (utf8_seq_len, vi_bits),
+I18nData (i18n_codepoint). Khong vong import.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData"]
+
+# Scripts
+SH_LATIN = 0
+SH_VIET = 1
+SH_ARABIC = 2
+SH_HEBREW = 3
+SH_CJK = 4
+SH_THAI = 5
+SH_DEVANAGARI = 6
+SH_UNKNOWN = 7
+SH_BENGALI = 8
+SH_TAMIL = 9
+
+# Arabic joining types
+AR_JOIN_NONE = 0
+AR_JOIN_RIGHT = 1
+AR_JOIN_DUAL = 2
+AR_JOIN_TRANSPARENT = 3
+
+# Arabic form selectors
+AR_FORM_ISOLATED = 0
+AR_FORM_INITIAL = 1
+AR_FORM_MEDIAL = 2
+AR_FORM_FINAL = 3
+
+# Thai mark classes
+TH_MARK_NONE = 0
+TH_MARK_PREBASE = 1
+TH_MARK_ABOVE = 2
+TH_MARK_BELOW = 3
+
+# Indic cluster flags
+IN_CLUSTER_BASE = 0
+IN_CLUSTER_REPH = 1
+IN_CLUSTER_PREBASE_MATRA = 2
+
+def ar_is_transparent(seq: "str") -> "i32":
+    # Tatweel + harakat (khong cat joining).
+    if seq == "ـ":
+        return 1
+    if seq == "ً":
+        return 1
+    if seq == "ٌ":
+        return 1
+    if seq == "ٍ":
+        return 1
+    if seq == "َ":
+        return 1
+    if seq == "ُ":
+        return 1
+    if seq == "ِ":
+        return 1
+    if seq == "ّ":
+        return 1
+    if seq == "ْ":
+        return 1
+    return 0
+
+def ar_is_right_joining(seq: "str") -> "i32":
+    # Chi noi ve phai (logical previous), khong noi ve trai (next).
+    if seq == "ا":
+        return 1
+    if seq == "أ":
+        return 1
+    if seq == "إ":
+        return 1
+    if seq == "آ":
+        return 1
+    if seq == "ؤ":
+        return 1
+    if seq == "ة":
+        return 1
+    if seq == "د":
+        return 1
+    if seq == "ذ":
+        return 1
+    if seq == "ر":
+        return 1
+    if seq == "ز":
+        return 1
+    if seq == "و":
+        return 1
+    return 0
+
+def ar_is_dual_joining(seq: "str") -> "i32":
+    # Noi ca 2 phia.
+    if seq == "ب":
+        return 1
+    if seq == "ت":
+        return 1
+    if seq == "ث":
+        return 1
+    if seq == "ج":
+        return 1
+    if seq == "ح":
+        return 1
+    if seq == "خ":
+        return 1
+    if seq == "س":
+        return 1
+    if seq == "ش":
+        return 1
+    if seq == "ص":
+        return 1
+    if seq == "ض":
+        return 1
+    if seq == "ط":
+        return 1
+    if seq == "ظ":
+        return 1
+    if seq == "ع":
+        return 1
+    if seq == "غ":
+        return 1
+    if seq == "ف":
+        return 1
+    if seq == "ق":
+        return 1
+    if seq == "ك":
+        return 1
+    if seq == "ل":
+        return 1
+    if seq == "م":
+        return 1
+    if seq == "ن":
+        return 1
+    if seq == "ه":
+        return 1
+    if seq == "ي":
+        return 1
+    if seq == "ئ":
+        return 1
+    if seq == "ى":
+        return 1
+    return 0
+
+def ar_join_type(seq: "str") -> "i32":
+    # 0=none, 1=right, 2=dual, 3=transparent, -1=not Arabic.
+    if ar_is_transparent(seq) == 1:
+        return 3
+    if ar_is_right_joining(seq) == 1:
+        return 1
+    if ar_is_dual_joining(seq) == 1:
+        return 2
+    if seq == "ء":
+        return 0
+    return -1
+
+def ar_shape_word(text: "str", starts: "list[i32]", lens: "list[i32]", forms: "list[i32]") -> "i32":
+    # Phan tich joining cho 1 tu Arabic (logical order). Output per-LETTER:
+    # starts/lens = byte offsets (gom ca marks dinh kem), forms =
+    # 0 iso / 1 initial / 2 medial / 3 final.
+    # Transparent marks dau tu gan vao letter ke tiep; cuoi tu gan vao
+    # letter truoc; tu chi co marks -> tra 0. Text co ky tu la -> tra 0.
+    # Tra so letter.
+    n = len(text)
+    lstarts = []
+    llens = []
+    ltypes = []
+    idx = int(0)
+    pend_start = int(-1)
+    pend_len = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        t = ar_join_type(seg)
+        if t < 0:
+            return 0
+        if t == 3:
+            if pend_start < 0:
+                pend_start = idx
+                pend_len = 0
+            pend_len = pend_len + adv
+        else:
+            if pend_start < 0:
+                lstarts.append(idx)
+                llens.append(adv)
+            else:
+                lstarts.append(pend_start)
+                llens.append(pend_len + adv)
+                pend_start = -1
+                pend_len = 0
+            ltypes.append(t)
+        idx = idx + adv
+    # Trailing marks: gan vao letter cuoi
+    if pend_start >= 0:
+        if len(ltypes) == 0:
+            return 0
+        li = len(llens) - 1
+        llens[li] = llens[li] + pend_len
+    m = len(lstarts)
+    i = int(0)
+    while i < m:
+        t = ltypes[i]
+        r = int(0)
+        if t == 1 or t == 2:
+            if i > 0:
+                if ltypes[i - 1] == 2:
+                    r = 1
+        l = int(0)
+        if t == 2:
+            if i + 1 < m:
+                nt = ltypes[i + 1]
+                if nt == 1 or nt == 2:
+                    l = 1
+        f = int(0)
+        if r == 1 and l == 1:
+            f = 2
+        else:
+            if l == 1:
+                f = 1
+            else:
+                if r == 1:
+                    f = 3
+        starts.append(lstarts[i])
+        lens.append(llens[i])
+        forms.append(f)
+        i = i + 1
+    return m
+
+# =========================================================
+# THAI - mark classes + grapheme clusters
+# Logical == visual cho renderer bitmap (prebase vowels dung truoc
+# san); gia tri chinh: cluster boundaries cho cursor/selection +
+# phan lop marks (stacking sau nay).
+# =========================================================
+def th_mark_class(seq: "str") -> "i32":
+    # 0=not mark, 1=prebase vowel, 2=above, 3=below.
+    if seq == "เ":
+        return 1
+    if seq == "แ":
+        return 1
+    if seq == "โ":
+        return 1
+    if seq == "ใ":
+        return 1
+    if seq == "ไ":
+        return 1
+    if seq == "ั":
+        return 2
+    if seq == "็":
+        return 2
+    if seq == "ิ":
+        return 2
+    if seq == "ี":
+        return 2
+    if seq == "ึ":
+        return 2
+    if seq == "ื":
+        return 2
+    if seq == "่":
+        return 2
+    if seq == "้":
+        return 2
+    if seq == "๊":
+        return 2
+    if seq == "๋":
+        return 2
+    if seq == "์":
+        return 2
+    if seq == "ํ":
+        return 2
+    if seq == "ุ":
+        return 3
+    if seq == "ู":
+        return 3
+    if seq == "ฺ":
+        return 3
+    return 0
+
+def th_is_consonant(seq: "str") -> "i32":
+    # Phu am Thai U+0E01-U+0E2E (v1: verify qua selftest count + spot).
+    if seq == "ก":
+        return 1
+    if seq == "ข":
+        return 1
+    if seq == "ฃ":
+        return 1
+    if seq == "ค":
+        return 1
+    if seq == "ฅ":
+        return 1
+    if seq == "ฆ":
+        return 1
+    if seq == "ง":
+        return 1
+    if seq == "จ":
+        return 1
+    if seq == "ฉ":
+        return 1
+    if seq == "ช":
+        return 1
+    if seq == "ซ":
+        return 1
+    if seq == "ฌ":
+        return 1
+    if seq == "ญ":
+        return 1
+    if seq == "ฎ":
+        return 1
+    if seq == "ฏ":
+        return 1
+    if seq == "ฐ":
+        return 1
+    if seq == "ฑ":
+        return 1
+    if seq == "ฒ":
+        return 1
+    if seq == "ณ":
+        return 1
+    if seq == "ด":
+        return 1
+    if seq == "ต":
+        return 1
+    if seq == "ถ":
+        return 1
+    if seq == "ท":
+        return 1
+    if seq == "ธ":
+        return 1
+    if seq == "น":
+        return 1
+    if seq == "บ":
+        return 1
+    if seq == "ป":
+        return 1
+    if seq == "ผ":
+        return 1
+    if seq == "ฝ":
+        return 1
+    if seq == "พ":
+        return 1
+    if seq == "ฟ":
+        return 1
+    if seq == "ภ":
+        return 1
+    if seq == "ม":
+        return 1
+    if seq == "ย":
+        return 1
+    if seq == "ร":
+        return 1
+    if seq == "ล":
+        return 1
+    if seq == "ว":
+        return 1
+    if seq == "ศ":
+        return 1
+    if seq == "ษ":
+        return 1
+    if seq == "ส":
+        return 1
+    if seq == "ห":
+        return 1
+    if seq == "ฬ":
+        return 1
+    if seq == "อ":
+        return 1
+    if seq == "ฮ":
+        return 1
+    return 0
+
+def th_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
+    # Cum grapheme Thai: prebase vowel gop FORWARD voi phu am sau;
+    # marks gan vao cluster hien tai. Vi du [โต] la 1 cluster.
+    n = len(text)
+    idx = int(0)
+    cur_start = int(-1)
+    cur_len = int(0)
+    pre_open = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        mc = th_mark_class(seg)
+        if mc == 1:
+            if cur_start >= 0:
+                if pre_open == 0:
+                    starts.append(cur_start)
+                    lens.append(cur_len)
+                    count = count + 1
+            cur_start = idx
+            cur_len = adv
+            pre_open = 1
+        else:
+            if mc == 0:
+                if th_is_consonant(seg) == 0:
+                    return 0
+                if cur_start >= 0:
+                    if pre_open == 0:
+                        starts.append(cur_start)
+                        lens.append(cur_len)
+                        count = count + 1
+                else:
+                    cur_start = idx
+                    cur_len = 0
+                if pre_open == 0:
+                    cur_start = idx
+                    cur_len = adv
+                else:
+                    cur_len = cur_len + adv
+                    pre_open = 0
+            else:
+                if cur_start < 0:
+                    cur_start = idx
+                    cur_len = adv
+                else:
+                    cur_len = cur_len + adv
+        idx = idx + adv
+    if cur_start >= 0:
+        starts.append(cur_start)
+        lens.append(cur_len)
+        count = count + 1
+    return count
+
+# =========================================================
+# DEVANAGARI - cluster segmentation + reph/matra flags
+# Cluster: consonant (virama consonant)* matra* (anusvara|visarga)?
+# Reph: cluster mo dau bang ra+virama. Matra ि: visual pre-base.
+# =========================================================
+def in_is_virama(seq: "str") -> "i32":
+    if seq == "्":
+        return 1
+    return 0
+
+def in_is_nukta(seq: "str") -> "i32":
+    if seq == "़":
+        return 1
+    return 0
+
+def in_is_anusvara(seq: "str") -> "i32":
+    if seq == "ं":
+        return 1
+    if seq == "ः":
+        return 1
+    return 0
+
+def in_is_matra(seq: "str") -> "i32":
+    if seq == "ा":
+        return 1
+    if seq == "ि":
+        return 1
+    if seq == "ी":
+        return 1
+    if seq == "ु":
+        return 1
+    if seq == "ू":
+        return 1
+    if seq == "े":
+        return 1
+    if seq == "ै":
+        return 1
+    if seq == "ो":
+        return 1
+    if seq == "ौ":
+        return 1
+    return 0
+
+def in_is_prebase_matra(seq: "str") -> "i32":
+    if seq == "ि":
+        return 1
+    return 0
+
+def in_is_consonant(seq: "str") -> "i32":
+    if seq == "क":
+        return 1
+    if seq == "ख":
+        return 1
+    if seq == "ग":
+        return 1
+    if seq == "घ":
+        return 1
+    if seq == "ङ":
+        return 1
+    if seq == "च":
+        return 1
+    if seq == "छ":
+        return 1
+    if seq == "ज":
+        return 1
+    if seq == "झ":
+        return 1
+    if seq == "ञ":
+        return 1
+    if seq == "ट":
+        return 1
+    if seq == "ठ":
+        return 1
+    if seq == "ड":
+        return 1
+    if seq == "ढ":
+        return 1
+    if seq == "ण":
+        return 1
+    if seq == "त":
+        return 1
+    if seq == "थ":
+        return 1
+    if seq == "द":
+        return 1
+    if seq == "ध":
+        return 1
+    if seq == "न":
+        return 1
+    if seq == "प":
+        return 1
+    if seq == "फ":
+        return 1
+    if seq == "ब":
+        return 1
+    if seq == "भ":
+        return 1
+    if seq == "म":
+        return 1
+    if seq == "य":
+        return 1
+    if seq == "र":
+        return 1
+    if seq == "ल":
+        return 1
+    if seq == "व":
+        return 1
+    if seq == "श":
+        return 1
+    if seq == "ष":
+        return 1
+    if seq == "स":
+        return 1
+    if seq == "ह":
+        return 1
+    return 0
+
+def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "list[i32]") -> "i32":
+    # Cum Devanagari + flags (0 base / 1 reph / 2 prebase-matra).
+    n = len(text)
+    idx = int(0)
+    cur_start = int(-1)
+    cur_len = int(0)
+    cur_flag = int(0)
+    expect_cons = int(0)
+    maybe_reph = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        if in_is_consonant(seg) == 1:
+            if cur_start >= 0:
+                if expect_cons == 1:
+                    cur_len = cur_len + adv
+                    expect_cons = 0
+                    maybe_reph = 0
+                else:
+                    starts.append(cur_start)
+                    lens.append(cur_len)
+                    flags.append(cur_flag)
+                    count = count + 1
+                    cur_start = idx
+                    cur_len = adv
+                    cur_flag = 0
+                    maybe_reph = 0
+            else:
+                cur_start = idx
+                cur_len = adv
+                cur_flag = 0
+                maybe_reph = 0
+            # Reph candidate: cluster mo dau bang ra, confirm khi virama sau
+            if seg == "र":
+                maybe_reph = 1
+        else:
+            if in_is_virama(seg) == 1:
+                if cur_start < 0:
+                    return 0
+                cur_len = cur_len + adv
+                expect_cons = 1
+                if maybe_reph == 1:
+                    cur_flag = 1
+                    maybe_reph = 0
+            else:
+                if in_is_matra(seg) == 1:
+                    if cur_start < 0:
+                        return 0
+                    cur_len = cur_len + adv
+                    if in_is_prebase_matra(seg) == 1:
+                        if cur_flag == 0:
+                            cur_flag = 2
+                    expect_cons = 0
+                else:
+                    if in_is_anusvara(seg) == 1 or in_is_nukta(seg) == 1:
+                        if cur_start < 0:
+                            return 0
+                        cur_len = cur_len + adv
+                        expect_cons = 0
+                    else:
+                        return 0
+        idx = idx + adv
+    if cur_start >= 0:
+        starts.append(cur_start)
+        lens.append(cur_len)
+        flags.append(cur_flag)
+        count = count + 1
+    return count
+
+# =========================================================
+# SCRIPT DETECTION + GENERIC CLUSTER API (cursor/selection)
+# Thu tu: ASCII -> Viet -> Arabic -> Thai -> Devanagari -> baked i18n.
+# =========================================================
+def shape_script_of(seq: "str") -> "i32":
+    if len(seq) == 1:
+        if char_code(seq) >= 0:
+            return 0
+        return 7
+    if vi_bits(seq) >= 0:
+        return 1
+    if ar_join_type(seq) >= 0:
+        return 2
+    if th_mark_class(seq) > 0 or th_is_consonant(seq) == 1:
+        return 5
+    if in_is_consonant(seq) == 1 or in_is_matra(seq) == 1 or in_is_virama(seq) == 1 or in_is_anusvara(seq) == 1:
+        return 6
+    if bn_is_consonant(seq) == 1 or bn_is_matra(seq) == 1 or bn_is_virama(seq) == 1 or bn_is_anusvara(seq) == 1:
+        return 8
+    if ta_is_consonant(seq) == 1 or ta_is_matra(seq) == 1 or ta_is_virama(seq) == 1:
+        return 9
+    cp = i18n_codepoint(seq)
+    if cp >= 0:
+        if i18n_slot_for(cp) < 8:
+            return 3
+        return 4
+    return 7
+
+def shape_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
+    # Cum grapheme script-aware cho cursor/selection.
+    # Arabic: joining runs; Thai/Indic: cum chuyen biet; con lai: per-sequence.
+    n = len(text)
+    if n == 0:
+        return 0
+    # Xac dinh script cua sequence dau
+    adv0 = utf8_seq_len(text, 0)
+    if adv0 > n:
+        adv0 = n
+    s0 = shape_script_of(text[0:adv0])
+    if s0 == 2:
+        return ar_cluster_runs(text, starts, lens)
+    if s0 == 5:
+        return th_clusters(text, starts, lens)
+    if s0 == 6:
+        flags = []
+        return in_clusters(text, starts, lens, flags)
+    if s0 == 8:
+        flags = []
+        return bn_clusters(text, starts, lens, flags)
+    if s0 == 9:
+        flags = []
+        return ta_clusters(text, starts, lens, flags)
+    # Mac dinh: moi sequence 1 cluster
+    idx = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        starts.append(idx)
+        lens.append(adv)
+        count = count + 1
+        idx = idx + adv
+    return count
+
+def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
+    # Cum Arabic: cat khi het joining (prev dual VA cur joins-right thi gop).
+    # Vi du "مرحبا" -> [مر][حبا]. Marks dinh kem (truoc/sau) vao cluster.
+    # Dung cho cursor/selection.
+    n = len(text)
+    idx = int(0)
+    cur_start = int(-1)
+    cur_len = int(0)
+    prev_t = int(-1)
+    pend_start = int(-1)
+    pend_len = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        t = ar_join_type(seg)
+        if t < 0:
+            return 0
+        if t == 3:
+            if pend_start < 0:
+                pend_start = idx
+                pend_len = adv
+            else:
+                pend_len = pend_len + adv
+        else:
+            if pend_start >= 0:
+                if cur_start < 0:
+                    cur_start = pend_start
+                    cur_len = pend_len
+                else:
+                    cur_len = cur_len + pend_len
+                pend_start = -1
+                pend_len = 0
+            if cur_start < 0:
+                cur_start = idx
+                cur_len = adv
+            else:
+                if prev_t == 2 and (t == 1 or t == 2):
+                    cur_len = cur_len + adv
+                else:
+                    starts.append(cur_start)
+                    lens.append(cur_len)
+                    count = count + 1
+                    cur_start = idx
+                    cur_len = adv
+            prev_t = t
+        idx = idx + adv
+    if pend_start >= 0:
+        if cur_start < 0:
+            return 0
+        cur_len = cur_len + pend_len
+    if cur_start >= 0:
+        starts.append(cur_start)
+        lens.append(cur_len)
+        count = count + 1
+    return count
+
+# =========================================================
+# BENGALI - classification + clusters (mirror in_* pattern)
+# Matra rieng: ি prebase. Reph: র + virama.
+# =========================================================
+def bn_is_virama(seq: "str") -> "i32":
+    if seq == "্":
+        return 1
+    return 0
+
+def bn_is_anusvara(seq: "str") -> "i32":
+    if seq == "ং":
+        return 1
+    if seq == "ঃ":
+        return 1
+    return 0
+
+def bn_is_matra(seq: "str") -> "i32":
+    if seq == "া":
+        return 1
+    if seq == "ি":
+        return 1
+    if seq == "ী":
+        return 1
+    if seq == "ু":
+        return 1
+    if seq == "ূ":
+        return 1
+    if seq == "ৃ":
+        return 1
+    if seq == "ে":
+        return 1
+    if seq == "ৈ":
+        return 1
+    if seq == "ো":
+        return 1
+    if seq == "ৌ":
+        return 1
+    return 0
+
+def bn_is_prebase_matra(seq: "str") -> "i32":
+    if seq == "ি":
+        return 1
+    if seq == "ে":
+        return 1
+    if seq == "ৈ":
+        return 1
+    return 0
+
+def bn_is_consonant(seq: "str") -> "i32":
+    if seq == "ক":
+        return 1
+    if seq == "খ":
+        return 1
+    if seq == "গ":
+        return 1
+    if seq == "ঘ":
+        return 1
+    if seq == "ঙ":
+        return 1
+    if seq == "চ":
+        return 1
+    if seq == "ছ":
+        return 1
+    if seq == "জ":
+        return 1
+    if seq == "ঝ":
+        return 1
+    if seq == "ঞ":
+        return 1
+    if seq == "ট":
+        return 1
+    if seq == "ঠ":
+        return 1
+    if seq == "ড":
+        return 1
+    if seq == "ঢ":
+        return 1
+    if seq == "ণ":
+        return 1
+    if seq == "ত":
+        return 1
+    if seq == "থ":
+        return 1
+    if seq == "দ":
+        return 1
+    if seq == "ধ":
+        return 1
+    if seq == "ন":
+        return 1
+    if seq == "প":
+        return 1
+    if seq == "ফ":
+        return 1
+    if seq == "ব":
+        return 1
+    if seq == "ভ":
+        return 1
+    if seq == "ম":
+        return 1
+    if seq == "য":
+        return 1
+    if seq == "র":
+        return 1
+    if seq == "ল":
+        return 1
+    if seq == "শ":
+        return 1
+    if seq == "ষ":
+        return 1
+    if seq == "স":
+        return 1
+    if seq == "হ":
+        return 1
+    if seq == "ড়":
+        return 1
+    if seq == "ঢ়":
+        return 1
+    if seq == "য়":
+        return 1
+    return 0
+
+def bn_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "list[i32]") -> "i32":
+    n = len(text)
+    idx = int(0)
+    cur_start = int(-1)
+    cur_len = int(0)
+    cur_flag = int(0)
+    expect_cons = int(0)
+    maybe_reph = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        if bn_is_consonant(seg) == 1:
+            if cur_start >= 0:
+                if expect_cons == 1:
+                    cur_len = cur_len + adv
+                    expect_cons = 0
+                    maybe_reph = 0
+                else:
+                    starts.append(cur_start)
+                    lens.append(cur_len)
+                    flags.append(cur_flag)
+                    count = count + 1
+                    cur_start = idx
+                    cur_len = adv
+                    cur_flag = 0
+                    maybe_reph = 0
+            else:
+                cur_start = idx
+                cur_len = adv
+                cur_flag = 0
+                maybe_reph = 0
+            if seg == "র":
+                maybe_reph = 1
+        else:
+            if bn_is_virama(seg) == 1:
+                if cur_start < 0:
+                    return 0
+                cur_len = cur_len + adv
+                expect_cons = 1
+                if maybe_reph == 1:
+                    cur_flag = 1
+                    maybe_reph = 0
+            else:
+                if bn_is_matra(seg) == 1:
+                    if cur_start < 0:
+                        return 0
+                    cur_len = cur_len + adv
+                    if bn_is_prebase_matra(seg) == 1:
+                        if cur_flag == 0:
+                            cur_flag = 2
+                    expect_cons = 0
+                else:
+                    if bn_is_anusvara(seg) == 1:
+                        if cur_start < 0:
+                            return 0
+                        cur_len = cur_len + adv
+                        expect_cons = 0
+                    else:
+                        return 0
+        idx = idx + adv
+    if cur_start >= 0:
+        starts.append(cur_start)
+        lens.append(cur_len)
+        flags.append(cur_flag)
+        count = count + 1
+    return count
+
+# =========================================================
+# TAMIL - classification + clusters (18 consonants, no reph)
+# Prebase matras: ி ெ ே ை (visual truoc consonant).
+# =========================================================
+def ta_is_virama(seq: "str") -> "i32":
+    if seq == "்":
+        return 1
+    return 0
+
+def ta_is_matra(seq: "str") -> "i32":
+    if seq == "ா":
+        return 1
+    if seq == "ி":
+        return 1
+    if seq == "ீ":
+        return 1
+    if seq == "ு":
+        return 1
+    if seq == "ூ":
+        return 1
+    if seq == "ெ":
+        return 1
+    if seq == "ே":
+        return 1
+    if seq == "ை":
+        return 1
+    return 0
+
+def ta_is_prebase_matra(seq: "str") -> "i32":
+    if seq == "ி":
+        return 1
+    if seq == "ெ":
+        return 1
+    if seq == "ே":
+        return 1
+    if seq == "ை":
+        return 1
+    return 0
+
+def ta_is_consonant(seq: "str") -> "i32":
+    if seq == "க":
+        return 1
+    if seq == "ங":
+        return 1
+    if seq == "ச":
+        return 1
+    if seq == "ஞ":
+        return 1
+    if seq == "ட":
+        return 1
+    if seq == "ண":
+        return 1
+    if seq == "த":
+        return 1
+    if seq == "ந":
+        return 1
+    if seq == "ப":
+        return 1
+    if seq == "ம":
+        return 1
+    if seq == "ய":
+        return 1
+    if seq == "ர":
+        return 1
+    if seq == "ல":
+        return 1
+    if seq == "வ":
+        return 1
+    if seq == "ழ":
+        return 1
+    if seq == "ள":
+        return 1
+    if seq == "ற":
+        return 1
+    if seq == "ன":
+        return 1
+    return 0
+
+def ta_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "list[i32]") -> "i32":
+    n = len(text)
+    idx = int(0)
+    cur_start = int(-1)
+    cur_len = int(0)
+    cur_flag = int(0)
+    expect_cons = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        if ta_is_consonant(seg) == 1:
+            if cur_start >= 0:
+                if expect_cons == 1:
+                    cur_len = cur_len + adv
+                    expect_cons = 0
+                else:
+                    starts.append(cur_start)
+                    lens.append(cur_len)
+                    flags.append(cur_flag)
+                    count = count + 1
+                    cur_start = idx
+                    cur_len = adv
+                    cur_flag = 0
+            else:
+                cur_start = idx
+                cur_len = adv
+                cur_flag = 0
+        else:
+            if ta_is_virama(seg) == 1:
+                if cur_start < 0:
+                    return 0
+                cur_len = cur_len + adv
+                expect_cons = 1
+            else:
+                if ta_is_matra(seg) == 1:
+                    if cur_start < 0:
+                        return 0
+                    cur_len = cur_len + adv
+                    if ta_is_prebase_matra(seg) == 1:
+                        if cur_flag == 0:
+                            cur_flag = 2
+                    expect_cons = 0
+                else:
+                    return 0
+        idx = idx + adv
+    if cur_start >= 0:
+        starts.append(cur_start)
+        lens.append(cur_len)
+        flags.append(cur_flag)
+        count = count + 1
+    return count
+
+# =========================================================
+# ARABIC LAM-ALEF ligature runs (لا لا لا لا)
+# =========================================================
+def ar_is_lam(seq: "str") -> "i32":
+    if seq == "ل":
+        return 1
+    return 0
+
+def ar_is_alef_variant(seq: "str") -> "i32":
+    if seq == "ا":
+        return 1
+    if seq == "أ":
+        return 1
+    if seq == "إ":
+        return 1
+    if seq == "آ":
+        return 1
+    return 0
+
+def ar_ligature_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
+    # Tim chuoi lam+alef lien tiep (bo qua transparent o giua).
+    # Tra so runs; moi run = byte offsets bao ca 2 chu + marks giua.
+    n = len(text)
+    idx = int(0)
+    count = int(0)
+    while idx < n:
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        seg = text[idx:idx + adv]
+        if ar_is_lam(seg) == 1:
+            j = idx + adv
+            while j < n:
+                jadv = utf8_seq_len(text, j)
+                if j + jadv > n:
+                    jadv = n - j
+                jseg = text[j:j + jadv]
+                if ar_is_transparent(jseg) == 1:
+                    j = j + jadv
+                else:
+                    break
+            if j < n:
+                jadv = utf8_seq_len(text, j)
+                if j + jadv > n:
+                    jadv = n - j
+                jseg = text[j:j + jadv]
+                if ar_is_alef_variant(jseg) == 1:
+                    starts.append(idx)
+                    lens.append(j + jadv - idx)
+                    count = count + 1
+                    idx = j + jadv
+                    continue
+            idx = idx + adv
+        else:
+            idx = idx + adv
+    return count
+
+# =========================================================
+# SELFTEST (pure logic, khong can font that)
+# =========================================================
+def sh_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def sh_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def shaping_selftest() -> "str":
+    print("== TkvUI.Shaping selftest ==")
+    acc = [int(0), int(0)]
+    sh_check_i(acc, "script latin", shape_script_of("A"), 0)
+    sh_check_i(acc, "script space", shape_script_of(" "), 0)
+    sh_check_i(acc, "script viet", shape_script_of("ệ"), 1)
+    sh_check_i(acc, "script arabic meem", shape_script_of("م"), 2)
+    sh_check_i(acc, "script arabic alef", shape_script_of("ا"), 2)
+    sh_check_i(acc, "script hebrew", shape_script_of("א"), 3)
+    sh_check_i(acc, "script cjk", shape_script_of("你"), 4)
+    sh_check_i(acc, "script thai mark", shape_script_of("ั"), 5)
+    sh_check_i(acc, "script thai cons", shape_script_of("ส"), 5)
+    sh_check_i(acc, "script deva cons", shape_script_of("न"), 6)
+    sh_check_i(acc, "script deva matra", shape_script_of("ि"), 6)
+    sh_check_i(acc, "ar dual beh", ar_join_type("ب"), 2)
+    sh_check_i(acc, "ar right alef", ar_join_type("ا"), 1)
+    sh_check_i(acc, "ar right dal", ar_join_type("د"), 1)
+    sh_check_i(acc, "ar right reh", ar_join_type("ر"), 1)
+    sh_check_i(acc, "ar right waw", ar_join_type("و"), 1)
+    sh_check_i(acc, "ar none hamza", ar_join_type("ء"), 0)
+    sh_check_i(acc, "ar trans tatweel", ar_join_type("ـ"), 3)
+    sh_check_i(acc, "ar trans fatha", ar_join_type("َ"), 3)
+    sh_check_i(acc, "ar nonarab", ar_join_type("A"), -1)
+    st = []
+    ln = []
+    fm = []
+    sh_check_i(acc, "ar word n", ar_shape_word("مرحبا", st, ln, fm), 5)
+    sh_check_i(acc, "ar meem initial", fm[0], 1)
+    sh_check_i(acc, "ar reh final", fm[1], 3)
+    sh_check_i(acc, "ar heh initial", fm[2], 1)
+    sh_check_i(acc, "ar beh medial", fm[3], 2)
+    sh_check_i(acc, "ar alef final", fm[4], 3)
+    st2 = []
+    ln2 = []
+    fm2 = []
+    sh_check_i(acc, "ar single n", ar_shape_word("ب", st2, ln2, fm2), 1)
+    sh_check_i(acc, "ar single iso", fm2[0], 0)
+    st3 = []
+    ln3 = []
+    fm3 = []
+    sh_check_i(acc, "ar ba n", ar_shape_word("با", st3, ln3, fm3), 2)
+    sh_check_i(acc, "ar ba initial", fm3[0], 1)
+    sh_check_i(acc, "ar ba final", fm3[1], 3)
+    st4 = []
+    ln4 = []
+    fm4 = []
+    sh_check_i(acc, "ar mark n", ar_shape_word("بَ", st4, ln4, fm4), 1)
+    sh_check_i(acc, "ar mark iso", fm4[0], 0)
+    cs = []
+    cl = []
+    sh_check_i(acc, "ar clusters n", ar_cluster_runs("مرحبا", cs, cl), 2)
+    sh_check_i(acc, "ar cl0 start", cs[0], 0)
+    sh_check_i(acc, "ar cl0 len", cl[0], 4)
+    sh_check_i(acc, "ar cl1 start", cs[1], 4)
+    sh_check_i(acc, "th prebase e", th_mark_class("เ"), 1)
+    sh_check_i(acc, "th prebase o", th_mark_class("โ"), 1)
+    sh_check_i(acc, "th above maihan", th_mark_class("ั"), 2)
+    sh_check_i(acc, "th above tone", th_mark_class("่"), 2)
+    sh_check_i(acc, "th below u", th_mark_class("ุ"), 3)
+    sh_check_i(acc, "th cons", th_is_consonant("ส"), 1)
+    sh_check_i(acc, "th cons tho", th_is_consonant("ท"), 1)
+    sh_check_i(acc, "th noncons", th_is_consonant("เ"), 0)
+    ts = []
+    tl = []
+    sh_check_i(acc, "th clusters n", th_clusters("สวัสดี", ts, tl), 4)
+    sh_check_i(acc, "th cl0 len", tl[0], 3)
+    ts2 = []
+    tl2 = []
+    sh_check_i(acc, "th thai n", th_clusters("ไทย", ts2, tl2), 2)
+    ts3 = []
+    tl3 = []
+    sh_check_i(acc, "th to n", th_clusters("โต", ts3, tl3), 1)
+    sh_check_i(acc, "th to len", tl3[0], 6)
+    sh_check_i(acc, "in cons na", in_is_consonant("न"), 1)
+    sh_check_i(acc, "in cons ha", in_is_consonant("ह"), 1)
+    sh_check_i(acc, "in virama", in_is_virama("्"), 1)
+    sh_check_i(acc, "in matra aa", in_is_matra("ा"), 1)
+    sh_check_i(acc, "in prebase i", in_is_prebase_matra("ि"), 1)
+    sh_check_i(acc, "in matra e no", in_is_prebase_matra("े"), 0)
+    sh_check_i(acc, "in anusvara", in_is_anusvara("ं"), 1)
+    ins = []
+    inl = []
+    inf = []
+    sh_check_i(acc, "in clusters n", in_clusters("नमस्ते", ins, inl, inf), 3)
+    sh_check_i(acc, "in cl2 flag base", inf[2], 0)
+    ins2 = []
+    inl2 = []
+    inf2 = []
+    sh_check_i(acc, "in hindi n", in_clusters("हिंदी", ins2, inl2, inf2), 2)
+    sh_check_i(acc, "in hindi prebase", inf2[0], 2)
+    ins3 = []
+    inl3 = []
+    inf3 = []
+    sh_check_i(acc, "in reph n", in_clusters("र्क", ins3, inl3, inf3), 1)
+    sh_check_i(acc, "in reph flag", inf3[0], 1)
+    gs = []
+    gl = []
+    sh_check_i(acc, "clusters latin", shape_clusters("AB", gs, gl), 2)
+    gs2 = []
+    gl2 = []
+    sh_check_i(acc, "clusters arabic", shape_clusters("مرحبا", gs2, gl2), 2)
+    # Bengali (research doc: বাংলা)
+    sh_check_i(acc, "script bengali", shape_script_of("ব"), 8)
+    sh_check_i(acc, "bn cons ba", bn_is_consonant("ব"), 1)
+    sh_check_i(acc, "bn cons la", bn_is_consonant("ল"), 1)
+    sh_check_i(acc, "bn virama", bn_is_virama("্"), 1)
+    sh_check_i(acc, "bn matra aa", bn_is_matra("া"), 1)
+    sh_check_i(acc, "bn prebase i", bn_is_prebase_matra("ি"), 1)
+    sh_check_i(acc, "bn anusvara", bn_is_anusvara("ং"), 1)
+    bns = []
+    bnl = []
+    bnf = []
+    sh_check_i(acc, "bn clusters n", bn_clusters("বাংলা", bns, bnl, bnf), 2)
+    sh_check_i(acc, "bn cl0 flag base", bnf[0], 0)
+    gs3 = []
+    gl3 = []
+    sh_check_i(acc, "clusters bengali", shape_clusters("বাংলা", gs3, gl3), 2)
+    # Tamil (research doc: தமிழ்)
+    sh_check_i(acc, "script tamil", shape_script_of("த"), 9)
+    sh_check_i(acc, "script tamil cons", shape_script_of("ம"), 9)
+    sh_check_i(acc, "ta cons ta", ta_is_consonant("த"), 1)
+    sh_check_i(acc, "ta cons zha", ta_is_consonant("ழ"), 1)
+    sh_check_i(acc, "ta virama", ta_is_virama("்"), 1)
+    sh_check_i(acc, "ta matra i", ta_is_matra("ி"), 1)
+    sh_check_i(acc, "ta prebase e", ta_is_prebase_matra("ெ"), 1)
+    sh_check_i(acc, "ta prebase ai", ta_is_prebase_matra("ை"), 1)
+    tas = []
+    tal = []
+    taf = []
+    sh_check_i(acc, "ta clusters n", ta_clusters("தமிழ்", tas, tal, taf), 3)
+    sh_check_i(acc, "ta cl1 prebase", taf[1], 2)
+    gs4 = []
+    gl4 = []
+    sh_check_i(acc, "clusters tamil", shape_clusters("தமிழ்", gs4, gl4), 3)
+    # Lam-alef ligature runs
+    ls = []
+    ll = []
+    sh_check_i(acc, "lamalef n", ar_ligature_runs("لا", ls, ll), 1)
+    sh_check_i(acc, "lamalef len", ll[0], 4)
+    ls2 = []
+    ll2 = []
+    sh_check_i(acc, "lamalef none", ar_ligature_runs("مرحبا", ls2, ll2), 0)
+    ls3 = []
+    ll3 = []
+    sh_check_i(acc, "lamalef mid", ar_ligature_runs("بلا", ls3, ll3), 1)
+    sh_check_i(acc, "lamalef mid start", ls3[0], 2)
+    print("shaping: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "SHAPING_OK"
+    return "SHAPING_FAIL"

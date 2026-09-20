@@ -18,11 +18,11 @@ Cả hai bên cùng workload, cùng reps=5. TKV 47 ms ổn định 3/3 lần ch�
 
 | Bên | Cách đo | 108K chars (5 blocks) | **1 block (21.6K)** | vs PyQt6 |
 |---|---|---|---|---|
-| **TkvUI atlas** | `text_atlas_draw_string`, GetTickCount | **47 ms** | **9.4 ms** | **0.60x — nhanh hơn ~40%** ✅ |
-| PyQt6 | QPainter.drawText lên QImage 340×3200, `perf_counter` | ~78 ms | 15.6 ms | 1.0x (baseline) |
-| TkvUI classic | `draw_string` | ~410 ms | ~82 ms | 5.3x chậm hơn |
+| **TkvUI atlas** | `text_atlas_draw_string`, GetTickCount | **47 ms** (ổn định, đo lại 2026-09-20) | **9.4 ms** | **0.69x — nhanh hơn ~30%** ✅ |
+| PyQt6 | QPainter.drawText lên QImage 340×3200, `perf_counter` | ~68 ms | 13.7 ms | 1.0x (baseline) |
+| TkvUI classic | `draw_string` | ~391 ms | ~78 ms | 5.7x chậm hơn |
 
-Runs PyQt gần nhất: 16.5/15.5/15.3/15.6/15.4 ms (ổn định, không warmup spike).
+Runs PyQt 2026-09-20: 14.7/13.4/13.5/13.7/13.0 ms (baseline nhanh hơn lần đo 2026-09-19 là 15.6 ms — máy/môi trường; TKV atlas giữ 47 ms ổn định).
 Selftest bench (400 laps × 54 chars cùng vị trí, surface 200×24): classic
 78–94 ms, atlas 0–16 ms (chạm ngưỡng timer) — speedup nội bộ **~5–6x**.
 

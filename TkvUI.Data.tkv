@@ -823,6 +823,269 @@ def make_mv_date_delegate() -> "MvDateDelegate":
     return MvDateDelegate(19000101, 21001231)
 
 # =========================================================
+# ITEM-VIEW FRAMEWORK (P4 M3): model/delegate/view tach roi
+# Model giu cells+flags phang do CALLER so huu (record cam list).
+# Nap tu list (im_create_list) hoac tu SQL project san bang
+# sql_model_project o SQLite (tranh vong import Data->SQLite).
+# View virtualized: chi ve cua so hien thi qua order/visible.
+# =========================================================
+# Roles
+IM_ROLE_DISPLAY = 0
+IM_ROLE_EDIT = 1
+IM_ROLE_CHECK = 2
+IM_ROLE_BG = 3
+IM_ROLE_FG = 4
+IM_ROLE_TOOLTIP = 5
+# Flags (capability bits, cong don)
+IM_FLAG_EDITABLE = 1
+IM_FLAG_SELECTABLE = 2
+IM_FLAG_CHECKABLE = 4
+IM_FLAG_ENABLED = 8
+# Kinds
+IM_KIND_LIST = 0
+IM_KIND_TABLE = 1
+# Delegate kinds (per-column)
+IM_DELEGATE_TEXT = 0
+IM_DELEGATE_SPIN = 1
+IM_DELEGATE_COMBO = 2
+IM_DELEGATE_DATE = 3
+IM_DELEGATE_CHECK = 4
+
+class ItemModel:
+    kind: "i32"
+    nrows: "i32"
+    ncols: "i32"
+    def __init__(self, kind, nrows, ncols):
+        self.kind = kind
+        self.nrows = nrows
+        self.ncols = ncols
+
+def make_item_model(kind: "i32") -> "ItemModel":
+    return ItemModel(kind, 0, 0)
+
+def im_create_list(cells: "list[str]", flags: "list[i32]", values: "list[str]", ncols: "i32") -> "ItemModel":
+    # Nap model tu list phang row-major. Flags mac dinh EDITABLE|SELECTABLE|ENABLED.
+    nc = ncols
+    if nc < 1:
+        nc = 1
+    n = len(values) // nc
+    while len(cells) > 0:
+        cells.pop()
+    while len(flags) > 0:
+        flags.pop()
+    i = int(0)
+    while i < n * nc:
+        cells.append(values[i])
+        flags.append(11)
+        i = i + 1
+    return ItemModel(0, n, nc)
+
+def im_row_count(model: "ItemModel") -> "i32":
+    return model.nrows
+
+def im_column_count(model: "ItemModel") -> "i32":
+    return model.ncols
+
+def im_flags(cells: "list[str]", flags: "list[i32]", model: "ItemModel", row: "i32", col: "i32") -> "i32":
+    if row < 0 or col < 0:
+        return 0
+    if row >= model.nrows or col >= model.ncols:
+        return 0
+    idx = row * model.ncols + col
+    if idx < 0 or idx >= len(flags):
+        return 0
+    return flags[idx]
+
+def im_flag_has(fl: "i32", bit: "i32") -> "i32":
+    if bit <= 0:
+        return 0
+    return (fl // bit) - ((fl // (bit * 2)) * 2)
+
+def im_data(cells: "list[str]", flags: "list[i32]", model: "ItemModel", row: "i32", col: "i32", role: "i32") -> "str":
+    if row < 0 or col < 0:
+        return ""
+    if row >= model.nrows or col >= model.ncols:
+        return ""
+    idx = row * model.ncols + col
+    if idx < 0 or idx >= len(cells):
+        return ""
+    if role == 2:
+        if im_flag_has(im_flags(cells, flags, model, row, col), 4) == 0:
+            return "0"
+        return cells[idx]
+    if role == 3 or role == 4:
+        return ""
+    return cells[idx]
+
+def im_set_data(cells: "list[str]", flags: "list[i32]", model: "ItemModel", row: "i32", col: "i32", role: "i32", val: "str") -> "i32":
+    # Chi EDIT role + EDITABLE flag. Validate delegate o tang view (iv_edit).
+    if role != 1:
+        return 0
+    if row < 0 or col < 0:
+        return 0
+    if row >= model.nrows or col >= model.ncols:
+        return 0
+    idx = row * model.ncols + col
+    if idx < 0 or idx >= len(cells):
+        return 0
+    fl = im_flags(cells, flags, model, row, col)
+    if im_flag_has(fl, 1) == 0:
+        return 0
+    cells[idx] = val
+    return 1
+
+class ItemViewState:
+    top_row: "i32"
+    left_col: "i32"
+    sel_row: "i32"
+    sel_col: "i32"
+    row_h: "f64"
+    def __init__(self, top_row, left_col, sel_row, sel_col, row_h):
+        self.top_row = top_row
+        self.left_col = left_col
+        self.sel_row = sel_row
+        self.sel_col = sel_col
+        self.row_h = row_h
+
+def make_item_view() -> "ItemViewState":
+    return ItemViewState(0, 0, -1, -1, 22.0)
+
+def iv_visible_count(view: "ItemViewState", model: "ItemModel", view_h: "f64") -> "i32":
+    # So dong vua khung hinh tu top_row.
+    if view.row_h <= 0.0:
+        return 0
+    n = int(view_h / view.row_h)
+    if view.top_row + n > model.nrows:
+        n = model.nrows - view.top_row
+    if n < 0:
+        n = 0
+    return n
+
+def iv_ensure_visible(view: "ItemViewState", model: "ItemModel", row: "i32", view_h: "f64") -> "i32":
+    # Cuon top_row de row hien thi. Tra top_row moi.
+    if row < 0:
+        return view.top_row
+    if row >= model.nrows:
+        return view.top_row
+    nvis = iv_visible_count(view, model, view_h)
+    if nvis <= 0:
+        view.top_row = row
+        return row
+    if row < view.top_row:
+        view.top_row = row
+        return row
+    if row >= view.top_row + nvis:
+        view.top_row = row - nvis + 1
+        return view.top_row
+    return view.top_row
+
+def iv_paint_check(buf: "list[i64]", surf: "PixelSurface", x: "f64", y: "f64", checked: "i32", color: "ColorRgba") -> "i32":
+    # Hop check 12x12 + dau X. Tra 1.
+    r = Rect2D(x + 2.0, y + 2.0, 12.0, 12.0)
+    stroke_round_rect(buf, surf, r, 2.0, 1.0, color)
+    if checked == 1:
+        draw_line(buf, surf, x + 4.0, y + 4.0, x + 12.0, y + 12.0, 1.5, color)
+        draw_line(buf, surf, x + 12.0, y + 4.0, x + 4.0, y + 12.0, 1.5, color)
+    return 1
+
+def iv_render(buf: "list[i64]", surf: "PixelSurface", mode: "i32", view: "ItemViewState", model: "ItemModel", cells: "list[str]", flags: "list[i32]", col_delegates: "list[i32]", col_widths: "list[f64]", order: "list[i32]", visible: "list[int]") -> "i32":
+    # Ve virtualized body (khong header). Tra so dong da ve.
+    pal = os_palette_for_mode(mode)
+    painted = int(0)
+    vy = 0.0
+    vi = view.top_row
+    while vi < model.nrows:
+        if vy + view.row_h > float(surf.height):
+            break
+        real = vi
+        if vi < len(order):
+            real = order[vi]
+        vis = 1
+        if real < len(visible):
+            vis = visible[real]
+        if vis == 1:
+            sel = int(0)
+            if real == view.sel_row:
+                sel = 1
+            bg = os_row_bg(pal, vi, sel)
+            fg = os_row_fg(pal, sel)
+            cx = 0.0
+            c = int(0)
+            while c < model.ncols:
+                w = 80.0
+                if c < len(col_widths):
+                    w = col_widths[c]
+                cell = Rect2D(cx, vy, w, view.row_h)
+                fill_round_rect(buf, surf, cell, 0.0, bg)
+                val = im_data(cells, flags, model, real, c, 0)
+                dk = int(0)
+                if c < len(col_delegates):
+                    dk = col_delegates[c]
+                if dk == 4:
+                    chk = int(0)
+                    if val == "1":
+                        chk = 1
+                    iv_paint_check(buf, surf, cx, vy, chk, fg)
+                else:
+                    draw_string(buf, surf, val, cx + 4.0, vy + 4.0, 1.0, fg)
+                cx = cx + w
+                c = c + 1
+            painted = painted + 1
+        vy = vy + view.row_h
+        vi = vi + 1
+    return painted
+
+def iv_edit(cells: "list[str]", flags: "list[i32]", model: "ItemModel", row: "i32", col: "i32", val: "str", col_delegates: "list[i32]", col_p0: "list[i32]", col_p1: "list[i32]") -> "i32":
+    # Edit qua delegate validate. Tra 1 neu nhan.
+    fl = im_flags(cells, flags, model, row, col)
+    if fl == 0:
+        return 0
+    if im_flag_has(fl, 1) == 0:
+        return 0
+    dk = int(0)
+    if col < len(col_delegates):
+        dk = col_delegates[col]
+    p0 = int(0)
+    if col < len(col_p0):
+        p0 = col_p0[col]
+    p1 = int(0)
+    if col < len(col_p1):
+        p1 = col_p1[col]
+    if dk == 4:
+        if val == "1" or val == "0":
+            return im_set_data(cells, flags, model, row, col, 1, val)
+        return 0
+    if dk == 1:
+        if mv_is_int(val) == 0:
+            return 0
+        v = mv_parse_int(val)
+        if v < p0:
+            v = p0
+        if p1 > p0:
+            if v > p1:
+                v = p1
+        return im_set_data(cells, flags, model, row, col, 1, str(v))
+    if dk == 2:
+        if mv_is_int(val) == 0:
+            return 0
+        v = mv_parse_int(val)
+        if v < 0 or v >= p0:
+            return 0
+        return im_set_data(cells, flags, model, row, col, 1, str(v))
+    if dk == 3:
+        if mv_is_int(val) == 0:
+            return 0
+        v = mv_parse_int(val)
+        dd = make_mv_date_delegate()
+        if dd.valid(v) == 0:
+            return 0
+        return im_set_data(cells, flags, model, row, col, 1, str(v))
+    if p0 > 0:
+        if len(val) > p0:
+            return 0
+    return im_set_data(cells, flags, model, row, col, 1, val)
+
+# =========================================================
 # SELFTEST
 # =========================================================
 def mvcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
@@ -1042,6 +1305,78 @@ def data_selftest() -> "str":
     ia = make_mv_index(1, 2)
     ib = make_mv_index(1, 2)
     mvcheck_i(acc, "index.same", ia.same(ib), 1)
+    # item-view framework (P4 M3)
+    icells = []
+    iflags = []
+    vals = []
+    vals.append("An")
+    vals.append("30")
+    vals.append("1")
+    vals.append("Binh")
+    vals.append("25")
+    vals.append("0")
+    md = im_create_list(icells, iflags, vals, 3)
+    mvcheck_i(acc, "im.rows", im_row_count(md), 2)
+    mvcheck_i(acc, "im.cols", im_column_count(md), 3)
+    mvcheck_s(acc, "im.display", im_data(icells, iflags, md, 0, 0, 0), "An")
+    mvcheck_s(acc, "im.edit role", im_data(icells, iflags, md, 1, 1, 1), "25")
+    mvcheck_s(acc, "im.oob", im_data(icells, iflags, md, 9, 0, 0), "")
+    mvcheck_i(acc, "im.flags", im_flag_has(im_flags(icells, iflags, md, 0, 0), 1), 1)
+    mvcheck_i(acc, "im.set", im_set_data(icells, iflags, md, 0, 1, 1, "31"), 1)
+    mvcheck_s(acc, "im.set val", im_data(icells, iflags, md, 0, 1, 0), "31")
+    mvcheck_i(acc, "im.set wrong role", im_set_data(icells, iflags, md, 0, 1, 0, "x"), 0)
+    iflags[0] = 10
+    mvcheck_i(acc, "im.set noedit", im_set_data(icells, iflags, md, 0, 0, 1, "x"), 0)
+    iflags[0] = 11
+    iflags[2] = 15
+    mvcheck_s(acc, "iv.check read", im_data(icells, iflags, md, 0, 2, 2), "1")
+    dels = []
+    dels.append(0)
+    dels.append(1)
+    dels.append(4)
+    p0 = []
+    p0.append(0)
+    p0.append(0)
+    p0.append(0)
+    p1 = []
+    p1.append(0)
+    p1.append(100)
+    p1.append(0)
+    mvcheck_i(acc, "iv.edit text", iv_edit(icells, iflags, md, 1, 0, "Chi", dels, p0, p1), 1)
+    mvcheck_s(acc, "iv.edit text val", im_data(icells, iflags, md, 1, 0, 0), "Chi")
+    mvcheck_i(acc, "iv.edit spin ok", iv_edit(icells, iflags, md, 1, 1, "26", dels, p0, p1), 1)
+    mvcheck_i(acc, "iv.edit spin clamp", iv_edit(icells, iflags, md, 1, 1, "500", dels, p0, p1), 1)
+    mvcheck_s(acc, "iv.edit spin val", im_data(icells, iflags, md, 1, 1, 0), "100")
+    mvcheck_i(acc, "iv.edit spin bad", iv_edit(icells, iflags, md, 1, 1, "ab", dels, p0, p1), 0)
+    mvcheck_i(acc, "iv.edit check ok", iv_edit(icells, iflags, md, 0, 2, "0", dels, p0, p1), 1)
+    mvcheck_s(acc, "iv.edit check val", im_data(icells, iflags, md, 0, 2, 2), "0")
+    mvcheck_i(acc, "iv.edit check bad", iv_edit(icells, iflags, md, 0, 2, "x", dels, p0, p1), 0)
+    vw = make_item_view()
+    mvcheck_i(acc, "iv.vis", iv_visible_count(vw, md, 100.0), 2)
+    vw.sel_row = 1
+    mvcheck_i(acc, "iv.ensure", iv_ensure_visible(vw, md, 1, 44.0), 0)
+    mvcheck_s(acc, "iv.check kept", im_data(icells, iflags, md, 0, 2, 2), "0")
+    widths = []
+    widths.append(80.0)
+    widths.append(60.0)
+    widths.append(40.0)
+    order = []
+    order.append(0)
+    order.append(1)
+    vis = []
+    vis.append(1)
+    vis.append(1)
+    sbuf = []
+    si = int(0)
+    while si < 12000:
+        sbuf.append(0)
+        si = si + 1
+    ssurf = PixelSurface(200, 60, 200)
+    painted = iv_render(sbuf, ssurf, 0, vw, md, icells, iflags, dels, widths, order, vis)
+    ok_paint = 0
+    if painted == 2:
+        ok_paint = 1
+    mvcheck(acc, "iv.render", ok_paint)
     print("data: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "DATA_OK"

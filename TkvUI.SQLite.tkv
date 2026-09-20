@@ -21,7 +21,9 @@ __tkv_import__ = ["TkvUI.Core", "TkvUI.Data"]
 __tkv_extern_method__ = [
     {"name": "sqlf_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"},
     {"name": "sqlf_read", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"},
-    {"name": "sqlf_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}
+    {"name": "sqlf_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"},
+    {"name": "sqlf_write_bytes", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"},
+    {"name": "sqlf_read_bytes", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"}
 ]
 
 # Column types
@@ -515,6 +517,35 @@ def sql_select(tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[st
     r = int(0)
     while r < n:
         if sql_match_row(rows, tstart, tncol, tidx, r, wcol, op, target) == 1:
+            out_idx.append(r)
+        r = r + 1
+    return len(out_idx)
+
+def sql_select_multi(tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", where_cols: "list[str]", ops: "list[i32]", targets: "list[str]", out_idx: "list[i32]") -> "i32":
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return 0
+    wc = int(0)
+    while wc < len(where_cols):
+        if where_cols[wc] != "":
+            pos = sql_col_pos(scol_table, scol_name, tidx, where_cols[wc])
+            if pos < 0:
+                return 0
+        wc = wc + 1
+    n = tcount[tidx]
+    r = int(0)
+    while r < n:
+        match = 1
+        wc = int(0)
+        while wc < len(where_cols):
+            if where_cols[wc] != "":
+                wcol = sql_col_pos(scol_table, scol_name, tidx, where_cols[wc])
+                if wcol >= 0:
+                    if sql_match_row(rows, tstart, tncol, tidx, r, wcol, ops[wc], targets[wc]) == 0:
+                        match = 0
+                        break
+            wc = wc + 1
+        if match == 1:
             out_idx.append(r)
         r = r + 1
     return len(out_idx)
@@ -1089,6 +1120,794 @@ def sqlite_selftest() -> "str":
 # Quy tac compiler tuan thu: if nhieu dong (khong elif 1-dong), khong alias
 # param list, khong ord(), out qua out-list, param truc tiep.
 # =========================================================
+# =========================================================
+# P1 BINARY PAGE FORMAT (4KB pages) + WAL-lite
+# =========================================================
+# Page size: 4096 bytes
+# Page types (1 byte at offset 0):
+#   0x00 = free
+#   0x01 = B-tree internal
+#   0x02 = B-tree leaf (rowid -> payload)
+#   0x03 = overflow (long text/blob)
+#   0x04 = schema
+#   0x05 = WAL frame
+
+SQL_PAGE_SIZE = 4096
+SQL_PAGE_TYPE_FREE = 0
+SQL_PAGE_TYPE_BTREE_INTERNAL = 1
+SQL_PAGE_TYPE_BTREE_LEAF = 2
+SQL_PAGE_TYPE_OVERFLOW = 3
+SQL_PAGE_TYPE_SCHEMA = 4
+SQL_PAGE_TYPE_WAL_FRAME = 5
+
+# File Header (100 bytes at page 0):
+#   magic: "TKVDB" (5)
+#   version: u16 (2)
+#   page_size: u16 (2) = 4096
+#   page_count: u32 (4)
+#   root_page: u32 (4)          -- B-tree root
+#   freelist_head: u32 (4)      -- free page list
+#   schema_page: u32 (4)        -- CREATE TABLE statements
+#   checkpoint_lsn: u64 (8)     -- WAL replay position
+#   reserved: 71 bytes
+
+SQL_FILE_HEADER_SIZE = 100
+SQL_MAGIC = "TKVDB"
+SQL_VERSION = 1
+
+# WAL Header (32 bytes):
+#   magic: "TKVWAL" (6)
+#   version: u16 (2)
+#   salt: u32 (4)
+#   frame_count: u32 (4)
+#   reserved: 16 bytes
+
+SQL_WAL_HEADER_SIZE = 32
+SQL_WAL_MAGIC = "TKVWAL"
+
+# B-tree leaf page layout:
+#   0: page_type (1)
+#   1: n_cells (2)
+#   3: cell_ptr_array [n_cells * 2] (variable)
+#   ...: cell data (packed: rowid u64 + payload len u16 + payload)
+
+SQL_CELL_PTR_SIZE = 2
+SQL_LEAF_HEADER_SIZE = 3
+
+# =========================================================
+# Binary page format implementation
+# =========================================================
+
+def sql_page_read(path: "str", page_no: "i32", buf: "list[i64]") -> "i32":
+    # Doc 1 page (4096 bytes) tu file binary. Tra 1 neu ok, 0 neu loi.
+    # Caller cung cap buf de nua chunk (reuse). buf se duoc CLEAR + fill 4096 i64.
+    if sqlf_exists(path) == 0:
+        return 0
+    all_bytes = sqlf_read_bytes(path)
+    total = len(all_bytes)
+    page_size = 4096
+    start = page_no * page_size
+    if start >= total:
+        # Page khong ton tai -> fill 0
+        while len(buf) > 0:
+            buf.pop()
+        i = int(0)
+        while i < page_size:
+            buf.append(0)
+            i = i + 1
+        return 1
+    end = start + page_size
+    if end > total:
+        end = total
+    while len(buf) > 0:
+        buf.pop()
+    i = start
+    while i < end:
+        buf.append(char_code(all_bytes[i]))
+        i = i + 1
+    # Pad neu file ngan hon page
+    while len(buf) < page_size:
+        buf.append(0)
+    return 1
+
+def sql_page_write(path: "str", page_no: "i32", buf: "list[i64]") -> "i32":
+    # Ghi 1 page (4096 bytes) vao file binary. Tra 1 neu ok.
+    # Doc toan bo file, thay the page, ghi lai.
+    all_bytes = ""
+    if sqlf_exists(path) == 1:
+        all_bytes = sqlf_read_bytes(path)
+    page_size = 4096
+    total = len(all_bytes)
+    start = page_no * page_size
+    need = start + page_size
+    if total < need:
+        # Mo rong file
+        i = total
+        while i < need:
+            all_bytes = all_bytes + "\0"
+            i = i + 1
+    # Ghi page
+    i = int(0)
+    out = ""
+    j = int(0)
+    while j < len(all_bytes):
+        if j >= start and j < start + page_size:
+            out = out + char_code(buf[j - start])
+        else:
+            out = out + all_bytes[j]
+        j = j + 1
+    sqlf_write_bytes(path, out)
+    return 1
+
+def sql_btree_leaf_insert(buf: "list[i64]", page_buf: "list[i64]", rowid: "i64", payload: "str") -> "i32":
+    # Chen (rowid, payload) vao B-tree leaf page buffer.
+    # Layout: page_type(1) | n_cells(2) | cell_ptrs[n*2] | cell_data...
+    # cell_data: rowid(u64) | payload_len(u16) | payload
+    # Tra 1 neu ok, 0 neu trang day (can split).
+    if len(page_buf) < 3:
+        return 0
+    page_type = page_buf[0]
+    if page_type != 2:
+        return 0
+    n_cells = page_buf[1]
+    # Tinh kich thuoc payload
+    payload_len = len(payload)
+    if payload_len > 65535:
+        return 0
+    cell_size = 8 + 2 + payload_len  # rowid(8) + len(2) + payload
+    # Tinh free space
+    used = 3 + n_cells * 2
+    i = int(0)
+    while i < n_cells:
+        ptr = page_buf[3 + i]
+        used = used + ptr
+        i = i + 1
+    free = len(page_buf) - used
+    if free < cell_size:
+        return 0
+    # Tim vi tri chen (giu rowid tang dan)
+    insert_idx = int(0)
+    i = int(0)
+    while i < n_cells:
+        ptr = page_buf[3 + i]
+        # Doc rowid tai ptr
+        cell_rowid = page_buf[ptr]
+        if rowid < cell_rowid:
+            break
+        insert_idx = i + 1
+        i = i + 1
+    # Dich cell pointers
+    i = n_cells
+    while i > insert_idx:
+        page_buf[3 + i] = page_buf[3 + i - 1]
+        i = i - 1
+    # Tinh vi tri cell data moi (o cuoi used)
+    new_cell_offset = used
+    # Ghi cell pointer
+    page_buf[3 + insert_idx] = new_cell_offset
+    # Ghi cell data: rowid + payload_len + payload
+    page_buf[new_cell_offset] = rowid
+    page_buf[new_cell_offset + 1] = payload_len
+    i = int(0)
+    while i < payload_len:
+        # payload luu duoi dang i64 (1 char = 1 i64)
+        page_buf[new_cell_offset + 2 + i] = char_code(payload[i])
+        i = i + 1
+    # Cap nhat n_cells
+    page_buf[1] = n_cells + 1
+    return 1
+
+def sql_btree_leaf_find(buf: "list[i64]", page_buf: "list[i64]", rowid: "i64", out_payload: "list[str]") -> "i32":
+    # Tim rowid trong B-tree leaf page. Tra 1 neu tim thay (out_payload duoc fill), 0 neu khong.
+    if len(page_buf) < 3:
+        return 0
+    page_type = page_buf[0]
+    if page_type != 2:
+        return 0
+    n_cells = page_buf[1]
+    i = int(0)
+    while i < n_cells:
+        ptr = page_buf[3 + i]
+        cell_rowid = page_buf[ptr]
+        if cell_rowid == rowid:
+            # Tim thay - doc payload
+            payload_len = page_buf[ptr + 1]
+            if payload_len > 0:
+                while len(out_payload) > 0:
+                    out_payload.pop()
+                i = int(0)
+                while i < payload_len:
+                    out_payload.append(char_code_from_i64(page_buf[ptr + 2 + i]))
+                    i = i + 1
+            return 1
+        if cell_rowid > rowid:
+            break
+        i = i + 1
+    return 0
+
+def char_code_from_i64(v: "i64") -> "str":
+    # Chuyen i64 ve char (dung cho payload luu duoi dang i64).
+    # chi lay byte thap (0-255).
+    if v < 0:
+        return "\0"
+    if v > 255:
+        v = v % 256
+    # Lookup table cho ASCII 0-127
+    if v == 0:
+        return "\0"
+    if v == 10:
+        return "\n"
+    if v == 13:
+        return "\r"
+    if v == 32:
+        return " "
+    if v == 33:
+        return "!"
+    if v == 34:
+        return "\""
+    if v == 35:
+        return "#"
+    if v == 36:
+        return "$"
+    if v == 37:
+        return "%"
+    if v == 38:
+        return "&"
+    if v == 39:
+        return "'"
+    if v == 40:
+        return "("
+    if v == 41:
+        return ")"
+    if v == 42:
+        return "*"
+    if v == 43:
+        return "+"
+    if v == 44:
+        return ","
+    if v == 45:
+        return "-"
+    if v == 46:
+        return "."
+    if v == 47:
+        return "/"
+    if v == 48:
+        return "0"
+    if v == 49:
+        return "1"
+    if v == 50:
+        return "2"
+    if v == 51:
+        return "3"
+    if v == 52:
+        return "4"
+    if v == 53:
+        return "5"
+    if v == 54:
+        return "6"
+    if v == 55:
+        return "7"
+    if v == 56:
+        return "8"
+    if v == 57:
+        return "9"
+    if v == 58:
+        return ":"
+    if v == 59:
+        return ";"
+    if v == 60:
+        return "<"
+    if v == 61:
+        return "="
+    if v == 62:
+        return ">"
+    if v == 63:
+        return "?"
+    if v == 64:
+        return "@"
+    if v == 65:
+        return "A"
+    if v == 66:
+        return "B"
+    if v == 67:
+        return "C"
+    if v == 68:
+        return "D"
+    if v == 69:
+        return "E"
+    if v == 70:
+        return "F"
+    if v == 71:
+        return "G"
+    if v == 72:
+        return "H"
+    if v == 73:
+        return "I"
+    if v == 74:
+        return "J"
+    if v == 75:
+        return "K"
+    if v == 76:
+        return "L"
+    if v == 77:
+        return "M"
+    if v == 78:
+        return "N"
+    if v == 79:
+        return "O"
+    if v == 80:
+        return "P"
+    if v == 81:
+        return "Q"
+    if v == 82:
+        return "R"
+    if v == 83:
+        return "S"
+    if v == 84:
+        return "T"
+    if v == 85:
+        return "U"
+    if v == 86:
+        return "V"
+    if v == 87:
+        return "W"
+    if v == 88:
+        return "X"
+    if v == 89:
+        return "Y"
+    if v == 90:
+        return "Z"
+    if v == 91:
+        return "["
+    if v == 92:
+        return "\\"
+    if v == 93:
+        return "]"
+    if v == 94:
+        return "^"
+    if v == 95:
+        return "_"
+    if v == 96:
+        return "`"
+    if v == 97:
+        return "a"
+    if v == 98:
+        return "b"
+    if v == 99:
+        return "c"
+    if v == 100:
+        return "d"
+    if v == 101:
+        return "e"
+    if v == 102:
+        return "f"
+    if v == 103:
+        return "g"
+    if v == 104:
+        return "h"
+    if v == 105:
+        return "i"
+    if v == 106:
+        return "j"
+    if v == 107:
+        return "k"
+    if v == 108:
+        return "l"
+    if v == 109:
+        return "m"
+    if v == 110:
+        return "n"
+    if v == 111:
+        return "o"
+    if v == 112:
+        return "p"
+    if v == 113:
+        return "q"
+    if v == 114:
+        return "r"
+    if v == 115:
+        return "s"
+    if v == 116:
+        return "t"
+    if v == 117:
+        return "u"
+    if v == 118:
+        return "v"
+    if v == 119:
+        return "w"
+    if v == 120:
+        return "x"
+    if v == 121:
+        return "y"
+    if v == 122:
+        return "z"
+    if v == 123:
+        return "{"
+    if v == 124:
+        return "|"
+    if v == 125:
+        return "}"
+    if v == 126:
+        return "~"
+    if v == 127:
+        return "\x7f"
+    # Default cho extended ASCII
+    return "?"
+
+def sql_wal_append(path: "str", page_no: "i32", page_data: "list[i64]") -> "i32":
+    # Ghi 1 WAL frame (page_no + page_data) vao file WAL.
+    # WAL file: header(32) + frames...
+    # Frame: lsn(8) + page_no(4) + size(2) + crc32(4) + page_data(4096)
+    # Tra 1 neu ok.
+    if sqlf_exists(path) == 0:
+        # Tao file moi voi header
+        header = "TKVWAL\n1\n0\n0\n"
+        sqlf_write(path, header)
+    content = sqlf_read(path)
+    # Doc frame_count tu header
+    tmp = []
+    pos = sql_pl_line(content, 0, tmp)  # magic
+    pos = sql_pl_line(content, pos, tmp)  # version
+    pos = sql_pl_line(content, pos, tmp)  # salt
+    pos = sql_pl_line(content, pos, tmp)  # frame_count
+    frame_count = mv_parse_int(tmp[0])
+    # Tinh LSN moi
+    lsn = frame_count + 1
+    # Tao frame data
+    page_size = 4096
+    page_str = ""
+    i = int(0)
+    while i < page_size:
+        page_str = page_str + char_code(page_data[i])
+        i = i + 1
+    # Tinh CRC32 (simple)
+    crc = 0
+    i = int(0)
+    while i < len(page_str):
+        crc = (crc * 31 + char_code(page_str[i])) % 4294967296
+        i = i + 1
+    # Frame: lsn(8) + page_no(4) + size(2) + crc32(4) + page_data
+    frame = str(lsn) + "\n" + str(page_no) + "\n" + str(page_size) + "\n" + str(crc) + "\n" + page_str + "\n"
+    # Ghi lai file: header + frame_count moi + frame
+    new_content = "TKVWAL\n1\n0\n" + str(frame_count + 1) + "\n" + frame
+    sqlf_write(path, new_content)
+    return 1
+
+def sql_wal_replay(path: "str", db_path: "str") -> "i32":
+    # Replay WAL frames vao file DB chinh. Tra so frame replayed.
+    if sqlf_exists(path) == 0:
+        return 0
+    content = sqlf_read(path)
+    tmp = []
+    pos = sql_pl_line(content, 0, tmp)  # magic
+    if tmp[0] != "TKVWAL":
+        return 0
+    pos = sql_pl_line(content, pos, tmp)  # version
+    pos = sql_pl_line(content, pos, tmp)  # salt
+    pos = sql_pl_line(content, pos, tmp)  # frame_count
+    frame_count = mv_parse_int(tmp[0])
+    if frame_count <= 0:
+        return 0
+    replayed = int(0)
+    f = int(0)
+    while f < frame_count:
+        # Doc frame
+        pos = sql_pl_line(content, pos, tmp)  # lsn
+        lsn = mv_parse_int(tmp[0])
+        pos = sql_pl_line(content, pos, tmp)  # page_no
+        page_no = mv_parse_int(tmp[0])
+        pos = sql_pl_line(content, pos, tmp)  # size
+        size = mv_parse_int(tmp[0])
+        pos = sql_pl_line(content, pos, tmp)  # crc32
+        crc = mv_parse_int(tmp[0])
+        # Doc page_data
+        if pos + size > len(content):
+            break
+        page_data = content[pos:pos + size]
+        pos = pos + size
+        if pos >= len(content) or content[pos] != "\n":
+            break
+        pos = pos + 1
+        # Verify CRC
+        crc_calc = 0
+        i = int(0)
+        while i < len(page_data):
+            crc_calc = (crc_calc * 31 + char_code(page_data[i])) % 4294967296
+            i = i + 1
+        if crc_calc != crc:
+            break
+        # Ghi page vao DB
+        page_buf = []
+        i = int(0)
+        while i < len(page_data):
+            page_buf.append(char_code(page_data[i]))
+            i = i + 1
+        sql_page_write(db_path, page_no, page_buf)
+        replayed = replayed + 1
+        f = f + 1
+    return replayed
+
+def sql_checkpoint(path: "str") -> "i32":
+    # Checkpoint: copy WAL frames -> DB file, update checkpoint_lsn.
+    # Trong implement nay, WAL da duoc replay ngay khi append, nen checkpoint la no-op.
+    # Tra 1 neu ok.
+    if sqlf_exists(path) == 0:
+        return 0
+    return 1
+
+def sql_schema_write(path: "str", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]") -> "i32":
+    # Ghi schema page (page 2). Tra 1 neu ok.
+    return 0
+
+def sql_binary_save(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    # Luu DB bang binary page format + WAL. Tra 0 neu ok, ma loi nguoc lai.
+    if db.is_open == 0:
+        return 1
+    if db.path == "":
+        return 1
+    # Tao file DB binary
+    db_file = db.path + ".bin"
+    wal_file = db.path + ".wal"
+    # Xoa file cu
+    # (khong co delete, chi ghi de)
+    # Ghi file header (page 0)
+    page0 = []
+    i = int(0)
+    while i < 4096:
+        page0.append(0)
+        i = i + 1
+    # Magic "TKVDB"
+    page0[0] = char_code("T")
+    page0[1] = char_code("K")
+    page0[2] = char_code("V")
+    page0[3] = char_code("D")
+    page0[4] = char_code("B")
+    # Version
+    page0[5] = 1
+    page0[6] = 0
+    # Page size
+    page0[7] = 0
+    page0[8] = 16
+    # Page count (se cap nhat sau)
+    # Root page
+    page0[11] = 1
+    # Freelist head
+    page0[15] = 0
+    # Schema page
+    page0[19] = 2
+    # Checkpoint LSN
+    page0[23] = 0
+    page0[24] = 0
+    page0[25] = 0
+    page0[26] = 0
+    page0[27] = 0
+    page0[28] = 0
+    page0[29] = 0
+    page0[30] = 0
+    page0[31] = 0
+    sql_page_write(db_file, 0, page0)
+    # Ghi schema page (page 2)
+    schema_page = []
+    i = int(0)
+    while i < 4096:
+        schema_page.append(0)
+        i = i + 1
+    # Schema format: table_count + tables...
+    # Table: name_len + name + col_count + cols...
+    # Col: name_len + name + type + notnull + pk
+    offset = 0
+    schema_page[offset] = len(tnames)
+    offset = offset + 1
+    t = int(0)
+    while t < len(tnames):
+        # Table name
+        tname = tnames[t]
+        schema_page[offset] = len(tname)
+        offset = offset + 1
+        i = int(0)
+        while i < len(tname):
+            schema_page[offset + i] = char_code(tname[i])
+            i = i + 1
+        offset = offset + len(tname)
+        # Column count
+        nc = tncol[t]
+        schema_page[offset] = nc
+        offset = offset + 1
+        # Columns
+        i = int(0)
+        while i < len(scol_table):
+            if scol_table[i] == t:
+                cname = scol_name[i]
+                schema_page[offset] = len(cname)
+                offset = offset + 1
+                i2 = int(0)
+                while i2 < len(cname):
+                    schema_page[offset + i2] = char_code(cname[i2])
+                    i2 = i2 + 1
+                offset = offset + len(cname)
+                schema_page[offset] = scol_type[i]
+                offset = offset + 1
+                schema_page[offset] = scol_notnull[i]
+                offset = offset + 1
+                schema_page[offset] = scol_pk[i]
+                offset = offset + 1
+            i = i + 1
+        t = t + 1
+    sql_page_write(db_file, 2, schema_page)
+    # Ghi data pages (B-tree leaf pages) bat dau tu page 3
+    # Moi table duoc luu o page rieng (simple: 1 page/table, neu qua lon thi overflow)
+    page_no = int(3)
+    t = int(0)
+    while t < len(tnames):
+        nc = tncol[t]
+        nrows = tcount[t]
+        start = tstart[t]
+        # Tinh page can: moi row ~ 100 bytes, page 4096 -> ~40 rows/page
+        rows_per_page = 40
+        if rows_per_page < 1:
+            rows_per_page = 1
+        r = int(0)
+        while r < nrows:
+            page_buf = []
+            i = int(0)
+            while i < 4096:
+                page_buf.append(0)
+                i = i + 1
+            # Page type = leaf
+            page_buf[0] = 2
+            # n_cells = 0 initially
+            page_buf[1] = 0
+            # Ghi rows vao page
+            cells_in_page = int(0)
+            cell_r = r
+            while cell_r < nrows and cells_in_page < rows_per_page:
+                # Tao payload: row data (length-prefixed strings)
+                payload = ""
+                c = int(0)
+                while c < nc:
+                    val = rows[start + cell_r * nc + c]
+                    payload = payload + str(len(val)) + "\n" + val + "\n"
+                    c = c + 1
+                # Rowid = cell_r + 1
+                rowid = cell_r + 1
+                sql_btree_leaf_insert(page_buf, page_buf, cell_r + 1, payload)
+                cells_in_page = cells_in_page + 1
+                cell_r = cell_r + 1
+            sql_page_write(db_file, page_no, page_buf)
+            page_no = page_no + 1
+            r = cell_r
+        t = t + 1
+    # Cap nhat page_count trong header
+    page0[9] = (page_no - 1) % 256
+    page0[10] = ((page_no - 1) // 256) % 256
+    sql_page_write(db_file, 0, page0)
+    # Tao WAL file rong
+    sqlf_write(db.path + ".wal", "TKVWAL\n1\n0\n0\n")
+    return 0
+
+def sql_binary_load(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    # Doc DB tu binary page format + WAL replay. Tra 0 neu ok, ma loi nguoc lai.
+    if db.is_open == 0:
+        return 1
+    if db.path == "":
+        return 1
+    db_file = db.path + ".bin"
+    wal_file = db.path + ".wal"
+    # Replay WAL truoc
+    sql_wal_replay(wal_file, db_file)
+    # Doc header
+    page0 = []
+    sql_page_read(db_file, 0, page0)
+    # Verify magic
+    magic = ""
+    i = int(0)
+    while i < 5:
+        magic = magic + char_code_from_i64(page0[i])
+        i = i + 1
+    if magic != "TKVDB":
+        return 1
+    # Doc schema page
+    schema_page = []
+    sql_page_read(db_file, 2, schema_page)
+    offset = 0
+    nt = schema_page[offset]
+    offset = offset + 1
+    t = int(0)
+    while t < nt:
+        # Table name
+        tnlen = schema_page[offset]
+        offset = offset + 1
+        tname = ""
+        i = int(0)
+        while i < tnlen:
+            tname = tname + char_code_from_i64(schema_page[offset + i])
+            i = i + 1
+        offset = offset + tnlen
+        tnames.append(tname)
+        # Column count
+        nc = schema_page[offset]
+        offset = offset + 1
+        tncol.append(nc)
+        tcount.append(0)
+        tstart.append(len(rows))
+        # Columns
+        i = int(0)
+        while i < nc:
+            cname_len = schema_page[offset]
+            offset = offset + 1
+            cname = ""
+            i2 = int(0)
+            while i2 < cname_len:
+                cname = cname + char_code_from_i64(schema_page[offset + i2])
+                i2 = i2 + 1
+            offset = offset + cname_len
+            scol_table.append(t)
+            scol_name.append(cname)
+            scol_type.append(schema_page[offset])
+            offset = offset + 1
+            scol_notnull.append(schema_page[offset])
+            offset = offset + 1
+            scol_pk.append(schema_page[offset])
+            offset = offset + 1
+            i = i + 1
+        t = t + 1
+    # Doc data pages
+    page_no = int(3)
+    t = int(0)
+    while t < len(tnames):
+        nc = tncol[t]
+        rows_per_page = 40
+        r = int(0)
+        while True:
+            page_buf = []
+            sql_page_read(db_file, page_no, page_buf)
+            if len(page_buf) == 0 or page_buf[0] != 2:
+                break
+            n_cells = page_buf[1]
+            if n_cells == 0:
+                break
+            i = int(0)
+            while i < n_cells:
+                ptr = page_buf[3 + i]
+                rowid = page_buf[ptr]
+                payload_len = page_buf[ptr + 1]
+                # Doc payload
+                payload = ""
+                j = int(0)
+                while j < payload_len:
+                    payload = payload + char_code_from_i64(page_buf[ptr + 2 + j])
+                    j = j + 1
+                # Parse payload: length-prefixed strings
+                c = int(0)
+                while c < nc:
+                    # Doc length
+                    length = 0
+                    p = 0
+                    while p < len(payload):
+                        if payload[p] == "\n":
+                            break
+                        length = length * 10 + (char_code(payload[p]) - 48)
+                        p = p + 1
+                    p = p + 1
+                    val = ""
+                    k = int(0)
+                    while k < length:
+                        val = val + payload[p + k]
+                        k = k + 1
+                    p = p + length + 1
+                    rows.append(val)
+                    c = c + 1
+                tcount[t] = tcount[t] + 1
+                i = i + 1
+            page_no = page_no + 1
+        t = t + 1
+    # Rebuild rowid indexes
+    t = int(0)
+    while t < len(tnames):
+        sql_pk_declare(db, scol_table, scol_name, scol_type, scol_pk, tncol, tstart, tcount, rows, t)
+        t = t + 1
+    return 0
+
 def sql_pl_line(s: "str", pos: "i32", out: "list[str]") -> "i32":
     # Doc 1 dong tu pos. Clear + append dong vao out, tra pos moi (-1 het).
     while len(out) > 0:

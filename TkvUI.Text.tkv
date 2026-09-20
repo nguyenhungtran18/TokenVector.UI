@@ -89,6 +89,7 @@ class GlyphAtlas:
     glyph_px_len: "list[i32]"
     glyph_adv: "list[i32]"
     glyph_gid: "list[i32]"
+    kern_data: "list[i32]"
     def __init__(self, cols, glyph_w, glyph_h, glyph_pw, scale, width, height):
         self.cols = cols
         self.glyph_w = glyph_w
@@ -108,6 +109,7 @@ class GlyphAtlas:
         self.glyph_px_len = []
         self.glyph_adv = []
         self.glyph_gid = []
+        self.kern_data = []
 
 def atlas_width_for(cols: "i32", glyph_w: "i32", scale: "i32") -> "i32":
     return cols * glyph_w * scale
@@ -2546,7 +2548,8 @@ def draw_text_block(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64
 # P2.8: TTF RASTERIZER - parse TTF, quadratic Bezier scanline fill, font atlas
 # =========================================================
 # Minimal TTF parser: head, hhea, hmtx, cmap (format 4), glyf (quadratic)
-# No hinting, no composite glyphs, no kerning. Rasterize -> alpha mask.
+# Composite glyphs: supported via ttf_merge_composite (depth cap 4)
+# Kerning: format 0 subtable supported, baked into atlas.kern_data at slot level.
 # ------------------------------------------------------------------
 # Bit check helpers (no & operator allowed)
 def bit1(v: "i32") -> "i32":
@@ -2710,6 +2713,57 @@ def ttf_kern_adjust(kern: "list[i32]", left: "i32", right: "i32") -> "i32":
         i = i + 3
     return 0
 
+def ttf_parse_cblc(data: "list[i64]", cblc_off: "i32") -> "list[i32]":
+    # CBLC: flat [nglyph, (gid, w, h, x, y, format, off)*nglyph].
+    # Format 17=PNG, 18=PNG+alpha, 19=32bpp. PNG KHONG ho tro (tra offset=-1).
+    out = []
+    if cblc_off == 0:
+        return out
+    if cblc_off + 6 > len(data):
+        return out
+    ver = ttf_read_u16(data, cblc_off)
+    if ver != 1:
+        return out
+    nglyph = ttf_read_u16(data, cblc_off + 2)
+    off = cblc_off + 4
+    out.append(nglyph)
+    i = int(0)
+    while i < nglyph:
+        if off + 14 > len(data):
+            break
+        gid = ttf_read_u32(data, off)
+        w = ttf_read_u16(data, off + 4)
+        h = ttf_read_u16(data, off + 6)
+        x = ttf_read_i16(data, off + 8)
+        y = ttf_read_i16(data, off + 10)
+        fmt = ttf_read_u16(data, off + 12)
+        off = off + 14
+        off2 = ttf_read_u32(data, off)
+        out.append(gid)
+        out.append(w)
+        out.append(h)
+        out.append(x)
+        out.append(y)
+        out.append(fmt)
+        out.append(int(off2))
+        i = i + 1
+    return out
+
+def ttf_cblc_glyph(cblc: "list[i32]", gid: "i32") -> "list[i32]":
+    # Tra [w, h, x, y, fmt, off] cua glyph, hoac [] neu miss.
+    if len(cblc) < 1:
+        return []
+    nglyph = cblc[0]
+    i = int(0)
+    while i < nglyph:
+        base = 1 + i * 7
+        if base + 6 >= len(cblc):
+            break
+        if cblc[base] == gid:
+            return [cblc[base + 1], cblc[base + 2], cblc[base + 3], cblc[base + 4], cblc[base + 5], cblc[base + 6]]
+        i = i + 1
+    return []
+
 def ttf_cbdt_blit(data: "list[i64]", off: "i32", w: "i32", h: "i32", buf: "list[i64]", surf: "PixelSurface", dx: "i32", dy: "i32", color: "ColorRgba") -> "i32":
     # CBDT bitmap formats 1/2 (1bpp, MSB-first, rows padded to byte).
     # Ghi mau dac (opaque fast path); tra so pixel / -1 neu data cut.
@@ -2763,6 +2817,85 @@ def ttf_cbdt_blit(data: "list[i64]", off: "i32", w: "i32", h: "i32", buf: "list[
                 x = x + 1
         y = y + 1
     return n
+
+def ttf_bake_cbdt_slot(data: "list[i64]", cblc: "list[i32]", cbdt_base: "i32", gid: "i32", atlas: "GlyphAtlas", abuf: "list[i64]", slot: "i32") -> "i32":
+    # Bake 1 CBDT bitmap glyph (format 1/2, 1bpp) vao atlas slot (M2.3).
+    # Ghi mask trang (kenh r) + record ink pixels (glyph_px_r/c) nhu atlas_bake.
+    # Tra so pixel / 0 neu miss / -1 neu PNG format (17/18/19) hoac data cut.
+    geo = ttf_cblc_glyph(cblc, gid)
+    if len(geo) < 6:
+        return 0
+    w = geo[0]
+    h = geo[1]
+    fmt = geo[4]
+    off = cbdt_base + geo[5]
+    if fmt != 1 and fmt != 2:
+        return -1
+    if w <= 0 or h <= 0:
+        return 0
+    white = ColorRgba(255, 255, 255, 0)
+    ox = atlas.glyph_ox[slot]
+    oy = atlas.glyph_oy[slot]
+    sc = atlas.scale
+    rowbytes = (w + 7) // 8
+    if off < 0 or off + rowbytes * h > len(data):
+        return -1
+    has_ink = 0
+    px_start = len(atlas.glyph_px_r)
+    px_count = 0
+    y = int(0)
+    while y < h:
+        x = int(0)
+        while x < w:
+            bv = int(data[off + y * rowbytes + x // 8] % 256)
+            p = 7 - (x - (x // 8) * 8)
+            div = int(1)
+            if p == 7:
+                div = 128
+            else:
+                if p == 6:
+                    div = 64
+                else:
+                    if p == 5:
+                        div = 32
+                    else:
+                        if p == 4:
+                            div = 16
+                        else:
+                            if p == 3:
+                                div = 8
+                            else:
+                                if p == 2:
+                                    div = 4
+                                else:
+                                    if p == 1:
+                                        div = 2
+            if (bv // div) % 2 != 0:
+                has_ink = 1
+                atlas.glyph_px_r.append(y)
+                atlas.glyph_px_c.append(x)
+                px_count = px_count + 1
+                sy = int(0)
+                while sy < sc:
+                    sx = int(0)
+                    while sx < sc:
+                        px = ox + x * sc + sx
+                        py = oy + y * sc + sy
+                        abuf[py * atlas.width + px] = white.to_uint32() - 0
+                        sx = sx + 1
+                    sy = sy + 1
+            x = x + 1
+        y = y + 1
+    while len(atlas.glyph_has_ink) <= slot:
+        atlas.glyph_has_ink.append(0)
+    while len(atlas.glyph_px_start) <= slot:
+        atlas.glyph_px_start.append(0)
+    while len(atlas.glyph_px_len) <= slot:
+        atlas.glyph_px_len.append(0)
+    atlas.glyph_has_ink[slot] = has_ink
+    atlas.glyph_px_start[slot] = px_start
+    atlas.glyph_px_len[slot] = px_count
+    return px_count
 
 def ttf_parse_cpal(data: "list[i64]", cpal_off: "i32") -> "list[i32]":
     # CPAL: flat [nEntries, nPalettes, recIdx0.., r0,g0,b0,a0, ...].
@@ -3608,6 +3741,8 @@ def ttf_load_font(ttf_bytes: "list[i64]") -> "TtfFont":
     glyf_off = ttf_find_table(data, 1735162214)  # 'glyf'
     loca_off = ttf_find_table(data, 1819239265)  # 'loca'
     maxp_off = ttf_find_table(data, 1835104368)  # 'maxp'
+    # NOTE (M2.3): kern/COLR/CPAL/CBLC khong parse o day (TtfFont 8 fields);
+    # kern parse tai diem dung (text_atlas_bake_i18n, tag 1801810542 dung).
     # head
     head_info = ttf_parse_head(data, head_off)
     upem = head_info[0]
@@ -3686,6 +3821,32 @@ def text_atlas_bake_i18n(data: "list[i64]", hmtx: "list[i32]", cmap_data: "list[
             atlas.glyph_gid[slot] = gid
             count = count + 1
         i = i + 1
+    # Kern pairwise (M2.1): parse kern table, doi gid->slot, scale ve pixel,
+    # append (slot_l, slot_r, px) vao atlas.kern_data. Tranh gid collision
+    # giua 2 font bang cach map qua slot (slot duy nhat toan atlas).
+    kern_off = ttf_find_table(data, 1801810542)
+    kern = ttf_parse_kern(data, kern_off)
+    k = int(0)
+    while k + 3 <= len(kern):
+        lg = kern[k]
+        rg = kern[k + 1]
+        v = kern[k + 2]
+        sl = int(-1)
+        sr = int(-1)
+        s = int(0)
+        while s < len(cps):
+            slot = slot_off + s
+            if slot < len(atlas.glyph_gid):
+                if atlas.glyph_gid[slot] == lg:
+                    sl = slot
+                if atlas.glyph_gid[slot] == rg:
+                    sr = slot
+            s = s + 1
+        if sl >= 0 and sr >= 0:
+            atlas.kern_data.append(sl)
+            atlas.kern_data.append(sr)
+            atlas.kern_data.append(int(float(v) * cscale))
+        k = k + 3
     return count
 
 def text_atlas_record_i18n(scale: "i32") -> "GlyphAtlas":
@@ -3700,7 +3861,8 @@ def text_atlas_record_i18n(scale: "i32") -> "GlyphAtlas":
     w = cols * gw * sc
     rows = atlas_rows_needed(10, cols)
     h = rows * gh * sc
-    return atlas_make_record(cols, gw, gh, gpw, sc, w, h)
+    atlas = atlas_make_record(cols, gw, gh, gpw, sc, w, h)
+    return atlas
 
 def text_atlas_bake_i18n_all(atlas: "GlyphAtlas", abuf: "list[i64]") -> "i32":
     # Xoa abuf roi bake ca 2 subset embedded (he slots 0.., cjk tiep theo).
@@ -3731,8 +3893,8 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
     # Ve chuoi hon hop: seq co trong atlas i18n thi blit glyph that, seq la
     # thi box theo don vi (giong draw_string). Tach seq bang utf8_seq_len.
     # Advance TI LE theo glyph (atlas.glyph_adv, bake tu hmtx); slot chua bake
-    # -> fallback monospace 6*sc. Kern pairwise de danh P2-D (can kern table
-    # + scale o draw time; API ttf_kern_adjust da san).
+    # -> fallback monospace 6*sc. Kern pairwise (M2.1): dieu chinh giua 2 slot
+    # lien tiep qua atlas.kern_data (slot, slot, pixel da scale luc bake).
     sc = iatlas.scale
     if sc < 1:
         sc = 1
@@ -3741,6 +3903,7 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
     tw = 0.0
     steps = 0
     idx = 0
+    prev_slot = -1
     while idx < n:
         adv = utf8_seq_len(text, idx)
         if idx + adv > n:
@@ -3754,15 +3917,19 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
         if slot >= 0:
             if slot < len(iatlas.glyph_adv):
                 sa = iatlas.glyph_adv[slot] + int(tracking)
+            if prev_slot >= 0:
+                sa = sa + ttf_kern_adjust(iatlas.kern_data, prev_slot, slot)
         if slot >= 0:
             tw = tw + float(sa)
             steps = steps + 1
+            prev_slot = slot
         else:
             k = 0
             while k < adv:
                 tw = tw + float(mono)
                 steps = steps + 1
                 k = k + 1
+            prev_slot = -1
         idx = idx + adv
     if steps > 0:
         tw = tw + tracking * float(steps - 1)
@@ -3775,6 +3942,7 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
             cur_x = int(x) + int(box_w - tw)
     cur_y = int(y)
     idx = 0
+    prev_slot = -1
     while idx < n:
         adv = utf8_seq_len(text, idx)
         if idx + adv > n:
@@ -3788,14 +3956,18 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
             sa = mono
             if slot < len(iatlas.glyph_adv):
                 sa = iatlas.glyph_adv[slot] + int(tracking)
+            if prev_slot >= 0:
+                sa = sa + ttf_kern_adjust(iatlas.kern_data, prev_slot, slot)
             atlas_blit_glyph(iabuf, iatlas, buf, surf, slot, cur_x, cur_y, color, color.a)
             cur_x = cur_x + sa
+            prev_slot = slot
         else:
             k = 0
             while k < adv:
                 vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
                 cur_x = cur_x + mono
                 k = k + 1
+            prev_slot = -1
         idx = idx + adv
     return 1
 
@@ -4472,6 +4644,59 @@ def text_selftest_ttfxtra(acc: "list[i32]", white: "ColorRgba") -> "i32":
     text_check_i(acc, "ttf cbdt 9wide", ttf_cbdt_blit(bbd, 4, 9, 2, bbuf, bsurf, 0, 6, white), 18)
     text_check_i(acc, "ttf cbdt trunc", ttf_cbdt_blit(bbd, 100, 4, 4, bbuf, bsurf, 0, 0, white), -1)
     text_check_i(acc, "ttf cbdt empty", ttf_cbdt_blit(bbd, 0, 0, 4, bbuf, bsurf, 0, 0, white), 0)
+    # CBLC parse (simplified flat format) + CBDT bake vao atlas slot (M2.3)
+    # Table bat dau tai off=4 (pad 4 byte dau; off=0 nghia la no-table).
+    cblc_raw = []
+    cblc_raw.append(9)
+    cblc_raw.append(9)
+    cblc_raw.append(9)
+    cblc_raw.append(9)
+    cblc_raw.append(0)
+    cblc_raw.append(1)
+    cblc_raw.append(0)
+    cblc_raw.append(1)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(7)
+    cblc_raw.append(0)
+    cblc_raw.append(4)
+    cblc_raw.append(0)
+    cblc_raw.append(4)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(1)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc_raw.append(0)
+    cblc = ttf_parse_cblc(cblc_raw, 4)
+    text_check_i(acc, "ttf cblc len", len(cblc), 8)
+    text_check_i(acc, "ttf cblc gid", cblc[1], 7)
+    text_check_i(acc, "ttf cblc fmt", cblc[6], 1)
+    cgeo = ttf_cblc_glyph(cblc, 7)
+    text_check_i(acc, "ttf cblc lookup w", cgeo[0], 4)
+    text_check_i(acc, "ttf cblc miss", len(ttf_cblc_glyph(cblc, 99)), 0)
+    text_check_i(acc, "ttf cblc noff", len(ttf_parse_cblc(cblc_raw, 0)), 0)
+    batlas = text_atlas_record(1)
+    babuf = atlas_buffer(batlas)
+    text_check_i(acc, "ttf bake cbdt", ttf_bake_cbdt_slot(bbd, cblc, 0, 7, batlas, babuf, 5), 12)
+    text_check_i(acc, "ttf bake cbdt ink", batlas.glyph_has_ink[5], 1)
+    text_check_i(acc, "ttf bake cbdt len", batlas.glyph_px_len[5], 12)
+    cblc_png = []
+    cblc_png.append(1)
+    cblc_png.append(7)
+    cblc_png.append(4)
+    cblc_png.append(4)
+    cblc_png.append(0)
+    cblc_png.append(0)
+    cblc_png.append(17)
+    cblc_png.append(0)
+    text_check_i(acc, "ttf bake cbdt png", ttf_bake_cbdt_slot(bbd, cblc_png, 0, 7, batlas, babuf, 6), -1)
+    text_check_i(acc, "ttf bake cbdt miss", ttf_bake_cbdt_slot(bbd, cblc, 0, 99, batlas, babuf, 6), 0)
     # composite edge: self-ref (depth cap, ket thuc) + no-XY (reject)
     ed = ttf_test_composite_edge_bytes()
     text_check_i(acc, "ttf comp selfref", len(ttf_parse_glyf(ed, 8, 0, 0, 1)), 0)
