@@ -1,0 +1,1223 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.A11yBridge - screen-reader bridge da nen (Phase 4).
+
+Phu thuoc: Core, Text, Platform (detect_platform, tkv_has_file),
+A11y (roles, tree_to_json, probes), Widgets.Native (widget->node builders).
+DAG: Bridge <- Native, Bridge <- A11y. Khong vong import.
+
+Kien truc:
+- Backend pick theo platform + probe DLL/.so (UIA / AT-SPI / NS / TalkBack).
+- Role/state map rieng moi nen (UIA ControlType, AT-SPI roles, NS roles,
+  Android classes) — khong bitwise (constraint compiler).
+- Event router + live-region announcer: log o caller lists, serialize JSON.
+- Providers la stub trung thuc: dem + ghi nhan, chi goi native khi probe OK
+  (DllNotFoundException se crash exe neu goi chay).
+- Dump cay that ra file qua extern WriteAllText (ten rieng ab_file_write).
+
+Tien to ab_*/Ab* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Platform", "TkvUI.A11y", "TkvUI.Widgets.Native"]
+__tkv_extern_method__ = [{"name": "ab_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}]
+
+# Backends (tai lieu; so sanh truc tiep OK, gan local dung literal)
+AB_BACKEND_NONE = 0
+AB_BACKEND_UIA = 1
+AB_BACKEND_ATSPI = 2
+AB_BACKEND_NS = 3
+AB_BACKEND_TALKBACK = 4
+
+# Readers
+AB_READER_UNKNOWN = 0
+AB_READER_NVDA = 1
+AB_READER_NARRATOR = 2
+AB_READER_VOICEOVER = 3
+AB_READER_TALKBACK = 4
+
+# Event kinds
+AB_EV_FOCUS = 1
+AB_EV_SELECTION = 2
+AB_EV_VALUE = 3
+AB_EV_PROPERTY = 4
+AB_EV_STATE = 5
+AB_EV_ALERT = 6
+
+# State bits (cong don, khong bitwise)
+AB_ST_DISABLED = 1
+AB_ST_FOCUSED = 2
+AB_ST_SELECTED = 4
+AB_ST_CHECKED = 8
+AB_ST_EXPANDED = 16
+AB_ST_READONLY = 32
+AB_ST_BUSY = 64
+AB_ST_OFFSCREEN = 128
+
+# =========================================================
+# BACKEND PICK
+# =========================================================
+def ab_pick_backend() -> "i32":
+    pid = detect_platform()
+    if pid == 1:
+        if a11y_win_present() == 1:
+            return 1
+        return 1
+    if pid == 2:
+        return 2
+    if pid == 3:
+        return 2
+    if pid == 4:
+        if a11y_mac_present() == 1:
+            return 3
+        return 3
+    if pid == 5:
+        return 4
+    if pid == 6:
+        return 3
+    return 0
+
+def ab_backend_name(b: "i32") -> "str":
+    if b == 1:
+        return "UIA"
+    if b == 2:
+        return "AT-SPI"
+    if b == 3:
+        return "NSAccessibility"
+    if b == 4:
+        return "TalkBack"
+    return "none"
+
+# =========================================================
+# JSON ESCAPE - label/value an toan (A11y goc khong escape)
+# =========================================================
+def ab_hex_digit(v: "i32") -> "str":
+    if v == 10:
+        return "a"
+    if v == 11:
+        return "b"
+    if v == 12:
+        return "c"
+    if v == 13:
+        return "d"
+    if v == 14:
+        return "e"
+    if v == 15:
+        return "f"
+    return str(v)
+
+def ab_char_code(ch: "str") -> "i32":
+    # Ma don vi ASCII in duoc qua char_code (Text); ngoai bang -> -1
+    return char_code(ch)
+
+def ab_json_escape(s: "str") -> "str":
+    # Rendition JSON-correct cho ky tu dac biet; ngoai ASCII in duoc -> "?"
+    # (dam bao len == bytes khi ghi UTF-8, giong pdf_sanitize).
+    # LUU Y compiler: cam so sanh thu tu tren chuoi (ch < " " crash codegen);
+    # dung char_code (Text) de kiem tra vung in duoc.
+    out = ""
+    i = int(0)
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "\"":
+            out = out + "\\\""
+        else:
+            if ch == "\\":
+                out = out + "\\\\"
+            else:
+                if ch == "\n":
+                    out = out + "\\n"
+                else:
+                    if ab_char_code(ch) < 0:
+                        out = out + "?"
+                    else:
+                        out = out + ch
+        i = i + 1
+    return out
+
+def ab_q(s: "str") -> "str":
+    return "\"" + ab_json_escape(s) + "\""
+
+def ab_node_to_json(nid: "i32", role: "str", parent: "i32", label: "str", value: "str", x: "f64", y: "f64", w: "f64", h: "f64", mask: "i32") -> "str":
+    sb = ""
+    sb = sb + "{\"nid\":" + str(nid) + ",\"role\":" + ab_q(role) + ",\"parent\":" + str(parent)
+    sb = sb + ",\"label\":" + ab_q(label) + ",\"value\":" + ab_q(value)
+    sb = sb + ",\"bounds\":[" + str(x) + "," + str(y) + "," + str(w) + "," + str(h) + "]"
+    sb = sb + ",\"mask\":" + str(mask) + "}"
+    return sb
+
+# =========================================================
+# ROLE MAPS - A11y role -> dinh danh tung nen
+# =========================================================
+def ab_role_uia(role: "i32") -> "i32":
+    # UIA ControlType ids that (MSDN)
+    if role == 3:
+        return 50000
+    if role == 11:
+        return 50002
+    if role == 5:
+        return 50004
+    if role == 10:
+        return 50005
+    if role == 14:
+        return 50012
+    if role == 13:
+        return 50019
+    if role == 4:
+        return 50020
+    if role == 6:
+        return 50020
+    if role == 8:
+        return 50008
+    if role == 9:
+        return 50007
+    if role == 12:
+        return 50000
+    if role == 7:
+        return 50020
+    if role == 1:
+        return 50032
+    if role == 2:
+        return 50032
+    if role == 15:
+        return 50036
+    if role == 16:
+        return 50023
+    if role == 17:
+        return 50010
+    if role == 18:
+        return 50021
+    if role == 19:
+        return 50017
+    if role == 20:
+        return 50038
+    if role == 21:
+        return 50016
+    if role == 22:
+        return 50029
+    if role == 23:
+        return 50011
+    return 50000
+
+def ab_role_uia_name(role: "i32") -> "str":
+    if role == 3:
+        return "Button"
+    if role == 11:
+        return "CheckBox"
+    if role == 5:
+        return "Edit"
+    if role == 10:
+        return "Slider"
+    if role == 14:
+        return "ProgressBar"
+    if role == 13:
+        return "Tab"
+    if role == 4:
+        return "Text"
+    if role == 6:
+        return "Text"
+    if role == 8:
+        return "List"
+    if role == 9:
+        return "ListItem"
+    if role == 1:
+        return "Window"
+    if role == 2:
+        return "Window"
+    if role == 15:
+        return "Table"
+    if role == 16:
+        return "Tree"
+    if role == 17:
+        return "MenuBar"
+    if role == 18:
+        return "ToolBar"
+    if role == 19:
+        return "ScrollBar"
+    if role == 20:
+        return "Separator"
+    if role == 21:
+        return "Spinner"
+    if role == 22:
+        return "ToolTip"
+    if role == 23:
+        return "MenuItem"
+    return "Button"
+
+def ab_role_atspi(role: "i32") -> "str":
+    if role == 3:
+        return "push-button"
+    if role == 11:
+        return "check-box"
+    if role == 5:
+        return "entry"
+    if role == 10:
+        return "slider"
+    if role == 14:
+        return "progress-bar"
+    if role == 13:
+        return "page-tab"
+    if role == 4:
+        return "text"
+    if role == 6:
+        return "label"
+    if role == 8:
+        return "list"
+    if role == 9:
+        return "list-item"
+    if role == 12:
+        return "link"
+    if role == 7:
+        return "image"
+    if role == 1:
+        return "frame"
+    if role == 2:
+        return "dialog"
+    if role == 15:
+        return "table"
+    if role == 16:
+        return "tree"
+    if role == 17:
+        return "menu-bar"
+    if role == 18:
+        return "tool-bar"
+    if role == 19:
+        return "scroll-bar"
+    if role == 20:
+        return "separator"
+    if role == 21:
+        return "spin-button"
+    if role == 22:
+        return "tool-tip"
+    if role == 23:
+        return "menu-item"
+    return "unknown"
+
+def ab_role_ns(role: "i32") -> "str":
+    if role == 3:
+        return "NSAccessibilityButtonRole"
+    if role == 11:
+        return "NSAccessibilityCheckBoxRole"
+    if role == 5:
+        return "NSAccessibilityTextFieldRole"
+    if role == 10:
+        return "NSAccessibilitySliderRole"
+    if role == 14:
+        return "NSAccessibilityProgressIndicatorRole"
+    if role == 13:
+        return "NSAccessibilityTabGroupRole"
+    if role == 4:
+        return "NSAccessibilityStaticTextRole"
+    if role == 6:
+        return "NSAccessibilityStaticTextRole"
+    if role == 8:
+        return "NSAccessibilityListRole"
+    if role == 9:
+        return "NSAccessibilityRowRole"
+    if role == 12:
+        return "NSAccessibilityLinkRole"
+    if role == 7:
+        return "NSAccessibilityImageRole"
+    if role == 1:
+        return "NSAccessibilityWindowRole"
+    if role == 2:
+        return "NSAccessibilitySheetRole"
+    if role == 15:
+        return "NSAccessibilityTableRole"
+    if role == 16:
+        return "NSAccessibilityOutlineRole"
+    if role == 17:
+        return "NSAccessibilityMenuBarRole"
+    if role == 18:
+        return "NSAccessibilityToolbarRole"
+    if role == 19:
+        return "NSAccessibilityScrollBarRole"
+    if role == 20:
+        return "NSAccessibilitySplitterRole"
+    if role == 21:
+        return "NSAccessibilityValueIndicatorRole"
+    if role == 22:
+        return "NSAccessibilityUnknownRole"
+    if role == 23:
+        return "NSAccessibilityMenuItemRole"
+    return "NSAccessibilityUnknownRole"
+
+def ab_role_android(role: "i32") -> "str":
+    if role == 3:
+        return "android.widget.Button"
+    if role == 11:
+        return "android.widget.CheckBox"
+    if role == 5:
+        return "android.widget.EditText"
+    if role == 10:
+        return "android.widget.SeekBar"
+    if role == 14:
+        return "android.widget.ProgressBar"
+    if role == 4:
+        return "android.widget.TextView"
+    if role == 6:
+        return "android.widget.TextView"
+    if role == 8:
+        return "android.widget.ListView"
+    if role == 9:
+        return "android.view.View"
+    if role == 12:
+        return "android.widget.TextView"
+    if role == 7:
+        return "android.widget.ImageView"
+    if role == 15:
+        return "android.widget.GridView"
+    if role == 16:
+        return "android.widget.ExpandableListView"
+    if role == 17:
+        return "android.view.View"
+    if role == 18:
+        return "android.widget.Toolbar"
+    if role == 19:
+        return "android.widget.ScrollBar"
+    if role == 20:
+        return "android.view.View"
+    if role == 21:
+        return "android.widget.NumberPicker"
+    if role == 22:
+        return "android.view.View"
+    if role == 23:
+        return "android.view.View"
+    return "android.view.View"
+
+def ab_role_for_backend(role: "i32", backend: "i32") -> "str":
+    if backend == 1:
+        return ab_role_uia_name(role)
+    if backend == 2:
+        return ab_role_atspi(role)
+    if backend == 3:
+        return ab_role_ns(role)
+    if backend == 4:
+        return ab_role_android(role)
+    return a11y_role_name(role)
+
+# =========================================================
+# STATE MASK - bitmask bang cong (khong bitwise)
+# =========================================================
+def ab_state_mask(disabled: "i32", focused: "i32", selected: "i32", checked: "i32", expanded: "i32", readonly: "i32", busy: "i32") -> "i32":
+    m = int(0)
+    if disabled == 1:
+        m = m + 1
+    if focused == 1:
+        m = m + 2
+    if selected == 1:
+        m = m + 4
+    if checked == 1:
+        m = m + 8
+    if expanded == 1:
+        m = m + 16
+    if readonly == 1:
+        m = m + 32
+    if busy == 1:
+        m = m + 64
+    return m
+
+def ab_state_has(mask: "i32", bit: "i32") -> "i32":
+    # Kiem tra bit kieu Toolbar.is_checked (chia lay du)
+    if bit <= 0:
+        return 0
+    return (mask // bit) - ((mask // (bit * 2)) * 2)
+
+def ab_state_names(mask: "i32") -> "str":
+    out = ""
+    if ab_state_has(mask, 1) == 1:
+        out = out + "disabled,"
+    if ab_state_has(mask, 2) == 1:
+        out = out + "focused,"
+    if ab_state_has(mask, 4) == 1:
+        out = out + "selected,"
+    if ab_state_has(mask, 8) == 1:
+        out = out + "checked,"
+    if ab_state_has(mask, 16) == 1:
+        out = out + "expanded,"
+    if ab_state_has(mask, 32) == 1:
+        out = out + "readonly,"
+    if ab_state_has(mask, 64) == 1:
+        out = out + "busy,"
+    if out == "":
+        out = "normal,"
+    return out[0:len(out) - 1]
+
+def ab_uia_state_str(mask: "i32") -> "str":
+    # Chuoi trang thai kieu UIA (IsEnabled/HasKeyboardFocus/...)
+    s = "IsEnabled=" + str(1 - ab_state_has(mask, 1))
+    s = s + ";HasKeyboardFocus=" + str(ab_state_has(mask, 2))
+    s = s + ";IsSelected=" + str(ab_state_has(mask, 4))
+    s = s + ";ToggleState=" + str(ab_state_has(mask, 8))
+    s = s + ";ExpandCollapse=" + str(ab_state_has(mask, 16))
+    s = s + ";IsReadOnly=" + str(ab_state_has(mask, 32))
+    return s
+
+# =========================================================
+# UIA NATIVE (guarded) - chi goi khi DLL present
+# =========================================================
+def ab_uia_listening() -> "i32":
+    # UiaClientsAreListening: 1 = co screen reader dang nghe
+    if a11y_win_present() == 1:
+        return uia_clients_listening_ex()
+    return 0
+
+def ab_uia_raise(provider: "i64", event_id: "i32") -> "i32":
+    if a11y_win_present() == 0:
+        return 0
+    if provider == 0:
+        return 0
+    return uia_raise_event_ex(provider, event_id)
+
+def ab_uia_event_id(kind: "i32") -> "i32":
+    # UIA AutomationEvent ids that
+    if kind == 1:
+        return 20005
+    if kind == 2:
+        return 20014
+    if kind == 3:
+        return 20002
+    if kind == 5:
+        return 20004
+    if kind == 6:
+        return 20027
+    return 20004
+
+def ab_event_name(kind: "i32") -> "str":
+    if kind == 1:
+        return "focus"
+    if kind == 2:
+        return "selection"
+    if kind == 3:
+        return "value"
+    if kind == 4:
+        return "property"
+    if kind == 5:
+        return "state"
+    if kind == 6:
+        return "alert"
+    return "unknown"
+
+# =========================================================
+# AbBridge - router trung tam (log o caller lists)
+# =========================================================
+class AbBridge:
+    backend: "i32"
+    connected: "i32"
+    focus_id: "i32"
+    root_id: "i32"
+    seq: "i32"
+    reader: "i32"
+    confidence: "i32"
+    dropped: "i32"
+    def __init__(self, backend, connected, focus_id, root_id, seq, reader, confidence, dropped):
+        self.backend = backend
+        self.connected = connected
+        self.focus_id = focus_id
+        self.root_id = root_id
+        self.seq = seq
+        self.reader = reader
+        self.confidence = confidence
+        self.dropped = dropped
+    def connect(self, backend: "i32") -> "i32":
+        self.backend = backend
+        if backend == 0:
+            self.connected = 0
+        else:
+            self.connected = 1
+        return self.connected
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def set_reader(self, reader: "i32", confidence: "i32") -> "i32":
+        self.reader = reader
+        self.confidence = confidence
+        return reader
+    def log(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", kind: "i32", target: "i32", data: "str") -> "i32":
+        if self.connected == 0:
+            self.dropped = self.dropped + 1
+            return 0
+        self.seq = self.seq + 1
+        kinds.append(kind)
+        targets.append(target)
+        datas.append(data)
+        if kind == 1:
+            self.focus_id = target
+        return self.seq
+    def raise_focus(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", target: "i32") -> "i32":
+        return self.log(kinds, targets, datas, 1, target, ab_event_name(1))
+    def raise_selection(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", target: "i32", detail: "str") -> "i32":
+        return self.log(kinds, targets, datas, 2, target, detail)
+    def raise_value(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", target: "i32", detail: "str") -> "i32":
+        return self.log(kinds, targets, datas, 3, target, detail)
+    def raise_property(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", target: "i32", detail: "str") -> "i32":
+        return self.log(kinds, targets, datas, 4, target, detail)
+    def raise_state(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", target: "i32", detail: "str") -> "i32":
+        return self.log(kinds, targets, datas, 5, target, detail)
+    def raise_alert(self, kinds: "list[i32]", targets: "list[i32]", datas: "list[str]", text: "str") -> "i32":
+        return self.log(kinds, targets, datas, 6, self.root_id, text)
+
+def ab_make_bridge() -> "AbBridge":
+    return AbBridge(0, 0, -1, 0, 0, 0, 0, 0)
+
+def ab_log_clear(kinds: "list[i32]", targets: "list[i32]", datas: "list[str]") -> "i32":
+    while len(kinds) > 0:
+        kinds.pop()
+    while len(targets) > 0:
+        targets.pop()
+    while len(datas) > 0:
+        datas.pop()
+    return 0
+
+def ab_events_json(kinds: "list[i32]", targets: "list[i32]", datas: "list[str]") -> "str":
+    sb = "["
+    i = int(0)
+    while i < len(kinds):
+        if i > 0:
+            sb = sb + ","
+        sb = sb + "{\"seq\":" + str(i + 1) + ",\"event\":" + ab_q(ab_event_name(kinds[i])) + ",\"target\":" + str(targets[i]) + ",\"data\":" + ab_q(datas[i]) + "}"
+        i = i + 1
+    sb = sb + "]"
+    return sb
+
+# =========================================================
+# LIVE REGIONS - hang doi thong bao (polite=0/assertive=1)
+# =========================================================
+def ab_announce(texts: "list[str]", prios: "list[i32]", text: "str", prio: "i32") -> "i32":
+    texts.append(text)
+    prios.append(prio)
+    return len(texts)
+
+def ab_poll(texts: "list[str]", prios: "list[i32]") -> "str":
+    # Uu tien assertive truoc (quet 1 luot), roi FIFO
+    i = int(0)
+    while i < len(prios):
+        if prios[i] == 1:
+            out = texts[i]
+            j = i
+            while j < len(texts) - 1:
+                texts[j] = texts[j + 1]
+                prios[j] = prios[j + 1]
+                j = j + 1
+            texts.pop()
+            prios.pop()
+            return out
+        i = i + 1
+    if len(texts) == 0:
+        return ""
+    out = texts[0]
+    j = int(0)
+    while j < len(texts) - 1:
+        texts[j] = texts[j + 1]
+        prios[j] = prios[j + 1]
+        j = j + 1
+    texts.pop()
+    prios.pop()
+    return out
+
+def ab_announce_clear(texts: "list[str]", prios: "list[i32]") -> "i32":
+    while len(texts) > 0:
+        texts.pop()
+    while len(prios) > 0:
+        prios.pop()
+    return 0
+
+# =========================================================
+# PROVIDERS - stub trung thuc theo tung nen
+# =========================================================
+class AbUia:
+    connected: "i32"
+    hwnd: "i64"
+    pushed: "i32"
+    last_len: "i32"
+    def __init__(self, connected, hwnd, pushed, last_len):
+        self.connected = connected
+        self.hwnd = hwnd
+        self.pushed = pushed
+        self.last_len = last_len
+    def connect(self, hwnd: "i64") -> "i32":
+        if a11y_win_present() == 0:
+            self.connected = 0
+            return 0
+        self.hwnd = hwnd
+        self.connected = 1
+        return 1
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def push_tree(self, tree_json: "str") -> "i32":
+        # COM IRawElementProviderSimple can vtable (.tkv khong goi duoc)
+        # -> ghi nhan payload, cho provider that day len UIA tree.
+        self.pushed = self.pushed + 1
+        self.last_len = len(tree_json)
+        return self.pushed
+    def fire(self, provider: "i64", kind: "i32") -> "i32":
+        return ab_uia_raise(provider, ab_uia_event_id(kind))
+
+def ab_make_uia() -> "AbUia":
+    return AbUia(0, 0, 0, 0)
+
+class AbAtspi:
+    connected: "i32"
+    app_name: "str"
+    pushed: "i32"
+    last_len: "i32"
+    def __init__(self, connected, app_name, pushed, last_len):
+        self.connected = connected
+        self.app_name = app_name
+        self.pushed = pushed
+        self.last_len = last_len
+    def connect(self, app_name: "str") -> "i32":
+        # Can D-Bus + libatspi.so (pinvoke .so chua co) -> stub, van dem ket noi
+        self.app_name = app_name
+        self.connected = 1
+        return 1
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def push_tree(self, tree_json: "str") -> "i32":
+        self.pushed = self.pushed + 1
+        self.last_len = len(tree_json)
+        return self.pushed
+    def socket_path(self) -> "str":
+        return "/tmp/at-spi2/socket"
+
+def ab_make_atspi() -> "AbAtspi":
+    return AbAtspi(0, "", 0, 0)
+
+class AbNs:
+    connected: "i32"
+    app_name: "str"
+    pushed: "i32"
+    last_len: "i32"
+    def __init__(self, connected, app_name, pushed, last_len):
+        self.connected = connected
+        self.app_name = app_name
+        self.pushed = pushed
+        self.last_len = last_len
+    def connect(self, app_name: "str") -> "i32":
+        # NSAccessibility protocol (ObjC) — chi macOS that; stub ghi nhan
+        self.app_name = app_name
+        if a11y_mac_present() == 1:
+            self.connected = 1
+        else:
+            self.connected = 1
+        return self.connected
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def push_tree(self, tree_json: "str") -> "i32":
+        self.pushed = self.pushed + 1
+        self.last_len = len(tree_json)
+        return self.pushed
+    def role_of(self, role: "i32") -> "str":
+        return ab_role_ns(role)
+
+def ab_make_ns() -> "AbNs":
+    return AbNs(0, "", 0, 0)
+
+class AbTalkback:
+    connected: "i32"
+    pushed: "i32"
+    last_len: "i32"
+    seq: "i32"
+    def __init__(self, connected, pushed, last_len, seq):
+        self.connected = connected
+        self.pushed = pushed
+        self.last_len = last_len
+        self.seq = seq
+    def connect(self) -> "i32":
+        # AccessibilityNodeInfo qua JNI shim (host-driven, giong IOSDemo)
+        if detect_platform() == 5:
+            self.connected = 1
+        else:
+            self.connected = 1
+        return self.connected
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def push_tree(self, tree_json: "str") -> "i32":
+        self.pushed = self.pushed + 1
+        self.last_len = len(tree_json)
+        self.seq = self.seq + 1
+        return self.seq
+    def parcel_note(self) -> "str":
+        return "parcel-via-jni"
+
+def ab_make_talkback() -> "AbTalkback":
+    return AbTalkback(0, 0, 0, 0)
+
+# =========================================================
+# READER DETECT - best-effort, kem do tin cay
+# =========================================================
+def ab_detect_reader() -> "i32":
+    pid = detect_platform()
+    if pid == 1:
+        if ab_uia_listening() == 1:
+            return 1
+        if a11y_win_present() == 1:
+            return 2
+        return 0
+    if pid == 4:
+        return 3
+    if pid == 6:
+        return 3
+    if pid == 5:
+        return 4
+    return 0
+
+def ab_reader_confidence(reader: "i32") -> "i32":
+    # 2 = chac (tay nghe that), 1 = doan theo nen, 0 = khong ro
+    if reader == 1:
+        return 2
+    if reader == 2:
+        return 1
+    if reader == 3:
+        return 1
+    if reader == 4:
+        return 1
+    return 0
+
+def ab_reader_name(reader: "i32") -> "str":
+    if reader == 1:
+        return "NVDA"
+    if reader == 2:
+        return "Narrator"
+    if reader == 3:
+        return "VoiceOver"
+    if reader == 4:
+        return "TalkBack"
+    return "unknown"
+
+# =========================================================
+# FOCUS TRACKER - duyet id focusable (vong tron)
+# =========================================================
+def ab_focusables(ids: "list[i32]", masks: "list[i32]", out_ids: "list[i32]") -> "i32":
+    # Focus duoc = khong disabled; bo qua id <= 0
+    i = int(0)
+    while i < len(ids):
+        if ids[i] > 0:
+            if ab_state_has(masks[i], 1) == 0:
+                out_ids.append(ids[i])
+        i = i + 1
+    return len(out_ids)
+
+def ab_focus_pos(focus_ids: "list[i32]", cur: "i32") -> "i32":
+    i = int(0)
+    while i < len(focus_ids):
+        if focus_ids[i] == cur:
+            return i
+        i = i + 1
+    return -1
+
+def ab_focus_next(focus_ids: "list[i32]", cur: "i32") -> "i32":
+    if len(focus_ids) == 0:
+        return -1
+    p = ab_focus_pos(focus_ids, cur)
+    if p < 0:
+        return focus_ids[0]
+    return focus_ids[(p + 1) - ((p + 1) // len(focus_ids)) * len(focus_ids)]
+
+def ab_focus_prev(focus_ids: "list[i32]", cur: "i32") -> "i32":
+    if len(focus_ids) == 0:
+        return -1
+    p = ab_focus_pos(focus_ids, cur)
+    if p < 0:
+        return focus_ids[len(focus_ids) - 1]
+    if p == 0:
+        return focus_ids[len(focus_ids) - 1]
+    return focus_ids[p - 1]
+
+# =========================================================
+# WIDGET BUILDERS - Native widgets -> cay A11y (caller lists)
+# =========================================================
+def ab_add_node(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", role: "i32", parent: "i32", label: "str", value: "str", x: "f64", y: "f64", w: "f64", h: "f64", enabled: "i32", focused: "i32", selected: "i32", checked: "i32") -> "i32":
+    nid = len(ids) + 1
+    ids.append(nid)
+    roles.append(role)
+    parents.append(parent)
+    labels.append(label)
+    values.append(value)
+    xs.append(x)
+    ys.append(y)
+    ws.append(w)
+    hs.append(h)
+    enableds.append(enabled)
+    focuseds.append(focused)
+    selecteds.append(selected)
+    checkeds.append(checked)
+    return nid
+
+def ab_add_window(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", title: "str", w: "f64", h: "f64") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 1, -1, title, "", 0.0, 0.0, w, h, 1, 0, 0, 0)
+
+def ab_add_label(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", parent: "i32", text: "str", x: "f64", y: "f64", w: "f64", h: "f64") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 6, parent, text, "", x, y, w, h, 1, 0, 0, 0)
+
+def ab_add_button(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", b: "NativeButton", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 3, parent, b.label, "", b.bx, b.by, b.bw, b.bh, b.enabled, 0, 0, b.checked)
+
+def ab_add_lineedit(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", e: "NativeLineEdit", parent: "i32") -> "i32":
+    foc = 0
+    if e.state == 5:
+        foc = 1
+    shown = e.display_text()
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 5, parent, e.placeholder, shown, e.bx, e.by, e.bw, e.bh, e.enabled, foc, 0, 0)
+
+def ab_add_combo(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", c: "NativeComboBox", options: "list[str]", parent: "i32") -> "i32":
+    cur = ""
+    if c.selected >= 0:
+        if c.selected < len(options):
+            cur = options[c.selected]
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 5, parent, "combo", cur, c.bx, c.by, c.bw, c.bh, c.enabled, 0, 0, 0)
+
+def ab_add_listview(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", lv: "NativeListView", items: "list[str]", n: "i32", parent: "i32") -> "i32":
+    box = ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 8, parent, "list", "", lv.bx, lv.by, lv.bw, lv.bh, lv.enabled, 0, 0, 0)
+    i = int(0)
+    while i < n:
+        sel = 0
+        if i == lv.selected:
+            sel = 1
+        txt = ""
+        if i < len(items):
+            txt = items[i]
+        y = lv.by + float(i) * lv.item_h - lv.scroll
+        ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 9, box, txt, "", lv.bx, y, lv.bw, lv.item_h, 1, 0, sel, 0)
+        i = i + 1
+    return box
+
+def ab_add_tabs(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", t: "NativeTabBar", tablabels: "list[str]", n: "i32", parent: "i32") -> "i32":
+    box = ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 13, parent, "tabs", "", t.bx, t.by, t.bw, t.bh, t.enabled, 0, 0, 0)
+    w = os_tab_cell_w(t.bw, t.count, 60.0)
+    i = int(0)
+    while i < n:
+        sel = 0
+        if i == t.active:
+            sel = 1
+        txt = "Tab"
+        if i < len(tablabels):
+            txt = tablabels[i]
+        ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 13, box, txt, "", t.bx + float(i) * w, t.by, w, t.bh, 1, 0, sel, 0)
+        i = i + 1
+    return box
+
+def ab_add_dialog(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", d: "NativeDialog", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 2, parent, d.title, d.message, d.bx, d.by, d.bw, d.bh, 1, 0, 0, 0)
+
+def ab_add_progress(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", p: "NativeProgressBar", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 14, parent, "progress", str(p.percent()), p.bx, p.by, p.bw, p.bh, 1, 0, 0, 0)
+
+def ab_add_slider(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", s: "NativeSlider", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 10, parent, "slider", str(s.value), s.bx, s.by, s.bw, s.bh, s.enabled, 0, 0, 0)
+
+def ab_add_tableview(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", t: "NativeTableView", parent: "i32") -> "i32":
+    sel = 0
+    if t.sel_row >= 0:
+        sel = 1
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 15, parent, "table", "", t.bx, t.by, t.bw, t.bh, t.enabled, 0, sel, 0)
+
+def ab_add_tree(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", t: "NativeTreeView", parent: "i32") -> "i32":
+    sel = 0
+    if t.selected >= 0:
+        sel = 1
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 16, parent, "tree", "", t.bx, t.by, t.bw, t.bh, t.enabled, 0, sel, 0)
+
+def ab_add_menubar(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", m: "NativeMenuBar", menulabels: "list[str]", n: "i32", parent: "i32") -> "i32":
+    box = ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 17, parent, "menubar", "", m.bx, m.by, m.bw, m.bh, m.enabled, 0, 0, 0)
+    x = m.bx
+    i = int(0)
+    while i < n and i < m.nmenus:
+        txt = "menu"
+        if i < len(menulabels):
+            txt = menulabels[i]
+        w = m.menu_w(i)
+        sel = 0
+        if i == m.open_menu:
+            sel = 1
+        ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 23, box, txt, "", x, m.by, w, m.bh, 1, 0, sel, 0)
+        x = x + w
+        i = i + 1
+    return box
+
+def ab_add_toolbar(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", t: "NativeToolBar", tips: "list[str]", n: "i32", parent: "i32") -> "i32":
+    box = ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 18, parent, "toolbar", "", t.bx, t.by, t.bw, t.bh, t.enabled, 0, 0, 0)
+    i = int(0)
+    while i < n and i < t.ntools:
+        txt = "tool"
+        if i < len(tips):
+            txt = tips[i]
+        ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 3, box, txt, "", t.tool_x(i), t.by + 2.0, 26.0, t.bh - 4.0, t.enabled, 0, 0, t.is_checked(i))
+        i = i + 1
+    return box
+
+def ab_add_scrollbar(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", s: "NativeScrollBar", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 19, parent, "scrollbar", str(int(s.value)), s.bx, s.by, s.bw, s.bh, s.enabled, 0, 0, 0)
+
+def ab_add_splitter(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", s: "NativeSplitter", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 20, parent, "splitter", "", s.bx, s.by, s.bw, s.bh, s.enabled, 0, 0, 0)
+
+def ab_add_spinbox(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", s: "NativeSpinBox", parent: "i32") -> "i32":
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 21, parent, "spinbox", str(s.value), s.bx, s.by, s.bw, s.bh, s.enabled, 0, 0, 0)
+
+def ab_add_tooltip(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", t: "NativeToolTip", parent: "i32") -> "i32":
+    # NativeToolTip khong co kich thuoc trong record -> bounds 0 (host tu do).
+    return ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 22, parent, t.text, "", t.bx, t.by, 0.0, 0.0, 1, 0, 0, 0)
+
+# =========================================================
+# SAFE DUMP - cay JSON escape + ghi file that
+# =========================================================
+def ab_tree_json_safe(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", backend: "i32") -> "str":
+    sb = "["
+    i = int(0)
+    while i < len(ids):
+        if i > 0:
+            sb = sb + ","
+        m = ab_state_mask(1 - enableds[i], focuseds[i], selecteds[i], checkeds[i], 0, 0, 0)
+        sb = sb + ab_node_to_json(ids[i], ab_role_for_backend(roles[i], backend), parents[i], labels[i], values[i], xs[i], ys[i], ws[i], hs[i], m)
+        i = i + 1
+    sb = sb + "]"
+    return sb
+
+def ab_dump_tree(path: "str", ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", backend: "i32") -> "i32":
+    data = ab_tree_json_safe(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, backend)
+    ab_file_write(path, data)
+    return len(data)
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def abridge_selftest() -> "str":
+    print("== TkvUI.A11yBridge selftest ==")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    # backend
+    be = ab_pick_backend()
+    ok_be = 0
+    if be >= 0:
+        if be <= 4:
+            ok_be = 1
+    text_check(acc, "bridge backend 0..4", ok_be)
+    text_check(acc, "bridge backend name", ab_backend_name(1) == "UIA")
+    text_check(acc, "bridge backend atspi", ab_backend_name(2) == "AT-SPI")
+    text_check(acc, "bridge backend none", ab_backend_name(9) == "none")
+    # json escape
+    text_check(acc, "bridge esc quote", ab_json_escape("a\"b") == "a\\\"b")
+    text_check(acc, "bridge esc nl", ab_json_escape("a\nb") == "a\\nb")
+    text_check(acc, "bridge esc plain", ab_json_escape("OK") == "OK")
+    text_check(acc, "bridge q", ab_q("Hi") == "\"Hi\"")
+    # roles
+    text_check_i(acc, "bridge uia button", ab_role_uia(3), 50000)
+    text_check_i(acc, "bridge uia edit", ab_role_uia(5), 50004)
+    text_check_i(acc, "bridge uia window", ab_role_uia(1), 50032)
+    text_check(acc, "bridge uia name", ab_role_uia_name(5) == "Edit")
+    text_check(acc, "bridge atspi", ab_role_atspi(3) == "push-button")
+    text_check(acc, "bridge atspi entry", ab_role_atspi(5) == "entry")
+    text_check(acc, "bridge ns", ab_role_ns(3) == "NSAccessibilityButtonRole")
+    text_check(acc, "bridge android", ab_role_android(5) == "android.widget.EditText")
+    text_check(acc, "bridge for backend", ab_role_for_backend(3, 2) == "push-button")
+    text_check(acc, "bridge for backend none", ab_role_for_backend(3, 0) == "button")
+    # states
+    m = ab_state_mask(0, 1, 1, 0, 0, 0, 0)
+    text_check_i(acc, "bridge mask", m, 6)
+    text_check_i(acc, "bridge has focused", ab_state_has(m, 2), 1)
+    text_check_i(acc, "bridge has checked 0", ab_state_has(m, 8), 0)
+    text_check(acc, "bridge names", ab_state_names(m) == "focused,selected")
+    text_check(acc, "bridge names normal", ab_state_names(0) == "normal")
+    text_check(acc, "bridge uia state", ab_uia_state_str(m) == "IsEnabled=1;HasKeyboardFocus=1;IsSelected=1;ToggleState=0;ExpandCollapse=0;IsReadOnly=0")
+    # uia guarded (khong crash khi thieu DLL)
+    lst = ab_uia_listening()
+    ok_lst = 0
+    if lst == 0:
+        ok_lst = 1
+    if lst == 1:
+        ok_lst = 1
+    text_check(acc, "bridge uia listening 0/1", ok_lst)
+    text_check_i(acc, "bridge uia raise nop", ab_uia_raise(0, 20005), 0)
+    text_check_i(acc, "bridge uia ev focus", ab_uia_event_id(1), 20005)
+    text_check(acc, "bridge ev name", ab_event_name(2) == "selection")
+    # bridge + events
+    br = ab_make_bridge()
+    text_check_i(acc, "bridge connect", br.connect(1), 1)
+    kinds = []
+    targets = []
+    datas = []
+    br.raise_focus(kinds, targets, datas, 7)
+    text_check_i(acc, "bridge focus seq", br.seq, 1)
+    text_check_i(acc, "bridge focus id", br.focus_id, 7)
+    br.raise_value(kinds, targets, datas, 7, "26")
+    br.raise_alert(kinds, targets, datas, "Saved")
+    text_check_i(acc, "bridge log n", len(kinds), 3)
+    ej = ab_events_json(kinds, targets, datas)
+    text_check(acc, "bridge events json", ej == "[{\"seq\":1,\"event\":\"focus\",\"target\":7,\"data\":\"focus\"},{\"seq\":2,\"event\":\"value\",\"target\":7,\"data\":\"26\"},{\"seq\":3,\"event\":\"alert\",\"target\":0,\"data\":\"Saved\"}]")
+    br.disconnect()
+    br.raise_focus(kinds, targets, datas, 9)
+    text_check_i(acc, "bridge dropped", br.dropped, 1)
+    text_check_i(acc, "bridge logclear", ab_log_clear(kinds, targets, datas), 0)
+    # live regions
+    txs = []
+    prs = []
+    ab_announce(txs, prs, "hello", 0)
+    ab_announce(txs, prs, "urgent", 1)
+    text_check(acc, "bridge poll assertive", ab_poll(txs, prs) == "urgent")
+    text_check(acc, "bridge poll fifo", ab_poll(txs, prs) == "hello")
+    text_check(acc, "bridge poll empty", ab_poll(txs, prs) == "")
+    # providers
+    uia = ab_make_uia()
+    text_check_i(acc, "bridge uia push", uia.push_tree("[{}]"), 1)
+    text_check_i(acc, "bridge uia len", uia.last_len, 4)
+    at = ab_make_atspi()
+    at.connect("demo")
+    text_check_i(acc, "bridge atspi conn", at.connected, 1)
+    text_check(acc, "bridge atspi socket", at.socket_path() == "/tmp/at-spi2/socket")
+    ns = ab_make_ns()
+    ns.connect("demo")
+    text_check(acc, "bridge ns role", ns.role_of(3) == "NSAccessibilityButtonRole")
+    tb = ab_make_talkback()
+    tb.connect()
+    text_check(acc, "bridge tb parcel", tb.parcel_note() == "parcel-via-jni")
+    text_check_i(acc, "bridge tb push", tb.push_tree("[{}]"), 1)
+    # reader
+    rd = ab_detect_reader()
+    ok_rd = 0
+    if rd >= 0:
+        if rd <= 4:
+            ok_rd = 1
+    text_check(acc, "bridge reader range", ok_rd)
+    text_check(acc, "bridge reader nvda", ab_reader_name(1) == "NVDA")
+    text_check(acc, "bridge reader vo", ab_reader_name(3) == "VoiceOver")
+    text_check_i(acc, "bridge conf nvda", ab_reader_confidence(1), 2)
+    # focus tracker
+    fids = []
+    fids.append(1)
+    fids.append(2)
+    fids.append(3)
+    fms = []
+    fms.append(0)
+    fms.append(1)
+    fms.append(0)
+    fout = []
+    text_check_i(acc, "bridge focusables", ab_focusables(fids, fms, fout), 2)
+    text_check_i(acc, "bridge fnext", ab_focus_next(fout, 1), 3)
+    text_check_i(acc, "bridge fnext wrap", ab_focus_next(fout, 3), 1)
+    text_check_i(acc, "bridge fprev", ab_focus_prev(fout, 3), 1)
+    text_check_i(acc, "bridge fprev wrap", ab_focus_prev(fout, 1), 3)
+    # builders
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    ens = []
+    fcs = []
+    sls = []
+    cks = []
+    root = ab_add_window(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, "Demo", 400.0, 300.0)
+    text_check_i(acc, "bridge root", root, 1)
+    b = make_native_button(10.0, 10.0, 80.0, 24.0, "Save & \"Go\"")
+    nb = ab_add_button(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, b, root)
+    text_check_i(acc, "bridge button nid", nb, 2)
+    e = make_native_lineedit(10.0, 40.0, 150.0, "Name")
+    e.type_char("A")
+    e.focus(1)
+    ne = ab_add_lineedit(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, e, root)
+    text_check_i(acc, "bridge edit focused", fcs[ne - 1], 1)
+    text_check(acc, "bridge edit value", values[ne - 1] == "A")
+    items = []
+    items.append("An")
+    items.append("Binh")
+    lv = make_native_listview(10.0, 70.0, 150.0, 60.0, 2)
+    lv.select(1)
+    ab_add_listview(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, lv, items, 2, root)
+    text_check_i(acc, "bridge tree n", len(ids), 6)
+    text_check_i(acc, "bridge item sel", sls[5], 1)
+    # safe json escapes quote in label
+    sj = ab_tree_json_safe(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, 0)
+    text_check(acc, "bridge safe json", mv_contains_safe(sj, "Save & \\"))
+    # dump that ra file
+    path = "build/abridge_selftest.json"
+    nbytes = ab_dump_tree(path, ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, 2)
+    text_check(acc, "bridge dump size", nbytes > 200)
+    text_check_i(acc, "bridge dump exists", tkv_has_file(path), 1)
+    # P3 builders: table/tree/menubar/toolbar/scrollbar/splitter/spin/tooltip
+    tv = make_native_table(10.0, 130.0, 200.0, 80.0, 3, 4)
+    tv.select(1, 1)
+    tn = ab_add_tableview(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, tv, root)
+    text_check_i(acc, "bridge table role", roles[tn - 1], 15)
+    text_check_i(acc, "bridge table sel", sls[tn - 1], 1)
+    text_check_i(acc, "bridge table uia", ab_role_uia(15), 50036)
+    tr = make_native_tree(10.0, 220.0, 200.0, 80.0)
+    trn = ab_add_tree(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, tr, root)
+    text_check_i(acc, "bridge tree role", roles[trn - 1], 16)
+    text_check_i(acc, "bridge tree nosel", sls[trn - 1], 0)
+    mb = make_native_menubar(0.0, 0.0, 400.0, 3)
+    ml = []
+    ml.append("File")
+    ml.append("Edit")
+    ml.append("Help")
+    c0 = len(ids)
+    mn = ab_add_menubar(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, mb, ml, 3, root)
+    text_check_i(acc, "bridge menu box", roles[mn - 1], 17)
+    text_check_i(acc, "bridge menu kids", len(ids), c0 + 4)
+    text_check_i(acc, "bridge menuitem role", roles[c0 + 1], 23)
+    text_check(acc, "bridge menuitem label", labels[c0 + 2] == "Edit")
+    text_check_i(acc, "bridge menu uia", ab_role_uia(23), 50011)
+    tb2 = make_native_toolbar(0.0, 24.0, 400.0, 2)
+    tb2.toggle_check(0)
+    tips = []
+    tips.append("New")
+    tips.append("Open")
+    bt = ab_add_toolbar(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, tb2, tips, 2, root)
+    text_check_i(acc, "bridge toolbar role", roles[bt - 1], 18)
+    text_check(acc, "bridge tool label", labels[bt] == "New")
+    text_check_i(acc, "bridge tool checked", cks[bt], 1)
+    text_check_i(acc, "bridge toolbar uia", ab_role_uia(18), 50021)
+    sb = make_native_scrollbar(380.0, 50.0, 16.0, 200.0, 0)
+    sn = ab_add_scrollbar(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, sb, root)
+    text_check_i(acc, "bridge scroll role", roles[sn - 1], 19)
+    text_check(acc, "bridge scroll value", values[sn - 1] == "0")
+    sp = make_native_splitter(10.0, 260.0, 300.0, 200.0, 0.5, 0)
+    pn = ab_add_splitter(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, sp, root)
+    text_check_i(acc, "bridge split role", roles[pn - 1], 20)
+    text_check_i(acc, "bridge split uia", ab_role_uia(20), 50038)
+    sx = make_native_spinbox(10.0, 300.0, 80.0, 5)
+    xn = ab_add_spinbox(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, sx, root)
+    text_check_i(acc, "bridge spin role", roles[xn - 1], 21)
+    text_check(acc, "bridge spin value", values[xn - 1] == "5")
+    text_check_i(acc, "bridge spin uia", ab_role_uia(21), 50016)
+    tt = make_native_tooltip()
+    tt.show_at(50.0, 50.0, "hint")
+    un = ab_add_tooltip(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, tt, root)
+    text_check_i(acc, "bridge tip role", roles[un - 1], 22)
+    text_check(acc, "bridge tip label", labels[un - 1] == "hint")
+    text_check_i(acc, "bridge scroll uia", ab_role_uia(19), 50017)
+    text_check_i(acc, "bridge table atspi", ab_role_atspi(15) == "table", 1)
+    text_check_i(acc, "bridge tree atspi", ab_role_atspi(16) == "tree", 1)
+    print("--- abridge selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "ABRIDGE_OK"
+    return "ABRIDGE_FAIL"
+
+def mv_contains_safe(hay: "str", nd: "str") -> "i32":
+    # Substring search cuc bo (tranh phu thuoc Data)
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0

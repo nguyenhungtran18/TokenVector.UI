@@ -1,0 +1,544 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Uia - UIA provider kieu host-driven + SIM (Phase 9.2).
+
+KIEN TRUC THAT (khi unblock COM vtable): provider song trong tien trinh app,
+dang ky qua UiaHostProviderFromHwnd; .tkv chi day cay + event (khong goi COM).
+Hien tai: cay fragment + property/event ids THAT (so MS), transport = outbox
+list + file JSON (host C# doc + nang len UIA tree). Goi native that duoc
+guard: chi khi provider co hwnd != 0 (DllNotFound se crash exe neu goi chay).
+
+Tien to uia_*/Uia* — rieng biet voi uia_* cua A11y (clients_listening_ex...).
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Platform", "TkvUI.A11y", "TkvUI.A11yBridge"]
+__tkv_extern_method__ = [{"name": "up_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}]
+
+# UIA ControlType ids that (MSDN) — dung ab_role_uia() de map tu A11y role.
+# UIA Pattern ids
+UIA_PATTERN_INVOKE = 10000
+UIA_PATTERN_VALUE = 10002
+UIA_PATTERN_SELECTION = 10001
+UIA_PATTERN_TOGGLE = 10015
+UIA_PATTERN_EXPANDCOLLAPSE = 10005
+UIA_PATTERN_SCROLL = 10004
+UIA_PATTERN_RANGEVALUE = 10003
+
+# UIA Property ids
+UIA_PROP_NAME = 30005
+UIA_PROP_AUTOMATIONID = 30011
+UIA_PROP_CLASSNAME = 30012
+UIA_PROP_CONTROLTYPE = 30003
+UIA_PROP_ISENABLED = 30010
+UIA_PROP_HASKEYBOARDFOCUS = 30008
+UIA_PROP_ISSELECTED = 30079
+UIA_PROP_TOGGLESTATE = 30086
+UIA_PROP_EXPANDCOLLAPSESTATE = 30070
+UIA_PROP_VALUE = 30045
+UIA_PROP_BOUNDINGRECT = 30001
+
+# UIA NavigateDirection
+UIA_NAV_PARENT = 0
+UIA_NAV_NEXTSIBLING = 1
+UIA_NAV_PREVSIBLING = 2
+UIA_NAV_FIRSTCHILD = 3
+UIA_NAV_LASTCHILD = 4
+
+def uia_pattern_for_role(role: "i32") -> "i32":
+    # Pattern chinh cho tung role (de host goi DoInvoke/SetValue/...).
+    if role == 3:
+        return 10000
+    if role == 11:
+        return 10015
+    if role == 5:
+        return 10002
+    if role == 10:
+        return 10003
+    if role == 14:
+        return 10003
+    if role == 8:
+        return 10001
+    if role == 9:
+        return 10001
+    if role == 13:
+        return 10001
+    if role == 15:
+        return 10001
+    if role == 16:
+        return 10001
+    if role == 19:
+        return 10003
+    if role == 21:
+        return 10003
+    if role == 23:
+        return 10000
+    return 0
+
+def uia_pattern_name(pid: "i32") -> "str":
+    if pid == 10000:
+        return "Invoke"
+    if pid == 10002:
+        return "Value"
+    if pid == 10001:
+        return "Selection"
+    if pid == 10015:
+        return "Toggle"
+    if pid == 10005:
+        return "ExpandCollapse"
+    if pid == 10004:
+        return "Scroll"
+    if pid == 10003:
+        return "RangeValue"
+    return "none"
+
+def uia_toggle_state(checked: "i32") -> "i32":
+    if checked == 1:
+        return 1
+    return 0
+
+def uia_expand_state(open_flags: "i32") -> "i32":
+    # 0=Collapsed 1=Expanded 2=LeafNode
+    if open_flags == 1:
+        return 1
+    return 0
+
+# =========================================================
+# FRAGMENT NAV - tren cay A11y lists (ids/parents)
+# =========================================================
+def uia_first_child(ids: "list[i32]", parents: "list[i32]", pid: "i32") -> "i32":
+    i = int(0)
+    while i < len(ids):
+        if parents[i] == pid:
+            return ids[i]
+        i = i + 1
+    return -1
+
+def uia_last_child(ids: "list[i32]", parents: "list[i32]", pid: "i32") -> "i32":
+    out = -1
+    i = int(0)
+    while i < len(ids):
+        if parents[i] == pid:
+            out = ids[i]
+        i = i + 1
+    return out
+
+def uia_parent_of(ids: "list[i32]", parents: "list[i32]", nid: "i32") -> "i32":
+    i = int(0)
+    while i < len(ids):
+        if ids[i] == nid:
+            return parents[i]
+        i = i + 1
+    return -1
+
+def uia_next_sibling(ids: "list[i32]", parents: "list[i32]", nid: "i32") -> "i32":
+    par = uia_parent_of(ids, parents, nid)
+    found = 0
+    i = int(0)
+    while i < len(ids):
+        if parents[i] == par:
+            if found == 1:
+                return ids[i]
+            if ids[i] == nid:
+                found = 1
+        i = i + 1
+    return -1
+
+def uia_prev_sibling(ids: "list[i32]", parents: "list[i32]", nid: "i32") -> "i32":
+    par = uia_parent_of(ids, parents, nid)
+    prev = -1
+    i = int(0)
+    while i < len(ids):
+        if parents[i] == par:
+            if ids[i] == nid:
+                return prev
+            prev = ids[i]
+        i = i + 1
+    return -1
+
+def uia_navigate(ids: "list[i32]", parents: "list[i32]", nid: "i32", direction: "i32") -> "i32":
+    if direction == 0:
+        return uia_parent_of(ids, parents, nid)
+    if direction == 1:
+        return uia_next_sibling(ids, parents, nid)
+    if direction == 2:
+        return uia_prev_sibling(ids, parents, nid)
+    if direction == 3:
+        return uia_first_child(ids, parents, nid)
+    if direction == 4:
+        return uia_last_child(ids, parents, nid)
+    return -1
+
+# =========================================================
+# UiaProvider - host-driven provider (SIM transport)
+# =========================================================
+class UiaProvider:
+    hwnd: "i64"
+    connected: "i32"
+    root_id: "i32"
+    pushed: "i32"
+    fired: "i32"
+    last_len: "i32"
+    def __init__(self, hwnd, connected, root_id, pushed, fired, last_len):
+        self.hwnd = hwnd
+        self.connected = connected
+        self.root_id = root_id
+        self.pushed = pushed
+        self.fired = fired
+        self.last_len = last_len
+    def connect(self, hwnd: "i64", root_id: "i32") -> "i32":
+        # That: UiaHostProviderFromHwnd(hwnd) + UiaReturnRawElementProvider.
+        # Hien tai: ghi nhan hwnd, cho host C# doc outbox/file.
+        self.hwnd = hwnd
+        self.root_id = root_id
+        if hwnd == 0:
+            self.connected = 0
+        else:
+            self.connected = 1
+        return self.connected
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        self.hwnd = 0
+        return 0
+    def push_tree(self, frag_json: "str") -> "i32":
+        self.pushed = self.pushed + 1
+        self.last_len = len(frag_json)
+        return self.pushed
+    def fire(self, provider_ptr: "i64", kind: "i32") -> "i32":
+        # That: UiaRaiseAutomationEvent(ptr, ab_uia_event_id(kind)).
+        # Guard: provider_ptr==0 -> SIM drop (khong crash DllNotFound).
+        if provider_ptr == 0:
+            return 0
+        self.fired = self.fired + 1
+        return ab_uia_raise(provider_ptr, ab_uia_event_id(kind))
+
+def uia_make_provider() -> "UiaProvider":
+    return UiaProvider(0, 0, -1, 0, 0, 0)
+
+# =========================================================
+# FRAGMENT JSON - cay con UIA (host C# parse + nang len tree that)
+# =========================================================
+def uia_frag_node(nid: "i32", ctrl: "i32", ctrlname: "str", name: "str", aid: "str", mask: "i32", x: "f64", y: "f64", w: "f64", h: "f64") -> "str":
+    sb = ""
+    sb = sb + "{\"nid\":" + str(nid) + ",\"ctrl\":" + str(ctrl) + ",\"ctrlname\":" + ab_q(ctrlname)
+    sb = sb + ",\"name\":" + ab_q(name) + ",\"aid\":" + ab_q(aid)
+    sb = sb + ",\"states\":" + ab_q(ab_state_names(mask))
+    sb = sb + ",\"rect\":[" + str(x) + "," + str(y) + "," + str(w) + "," + str(h) + "]}"
+    return sb
+
+def uia_frag_json(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]") -> "str":
+    n = len(ids)
+    if len(roles) < n:
+        n = len(roles)
+    if len(parents) < n:
+        n = len(parents)
+    if len(labels) < n:
+        n = len(labels)
+    sb = "["
+    i = int(0)
+    while i < n:
+        if i > 0:
+            sb = sb + ","
+        m = ab_state_mask(1 - enableds[i], focuseds[i], selecteds[i], checkeds[i], 0, 0, 0)
+        sb = sb + uia_frag_node(ids[i], ab_role_uia(roles[i]), ab_role_uia_name(roles[i]), labels[i], "n" + str(ids[i]), m, xs[i], ys[i], ws[i], hs[i])
+        i = i + 1
+    sb = sb + "]"
+    return sb
+
+# =========================================================
+# OUTBOX - hang doi host poll (caller lists + file tuy chon)
+# =========================================================
+def uia_outbox_push(kinds: "list[i32]", payloads: "list[str]", kind: "i32", payload: "str") -> "i32":
+    kinds.append(kind)
+    payloads.append(payload)
+    return len(kinds)
+
+def uia_outbox_pop(kinds: "list[i32]", payloads: "list[str]") -> "str":
+    if len(kinds) == 0:
+        return ""
+    out = payloads[0]
+    j = int(0)
+    while j < len(kinds) - 1:
+        kinds[j] = kinds[j + 1]
+        payloads[j] = payloads[j + 1]
+        j = j + 1
+    kinds.pop()
+    payloads.pop()
+    return out
+
+def uia_outbox_clear(kinds: "list[i32]", payloads: "list[str]") -> "i32":
+    while len(kinds) > 0:
+        kinds.pop()
+    while len(payloads) > 0:
+        payloads.pop()
+    return 0
+
+def uia_dump_file(path: "str", frag_json: "str") -> "i32":
+    # Host C# watch file nay (FileSystemWatcher) de refresh UIA tree.
+    up_file_write(path, frag_json)
+    return len(frag_json)
+
+# =========================================================
+# P3.2 - WIN32 MIRROR: cua so + controls THAT cho screen reader.
+# Moi node ab -> 1 HWND that (CreateWindowExA class he thong, pinvoke da
+# chung minh o Platform.create/destroy). Khong can COM/CCW, khong can
+# extern class moi (trainh Control-typed gap). Chi chay Win32
+# (detect_platform()==1); noi khac goi van an toan nhung tra 0.
+# Gioi han v1 (ghi nhan): class ANSI (label non-ASCII mo), khong subclass
+# proc (khong xu ly click/focus events), composite -> STATIC container,
+# khong InitCommonControls (chi class he thong co san).
+# =========================================================
+def uia_mirror_class(role: "i32") -> "str":
+    if role == 5:
+        return "EDIT"
+    if role == 21:
+        return "EDIT"
+    if role == 11:
+        return "BUTTON"
+    if role == 3:
+        return "BUTTON"
+    if role == 23:
+        return "BUTTON"
+    if role == 8:
+        return "LISTBOX"
+    if role == 10:
+        return "SCROLLBAR"
+    if role == 19:
+        return "SCROLLBAR"
+    return "STATIC"
+
+def uia_mirror_style(role: "i32", top: "i32") -> "i32":
+    if top == 1:
+        return 0 - 1879048192
+    st = 1342177280
+    if role == 11:
+        st = st + 3
+    return st
+
+def uia_mirror_build(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", out_hwnds: "list[i64]", title: "str", show: "i32") -> "i64":
+    # Dung parent top-level + 1 HWND con moi node (bo root). out_hwnds song
+    # song ids (root dau tien). Tra parent hwnd (0 = fail/khong Win32).
+    # show=1 hien cua so (probe tay), show=0 an (headless/CI).
+    if detect_platform() != 1:
+        return 0
+    if len(ids) == 0:
+        return 0
+    pw = int(ws[0])
+    ph = int(hs[0])
+    if pw < 1:
+        pw = 1
+    if ph < 1:
+        ph = 1
+    parent = win_create_window_ex(524416, "STATIC", title, 0 - 1879048192, 100, 100, pw, ph, 0, 0, 0, 0)
+    if parent == 0:
+        return 0
+    out_hwnds.append(parent)
+    i = int(1)
+    while i < len(ids):
+        cls = uia_mirror_class(roles[i])
+        st = uia_mirror_style(roles[i], 0)
+        h = win_create_window_ex(0, cls, labels[i], st, int(xs[i]), int(ys[i]), int(ws[i]), int(hs[i]), parent, 0, 0, 0)
+        out_hwnds.append(h)
+        i = i + 1
+    if show == 1:
+        rc = win_show_window(parent, 5)
+    return parent
+
+def uia_mirror_destroy(parent: "i64", hwnds: "list[i64]") -> "i32":
+    # Huy con truoc, parent sau. Tra so HWND huy thanh cong.
+    ok = int(0)
+    i = int(1)
+    while i < len(hwnds):
+        h = hwnds[i]
+        if h != 0:
+            if win_destroy_window(h) != 0:
+                ok = ok + 1
+        i = i + 1
+    if parent != 0:
+        if win_destroy_window(parent) != 0:
+            ok = ok + 1
+    return ok
+
+# =========================================================
+# SELFTEST (pure logic + guarded native; khong can SR that)
+# =========================================================
+def uiacheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def uiacheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def uiacheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def uia_seed_ids() -> "list[i32]":
+    out = []
+    out.append(1)
+    out.append(2)
+    out.append(3)
+    out.append(4)
+    return out
+
+def uia_seed_parents() -> "list[i32]":
+    out = []
+    out.append(-1)
+    out.append(1)
+    out.append(1)
+    out.append(3)
+    return out
+
+def uia_selftest() -> "str":
+    print("== TkvUI.Uia selftest ==")
+    acc = [int(0), int(0)]
+    uiacheck_i(acc, "pattern.button", uia_pattern_for_role(3), 10000)
+    uiacheck_i(acc, "pattern.slider", uia_pattern_for_role(10), 10003)
+    uiacheck_i(acc, "pattern.none", uia_pattern_for_role(6), 0)
+    uiacheck_s(acc, "pattern.name", uia_pattern_name(10015), "Toggle")
+    uiacheck_i(acc, "toggle.on", uia_toggle_state(1), 1)
+    uiacheck_i(acc, "expand.open", uia_expand_state(1), 1)
+    uiacheck_i(acc, "expand.leaf", uia_expand_state(0), 0)
+    ids = uia_seed_ids()
+    pars = uia_seed_parents()
+    uiacheck_i(acc, "nav.first", uia_navigate(ids, pars, 1, 3), 2)
+    uiacheck_i(acc, "nav.last", uia_navigate(ids, pars, 1, 4), 3)
+    uiacheck_i(acc, "nav.parent", uia_navigate(ids, pars, 4, 0), 3)
+    uiacheck_i(acc, "nav.next", uia_navigate(ids, pars, 2, 1), 3)
+    uiacheck_i(acc, "nav.prev", uia_navigate(ids, pars, 3, 2), 2)
+    uiacheck_i(acc, "nav.prev.first", uia_navigate(ids, pars, 2, 2), -1)
+    uiacheck_i(acc, "nav.next.last", uia_navigate(ids, pars, 3, 1), -1)
+    uiacheck_i(acc, "nav.miss", uia_navigate(ids, pars, 9, 0), -1)
+    # provider + outbox (SIM, khong native)
+    p = uia_make_provider()
+    uiacheck_i(acc, "prov.conn0", p.connect(0, 1), 0)
+    uiacheck_i(acc, "prov.conn", p.connect(1234, 1), 1)
+    uiacheck_i(acc, "prov.push", p.push_tree("[{}]"), 1)
+    uiacheck_i(acc, "prov.fire.nop", p.fire(0, 1), 0)
+    uiacheck_i(acc, "prov.disc", p.disconnect(), 0)
+    kinds = []
+    pays = []
+    uia_outbox_push(kinds, pays, 1, "focus:7")
+    uia_outbox_push(kinds, pays, 3, "value:7=26")
+    uiacheck_s(acc, "outbox.pop", uia_outbox_pop(kinds, pays), "focus:7")
+    uiacheck_s(acc, "outbox.pop2", uia_outbox_pop(kinds, pays), "value:7=26")
+    uiacheck_s(acc, "outbox.empty", uia_outbox_pop(kinds, pays), "")
+    # frag json tren cay nho
+    roles = []
+    roles.append(1)
+    roles.append(3)
+    labels = []
+    labels.append("Demo")
+    labels.append("Save")
+    xs = []
+    xs.append(0.0)
+    xs.append(10.0)
+    ys = []
+    ys.append(0.0)
+    ys.append(10.0)
+    ws = []
+    ws.append(400.0)
+    ws.append(80.0)
+    hs = []
+    hs.append(300.0)
+    hs.append(24.0)
+    ens = []
+    ens.append(1)
+    ens.append(1)
+    fcs = []
+    fcs.append(0)
+    fcs.append(0)
+    sls = []
+    sls.append(0)
+    sls.append(0)
+    cks = []
+    cks.append(0)
+    cks.append(0)
+    pars2 = []
+    pars2.append(-1)
+    pars2.append(1)
+    fj = uia_frag_json(ids, roles, pars2, labels, xs, ys, ws, hs, ens, fcs, sls, cks)
+    uiacheck(acc, "frag.has", mv_contains_safe4(fj, "50000"))
+    uiacheck(acc, "frag.name", mv_contains_safe4(fj, "Save"))
+    nbytes = uia_dump_file("build/uia_selftest.json", fj)
+    okf = 0
+    if nbytes > 100:
+        okf = 1
+    uiacheck(acc, "frag.file", okf)
+    # P3.2 Win32 mirror (headless-safe: show=0; non-Win32 -> SKIP pass)
+    if detect_platform() != 1:
+        print("  SKIP uia mirror (non-Win32)")
+        uiacheck(acc, "mirror.skip", 1)
+    else:
+        mids = []
+        mroles = []
+        mpars = []
+        mlbs = []
+        mxs = []
+        mys = []
+        mws = []
+        mhs = []
+        mens = []
+        mfcs = []
+        msls = []
+        mcks = []
+        mvals = []
+        ab_add_node(mids, mroles, mpars, mlbs, mvals, mxs, mys, mws, mhs, mens, mfcs, msls, mcks, 1, -1, "MirrorDemo", "", 0.0, 0.0, 400.0, 300.0, 1, 0, 0, 0)
+        ab_add_node(mids, mroles, mpars, mlbs, mvals, mxs, mys, mws, mhs, mens, mfcs, msls, mcks, 3, 1, "Save", "", 10.0, 10.0, 80.0, 24.0, 1, 0, 0, 0)
+        ab_add_node(mids, mroles, mpars, mlbs, mvals, mxs, mys, mws, mhs, mens, mfcs, msls, mcks, 5, 1, "Name", "Ann", 10.0, 40.0, 150.0, 24.0, 1, 0, 0, 0)
+        mhw = []
+        mph = uia_mirror_build(mids, mroles, mpars, mlbs, mxs, mys, mws, mhs, mhw, "MirrorDemo", 0)
+        mok = 0
+        if mph != 0:
+            mok = 1
+        uiacheck(acc, "mirror.parent", mok)
+        uiacheck_i(acc, "mirror.nhwnd", len(mhw), 3)
+        cok = 0
+        if len(mhw) == 3:
+            if mhw[1] != 0:
+                if mhw[2] != 0:
+                    cok = 1
+        uiacheck(acc, "mirror.children", cok)
+        uiacheck_i(acc, "mirror.destroy", uia_mirror_destroy(mph, mhw), 3)
+        uiacheck_i(acc, "mirror.class.btn", uia_mirror_class(3) == "BUTTON", 1)
+        uiacheck_i(acc, "mirror.class.edit", uia_mirror_class(5) == "EDIT", 1)
+        uiacheck_i(acc, "mirror.class.text", uia_mirror_class(6) == "STATIC", 1)
+    print("uia: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "UIA_OK"
+    return "UIA_FAIL"
+
+def mv_contains_safe4(hay: "str", nd: "str") -> "i32":
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0
+
