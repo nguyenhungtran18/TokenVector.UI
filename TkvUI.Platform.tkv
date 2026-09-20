@@ -3,9 +3,9 @@
 __tkv_import__ = ["TkvUI.Core"]
 __tkv_extern_assembly__ = ["System.Windows.Forms"]
 # Probe runtime bang API mscorlib (portable Win/Mono/Android/iOS) - dung cho detect_platform()
-__tkv_extern_method__ = [{"name": "tkv_getenv", "assembly": "mscorlib", "class": "System.Environment", "method": "GetEnvironmentVariable", "params": ["str"], "returns": "str"}, {"name": "tkv_file_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}]
-__tkv_extern_class__ = [{"name": "TkvForm", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Form", "ctor": [], "methods": [{"name": "Show", "params": [], "returns": "void"}, {"name": "Hide", "params": [], "returns": "void"}, {"name": "Close", "params": [], "returns": "void"}, {"name": "Refresh", "params": [], "returns": "void"}], "properties": [{"name": "Text", "dtype": "str", "readonly": False}, {"name": "Opacity", "dtype": "f64", "readonly": False}]}]
-__tkv_extern_pinvoke__ = [{"name": "win_create_window_ex", "dll": "user32.dll", "symbol": "CreateWindowExA", "convention": "stdcall", "params": ["i32", "str", "str", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "win_destroy_window", "dll": "user32.dll", "symbol": "DestroyWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_show_window", "dll": "user32.dll", "symbol": "ShowWindow", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_set_window_pos", "dll": "user32.dll", "symbol": "SetWindowPos", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_set_layered_attr", "dll": "user32.dll", "symbol": "SetLayeredWindowAttributes", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_update_layered", "dll": "user32.dll", "symbol": "UpdateLayeredWindow", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "win_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "win_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "win_get_queue_status", "dll": "user32.dll", "symbol": "GetQueueStatus", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_set_window_text", "dll": "user32.dll", "symbol": "SetWindowTextA", "convention": "stdcall", "params": ["i64", "str"], "returns": "i32"}, {"name": "win_get_desktop_window", "dll": "user32.dll", "symbol": "GetDesktopWindow", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "gdi_create_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "gdi_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_create_bitmap", "dll": "gdi32.dll", "symbol": "CreateBitmap", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "gdi_select_object", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "gdi_delete_object", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_set_pixel_v", "dll": "gdi32.dll", "symbol": "SetPixelV", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_get_last_error", "dll": "kernel32.dll", "symbol": "GetLastError", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "win_virtual_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"}, {"name": "win_virtual_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "win_wsprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_create_dib_section", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"}, {"name": "win_get_window_long", "dll": "user32.dll", "symbol": "GetWindowLongA", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "gdi_get_object", "dll": "gdi32.dll", "symbol": "GetObject", "convention": "stdcall", "params": ["i64", "i32", "i64"], "returns": "i32"}, {"name": "gdi_get_device_caps", "dll": "gdi32.dll", "symbol": "GetDeviceCaps", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_lstrlen", "dll": "kernel32.dll", "symbol": "lstrlenA", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_bit_blt", "dll": "gdi32.dll", "symbol": "BitBlt", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_create_file_mapping", "dll": "kernel32.dll", "symbol": "CreateFileMappingA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "str"], "returns": "i64"}, {"name": "win_map_view", "dll": "kernel32.dll", "symbol": "MapViewOfFile", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "win_unmap_view", "dll": "kernel32.dll", "symbol": "UnmapViewOfFile", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_close_handle", "dll": "kernel32.dll", "symbol": "CloseHandle", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"}, {"name": "win_lstrcmp", "dll": "kernel32.dll", "symbol": "lstrcmpA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "u_peek", "dll": "user32.dll", "symbol": "PeekMessageA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "u_getpos", "dll": "user32.dll", "symbol": "GetMessagePos", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "u_gks", "dll": "user32.dll", "symbol": "GetAsyncKeyState", "convention": "stdcall", "params": ["i32"], "returns": "i32"}]
+__tkv_extern_method__ = [{"name": "tkv_getenv", "assembly": "mscorlib", "class": "System.Environment", "method": "GetEnvironmentVariable", "params": ["str"], "returns": "str"}, {"name": "tkv_file_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}, {"name": "tkv_doevents", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "DoEvents", "params": [], "returns": "void"}, {"name": "tkv_run", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "Run", "params": ["i64"], "returns": "void"}, {"name": "tkv_exit", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "Exit", "params": [], "returns": "void"}, {"name": "tkv_exit_thread", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "ExitThread", "params": [], "returns": "void"}, {"name": "tkv_add_message_filter", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "AddMessageFilter", "params": ["i64"], "returns": "void"}, {"name": "tkv_remove_message_filter", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Application", "method": "RemoveMessageFilter", "params": ["i64"], "returns": "void"}, {"name": "tkv_set_suspend_layout", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Layout", "method": "SuspendLayout", "params": ["i64"], "returns": "void"}, {"name": "tkv_resume_layout", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Layout", "method": "ResumeLayout", "params": ["i64", "i32"], "returns": "void"}, {"name": "tkv_set_bounds_core", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "SetBoundsCore", "params": ["i64", "i32", "i32", "i32", "i32", "i32"], "returns": "void"}, {"name": "tkv_invoke", "assembly": "mscorlib", "class": "System.Windows.Forms.Control", "method": "Invoke", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_begin_invoke", "assembly": "mscorlib", "class": "System.Windows.Forms.Control", "method": "BeginInvoke", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_end_invoke", "assembly": "mscorlib", "class": "System.Windows.Forms.Control", "method": "EndInvoke", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_create_graphics", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "CreateGraphics", "params": ["i64"], "returns": "i64"}, {"name": "tkv_point_to_screen", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "PointToScreen", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_point_to_client", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "PointToClient", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_rectangle_to_screen", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "RectangleToScreen", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_rectangle_to_client", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "RectangleToClient", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_find_form", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "FindForm", "params": ["i64"], "returns": "i64"}, {"name": "tkv_get_top_level_control", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "GetTopLevelControl", "params": ["i64"], "returns": "i64"}, {"name": "tkv_pre_process_message", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "PreProcessMessage", "params": ["i64", "i64"], "returns": "i32"}, {"name": "tkv_process_cmd_key", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "ProcessCmdKey", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "tkv_process_dialog_key", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "ProcessDialogKey", "params": ["i64", "i32"], "returns": "i32"}, {"name": "tkv_process_dialog_char", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "ProcessDialogChar", "params": ["i64", "str"], "returns": "i32"}, {"name": "tkv_is_input_key", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "IsInputKey", "params": ["i64", "i32"], "returns": "i32"}, {"name": "tkv_get_preferred_size", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "GetPreferredSize", "params": ["i64", "i64"], "returns": "i64"}, {"name": "tkv_set_style", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "SetStyle", "params": ["i64", "i32", "i32"], "returns": "void"}, {"name": "tkv_get_style", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "GetStyle", "params": ["i64", "i32"], "returns": "i32"}, {"name": "tkv_update_styles", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "UpdateStyles", "params": ["i64"], "returns": "void"}, {"name": "tkv_recreate_handle", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "RecreateHandle", "params": ["i64"], "returns": "void"}, {"name": "tkv_destroy_handle", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "DestroyHandle", "params": ["i64"], "returns": "void"}, {"name": "tkv_create_handle", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "CreateHandle", "params": ["i64"], "returns": "void"}, {"name": "tkv_on_handle_created", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "OnHandleCreated", "params": ["i64", "i64"], "returns": "void"}, {"name": "tkv_on_handle_destroyed", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Control", "method": "OnHandleDestroyed", "params": ["i64", "i64"], "returns": "void"}]
+__tkv_extern_class__ = [{"name": "TkvForm", "assembly": "System.Windows.Forms", "class": "System.Windows.Forms.Form", "ctor": [], "methods": [{"name": "Show", "params": [], "returns": "void"}, {"name": "Hide", "params": [], "returns": "void"}, {"name": "Close", "params": [], "returns": "void"}, {"name": "Refresh", "params": [], "returns": "void"}, {"name": "Invalidate", "params": [], "returns": "void"}], "properties": [{"name": "Text", "dtype": "str", "readonly": False}, {"name": "Opacity", "dtype": "f64", "readonly": False}, {"name": "Left", "dtype": "i32", "readonly": False}, {"name": "Top", "dtype": "i32", "readonly": False}, {"name": "Width", "dtype": "i32", "readonly": False}, {"name": "Height", "dtype": "i32", "readonly": False}, {"name": "Visible", "dtype": "i32", "readonly": False}, {"name": "Enabled", "dtype": "i32", "readonly": False}]}]
+__tkv_extern_pinvoke__ = [{"name": "win_create_window_ex", "dll": "user32.dll", "symbol": "CreateWindowExA", "convention": "stdcall", "params": ["i32", "str", "str", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64", "i64"], "returns": "i64"}, {"name": "win_destroy_window", "dll": "user32.dll", "symbol": "DestroyWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_show_window", "dll": "user32.dll", "symbol": "ShowWindow", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_set_window_pos", "dll": "user32.dll", "symbol": "SetWindowPos", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_set_layered_attr", "dll": "user32.dll", "symbol": "SetLayeredWindowAttributes", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_update_layered", "dll": "user32.dll", "symbol": "UpdateLayeredWindow", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "win_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "win_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "win_get_queue_status", "dll": "user32.dll", "symbol": "GetQueueStatus", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_set_window_text", "dll": "user32.dll", "symbol": "SetWindowTextA", "convention": "stdcall", "params": ["i64", "str"], "returns": "i32"}, {"name": "win_get_desktop_window", "dll": "user32.dll", "symbol": "GetDesktopWindow", "convention": "stdcall", "params": [], "returns": "i64"}, {"name": "gdi_create_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "gdi_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_create_bitmap", "dll": "gdi32.dll", "symbol": "CreateBitmap", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "gdi_select_object", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"}, {"name": "gdi_delete_object", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_set_pixel_v", "dll": "gdi32.dll", "symbol": "SetPixelV", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_get_last_error", "dll": "kernel32.dll", "symbol": "GetLastError", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "win_virtual_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"}, {"name": "win_virtual_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"}, {"name": "win_wsprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32", "i32"], "returns": "i32"}, {"name": "gdi_create_dib_section", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"}, {"name": "win_get_window_long", "dll": "user32.dll", "symbol": "GetWindowLongA", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "gdi_get_object", "dll": "gdi32.dll", "symbol": "GetObject", "convention": "stdcall", "params": ["i64", "i32", "i64"], "returns": "i32"}, {"name": "gdi_get_device_caps", "dll": "gdi32.dll", "symbol": "GetDeviceCaps", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"}, {"name": "win_lstrlen", "dll": "kernel32.dll", "symbol": "lstrlenA", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_bit_blt", "dll": "gdi32.dll", "symbol": "BitBlt", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i32", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "win_create_file_mapping", "dll": "kernel32.dll", "symbol": "CreateFileMappingA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32", "str"], "returns": "i64"}, {"name": "win_map_view", "dll": "kernel32.dll", "symbol": "MapViewOfFile", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32", "i64"], "returns": "i64"}, {"name": "win_unmap_view", "dll": "kernel32.dll", "symbol": "UnmapViewOfFile", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_close_handle", "dll": "kernel32.dll", "symbol": "CloseHandle", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "gdi_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"}, {"name": "win_lstrcmp", "dll": "kernel32.dll", "symbol": "lstrcmpA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "u_peek", "dll": "user32.dll", "symbol": "PeekMessageA", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "i32"}, {"name": "u_getpos", "dll": "user32.dll", "symbol": "GetMessagePos", "convention": "stdcall", "params": [], "returns": "i32"}, {"name": "u_gks", "dll": "user32.dll", "symbol": "GetAsyncKeyState", "convention": "stdcall", "params": ["i32"], "returns": "i32"}, {"name": "win_get_module", "dll": "kernel32.dll", "symbol": "GetModuleHandleA", "convention": "stdcall", "params": ["str"], "returns": "i64"}, {"name": "win_get_proc", "dll": "kernel32.dll", "symbol": "GetProcAddress", "convention": "stdcall", "params": ["i64", "str"], "returns": "i64"}, {"name": "win_get_dpi_win", "dll": "user32.dll", "symbol": "GetDpiForWindow", "convention": "stdcall", "params": ["i64"], "returns": "i32"}, {"name": "win_get_user_lcid", "dll": "kernel32.dll", "symbol": "GetUserDefaultLCID", "convention": "stdcall", "params": [], "returns": "i32"}]
 
 # =========================================================
 # TASK 5: PLATFORM - Abstraction & Native Window (P3: Win32 real)
@@ -25,6 +25,15 @@ QS_ALLINPUT = 1279
 TKV_COLORKEY = 16711935
 TKV_DEFAULT_ALPHA = 255
 
+# IME constants (Win32)
+GCS_COMPSTR = 8
+GCS_RESULTSTR = 8192
+NI_COMPOSITIONSTR = 15
+NI_OPENCANDIDATE = 16
+NI_CLOSECANDIDATE = 17
+IMN_SETCONVERSIONMODE = 1
+IMN_SETOPENSTATUS = 2
+
 def tkv_has_env(name: "str") -> "i32":
     # tkv_getenv tra null khi bien khong ton tai -> noi chuoi de null-safe truoc khi len()
     v = tkv_getenv(name) + "|"
@@ -36,6 +45,24 @@ def tkv_has_file(path: "str") -> "i32":
     if tkv_file_exists(path) == True:
         return 1
     return 0
+
+# IME helpers (Win32)
+def ime_get_context(hwnd: "i64") -> "i64":
+    return imm_get_context(hwnd)
+
+def ime_release_context(hwnd: "i64", hIMC: "i64") -> "i32":
+    return imm_release_context(hwnd, hIMC)
+
+def ime_get_composition_string(hIMC: "i64", buf: "list[i64]", max_len: "i32") -> "i32":
+    # GCS_RESULTSTR = 8192 lay chuoi ket qua
+    return imm_get_composition_string_w(hIMC, 8192, buf[0], max_len)
+
+def ime_set_composition_string(hIMC: "i64", text: "str") -> "i32":
+    # Can tao buffer chua text UTF-16
+    return 0
+
+def ime_notify_ime(hIMC: "i32", action: "i32", index: "i32", value: "i32") -> "i32":
+    return imm_notify_ime(hIMC, action, index, value)
 
 def detect_platform_id() -> "str":
     # Ten backend theo ma platform (chi de hien thi/log)
@@ -381,6 +408,118 @@ def wf_refresh(frm: "TkvForm") -> "i32":
 def wf_backend_name() -> "str":
     return "winforms"
 
+# ---- WinForms Interop Extensions ----
+# Helpers de tuong tac voi WinForms tu .tkv
+
+def wf_get_handle(frm: "TkvForm") -> "i64":
+    # Lay HWND cua Form (can de host TkvUI hoac embed).
+    # CHUA LAM (da verify): Form.Handle kieu IntPtr, compiler chi map i64->Int64
+    # nen goi sinh MissingMethodException. Can IntPtr-typed extern property.
+    # Huong that: pinvoke FindWindowA(NULL, frm.Text) sau wf_show (mo cua so that).
+    return 0
+
+def wf_set_parent(child: "TkvForm", parent: "TkvForm") -> "i32":
+    # Set parent Form (MDI hoac embed)
+    # CHUA LAM: Parent kieu Control - can extern class Control-typed (compiler gap)
+    return 0
+
+def wf_set_bounds(frm: "TkvForm", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+    # Thiet lap vi tri va kich thuoc (khong can handle, an toan headless)
+    frm.Left = x
+    frm.Top = y
+    frm.Width = w
+    frm.Height = h
+    return 1
+
+def wf_get_bounds(frm: "TkvForm") -> "list[i32]":
+    # Lay [x, y, w, h]
+    out = []
+    out.append(frm.Left)
+    out.append(frm.Top)
+    out.append(frm.Width)
+    out.append(frm.Height)
+    return out
+
+def wf_invalidate(frm: "TkvForm") -> "i32":
+    # Yeu cau ve lai (goi Invalidate)
+    frm.Invalidate()
+    return 1
+
+def wf_do_events() -> "i32":
+    # Xu ly cac message dang cho (Application.DoEvents) - an toan headless
+    tkv_doevents()
+    return 1
+
+def wf_run(frm: "TkvForm") -> "i32":
+    # Chay message loop (Application.Run) - BLOCKING, khong goi trong selftest.
+    # CHUA LAM: can truyen Form instance vao extern static (compiler gap)
+    return 0
+
+def wf_exit() -> "i32":
+    # Thoat application (Application.Exit) - no-op khi chua co loop
+    tkv_exit()
+    return 1
+
+def wf_create_control(cls: "str") -> "i64":
+    # Tao control tu ten class (Button, Label, etc.) - tra pointer
+    return 0  # Placeholder - can Activator.CreateInstance
+
+def wf_add_control(parent: "TkvForm", child: "i64") -> "i32":
+    # Them control con vao Form/Container
+    return 0  # Placeholder
+
+def wf_remove_control(parent: "TkvForm", child: "i64") -> "i32":
+    # Xoa control con
+    return 0  # Placeholder
+
+def wf_set_text(ctrl: "i64", txt: "str") -> "i32":
+    # Set Text property cua control
+    return 0  # Placeholder
+
+def wf_get_text(ctrl: "i64") -> "str":
+    # Lay Text property
+    return ""
+
+def wf_set_visible(ctrl: "i64", vis: "i32") -> "i32":
+    # Set Visible property
+    return 0
+
+def wf_set_enabled(ctrl: "i64", en: "i32") -> "i32":
+    # Set Enabled property
+    return 0
+
+def wf_set_font(ctrl: "i64", family: "str", size: "f64", style: "i32") -> "i32":
+    # Set Font
+    return 0
+
+def wf_set_color(ctrl: "i64", r: "i32", g: "i32", b: "i32") -> "i32":
+    # Set ForeColor/BackColor
+    return 0
+
+def wf_set_dock(ctrl: "i64", dock: "i32") -> "i32":
+    # DockStyle: 0=None, 1=Top, 2=Bottom, 3=Left, 4=Right, 5=Fill
+    return 0
+
+def wf_set_anchor(ctrl: "i64", anchor: "i32") -> "i32":
+    # AnchorStyles bitmask
+    return 0
+
+def wf_subscribe_click(ctrl: "i64", callback: "i64") -> "i32":
+    # Dang ky event Click (callback pointer)
+    return 0
+
+def wf_subscribe_text_changed(ctrl: "i64", callback: "i64") -> "i32":
+    # Dang ky TextChanged
+    return 0
+
+def wf_subscribe_value_changed(ctrl: "i64", callback: "i64") -> "i32":
+    # Dang ky ValueChanged (TrackBar, NumericUpDown, etc.)
+    return 0
+
+def wf_subscribe_form_closing(frm: "TkvForm", callback: "i64") -> "i32":
+    # Dang ky FormClosing
+    return 0
+
 # ---- P7.6: input poll that (GetMessagePos = toa do man hinh lan cuoi) ----
 # Luu y da spike: returns pinvoke chi nhan void/bool/f32/f64/i32/i64/... (KHONG
 # co i16); float() tren gia tri i32 tra tu pinvoke DUNG (khac quirk float(TkvInt)).
@@ -438,11 +577,112 @@ def win_key_down(vk: "i32") -> "i32":
         return 0
     return 1
 
+# ---- P8.3: per-monitor DPI (GetDpiForWindow + fallback DeviceCaps) ----
+# GetDpiForWindow chi co tu Win10 1607: kiem tra export qua GetProcAddress
+# truoc khi goi (goi thang khi thieu export = crash EntryPointNotFound).
+def win_has_dpi_api() -> "i32":
+    h = win_get_module("user32.dll")
+    if h == 0:
+        return 0
+    p = win_get_proc(h, "GetDpiForWindow")
+    if p == 0:
+        return 0
+    return 1
+
+def win_dpi_for_window(hwnd: "i64") -> "i32":
+    if hwnd == 0:
+        return 0
+    if win_has_dpi_api() == 0:
+        return 0
+    d = win_get_dpi_win(hwnd)
+    if d < 96:
+        d = 96
+    if d > 384:
+        d = 384
+    return d
+
+def win_system_dpi() -> "i32":
+    # Fallback moi Windows: LOGPIXELSX (88) tren screen DC
+    dc = win_get_dc(0)
+    if dc == 0:
+        return 96
+    d = gdi_get_device_caps(dc, 88)
+    rc = win_release_dc(0, dc)
+    if d < 96:
+        d = 96
+    if d > 384:
+        d = 384
+    return d
+
+def win_dpi_scale(dpi: "i32") -> "f64":
+    if dpi <= 0:
+        return 1.0
+    return float(dpi) / 96.0
+
+def win_window_dpi_scale(hwnd: "i64") -> "f64":
+    d = win_dpi_for_window(hwnd)
+    if d == 0:
+        d = win_system_dpi()
+    return win_dpi_scale(d)
+
+def win_dpi_changed() -> "i32":
+    # Peek (KHONG remove) WM_DPICHANGED = 736. Goi TRUOC win_poll_messages
+    # (pump drain dai 523..32767 se an mat msg nay).
+    m = win_virtual_alloc(0, 64, 12288, 4)
+    if m == 0:
+        return 0
+    have = u_peek(m, 0, 736, 736, 0)
+    rcf = win_virtual_free(m, 0, 32768)
+    if have == 0:
+        return 0
+    return 1
+
+def win_dpi_ack() -> "i32":
+    # Xoa WM_DPICHANGED khoi queue sau khi da ap dung scale moi
+    m = win_virtual_alloc(0, 64, 12288, 4)
+    if m == 0:
+        return 0
+    have = u_peek(m, 0, 736, 736, 1)
+    rcf = win_virtual_free(m, 0, 32768)
+    if have == 0:
+        return 0
+    return 1
+
+# ---- P8.5: RTL locale detect (LCID, khong out-buffer) ----
+# GetUserDefaultLocaleName can buffer ghi -> blocked; GetUserDefaultLCID tra
+# i32 truc tiep. Primary lang = LCID % 1024 (khong bitwise).
+def win_user_lang() -> "i32":
+    lcid = win_get_user_lcid()
+    return lcid - (lcid // 1024) * 1024
+
+def win_is_rtl_lang(lang: "i32") -> "i32":
+    # Arabic=1 Hebrew=13 Urdu=32 Persian=41 Yiddish=61 Divehi=101
+    if lang == 1:
+        return 1
+    if lang == 13:
+        return 1
+    if lang == 32:
+        return 1
+    if lang == 41:
+        return 1
+    if lang == 61:
+        return 1
+    if lang == 101:
+        return 1
+    return 0
+
+def win_is_rtl() -> "i32":
+    return win_is_rtl_lang(win_user_lang())
+
 class X11Platform:
     dummy: "i32"
     def __init__(self, dummy):
         self.dummy = dummy
     def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        pid = detect_platform()
+        if pid != 2:
+            print("X11 backend khong kha dung tren platform " + str(pid) + " - tra handle 0")
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
         hnd = 2001
         print("X11 CreateWindow ARGB Visual stub handle=" + str(hnd))
         return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
@@ -474,11 +714,17 @@ class X11Platform:
     def backend_name(self) -> "str":
         return "x11"
 
+__tkv_extern_pinvoke__ = [{"name": "imm_get_context", "dll": "imm32.dll", "symbol": "ImmGetContext", "convention": "stdcall", "params": ["i64"], "returns": "i64"}, {"name": "imm_release_context", "dll": "imm32.dll", "symbol": "ImmReleaseContext", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"}, {"name": "imm_get_composition_string_w", "dll": "imm32.dll", "symbol": "ImmGetCompositionStringW", "convention": "stdcall", "params": ["i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "imm_set_composition_string_w", "dll": "imm32.dll", "symbol": "ImmSetCompositionStringW", "convention": "stdcall", "params": ["i64", "i32", "i64", "i32", "i64", "i32"], "returns": "i32"}, {"name": "imm_notify_ime", "dll": "imm32.dll", "symbol": "ImmNotifyIME", "convention": "stdcall", "params": ["i64", "i32", "i32", "i32"], "returns": "i32"}]
+
 class CocoaPlatform:
     dummy: "i32"
     def __init__(self, dummy):
         self.dummy = dummy
     def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        pid = detect_platform()
+        if pid != 4:
+            print("Cocoa backend khong kha dung tren platform " + str(pid) + " - tra handle 0")
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
         hnd = 3001
         print("Cocoa NSPanel borderless stub handle=" + str(hnd))
         return PlatformWindowHandle(hnd, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
@@ -762,6 +1008,198 @@ class IOSPlatform:
 def make_ios_platform() -> "IOSPlatform":
     return IOSPlatform(0, 0, 0, 0, 0, 0, 0, 0, 0, 2.0, 0)
 
+def make_win32_platform() -> "Win32Platform":
+    return Win32Platform(0)
+
+def make_x11_platform() -> "X11Platform":
+    return X11Platform(0)
+
+def make_cocoa_platform() -> "CocoaPlatform":
+    return CocoaPlatform(0)
+
+class MemoryPlatform:
+    # Backend headless THAT (moi platform, CI-safe): khong mo cua so,
+    # framebuffer chinh la buf cua caller. Handle gia 4001 (phan biet
+    # stub gia cua X11/Cocoa). Dung cho render offscreen/test/WASM sau.
+    dummy: "i32"
+    def __init__(self, dummy):
+        self.dummy = dummy
+    def create(self, x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32") -> "PlatformWindowHandle":
+        if w < 1 or h < 1:
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
+        if w > 8192 or h > 8192:
+            return PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
+        return PlatformWindowHandle(4001, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
+    def present(self, buf: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        if wh.handle == 0:
+            return 0
+        need = surf.width * surf.height
+        if len(buf) < need:
+            return 0
+        return need
+    def present_diff(self, buf: "list[i64]", prev: "list[i64]", surf: "PixelSurface", wh: "PlatformWindowHandle") -> "i32":
+        if wh.handle == 0:
+            return 0
+        need = surf.width * surf.height
+        if len(buf) < need:
+            return 0
+        if len(prev) < need:
+            return 0
+        diff = int(0)
+        i = int(0)
+        while i < need:
+            if buf[i] != prev[i]:
+                diff = diff + 1
+            i = i + 1
+        return diff
+    def set_pos(self, wh: "PlatformWindowHandle", x: "i32", y: "i32", w: "i32", h: "i32") -> "i32":
+        wh.x = x
+        wh.y = y
+        wh.w = w
+        wh.h = h
+        return 1
+    def set_alpha(self, wh: "PlatformWindowHandle", alpha: "i32") -> "i32":
+        wh.alpha = alpha
+        return 1
+    def set_title(self, wh: "PlatformWindowHandle", title: "str") -> "i32":
+        # Khong cua so that -> no-op thanh cong (title chi co nghia voi HWND).
+        return 1
+    def show_window(self, wh: "PlatformWindowHandle", cmd: "i32") -> "i32":
+        return 1
+    def close_window(self, wh: "PlatformWindowHandle") -> "i32":
+        wh.handle = wh.handle - wh.handle
+        return 1
+    def poll_events(self) -> "i32":
+        return 0
+    def backend_name(self) -> "str":
+        return "memory"
+
+def make_memory_platform() -> "MemoryPlatform":
+    return MemoryPlatform(0)
+
+def win32_create_multiple(pf: "Win32Platform", n: "i32", x: "i32", y: "i32", w: "i32", h: "i32", topmost: "i32", out_handles: "list[PlatformWindowHandle]") -> "i32":
+    # Tao n cua so that tren Win32 (handle 0 ngoai Win32, headless-safe).
+    # Tra so handle != 0.
+    pid = detect_platform()
+    ok = 0
+    i = 0
+    while i < n:
+        if pid == 1:
+            wh = pf.create(x, y, w, h, topmost)
+        else:
+            wh = PlatformWindowHandle(0, x, y, w, h, topmost, 0, 0, 0, 0, 255, 16711935, 0, 0, 0)
+        out_handles.append(wh)
+        if wh.handle != 0:
+            ok = ok + 1
+        i = i + 1
+    return ok
+
+def win32_close_all(pf: "Win32Platform", handles: "list[PlatformWindowHandle]") -> "i32":
+    # Dong moi window (kể cả handle 0 stub - close_window guard tung field).
+    n = 0
+    i = 0
+    while i < len(handles):
+        wh = handles[i]
+        n = n + pf.close_window(wh)
+        i = i + 1
+    return n
+
+def win32_present_all(pf: "Win32Platform", flat: "list[i64]", surf: "PixelSurface", handles: "list[PlatformWindowHandle]", n: "i32") -> "i32":
+    # Present 1 surf len moi window tu flat buffer (window i: flat[i*area:...]).
+    # Handle 0 dong gop 0 (headless-safe). Tra tong drawn.
+    area = surf.width * surf.height
+    total = 0
+    i = 0
+    while i < n:
+        if i < len(handles):
+            wh = handles[i]
+            seg = flat[i * area:i * area + area]
+            total = total + pf.present(seg, surf, wh)
+        i = i + 1
+    return total
+
+__tkv_extern_pinvoke__ = [{"name": "mem_cmp", "dll": "msvcrt.dll", "symbol": "memcmp", "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"}]
+
+def mem_read_byte_at(addr: "i64", scratch: "i64", k: "i32", p0: "i32", p1: "i32", p2: "i32") -> "i32":
+    # Binary search byte tai offset k (prefix p0..p(k-1) da biet chinh xac).
+    # memcmp byte-exact tren k+1 byte nen == 0 tuc la khop hoan toan.
+    lo = 0
+    hi = 255
+    while lo < hi:
+        mid = (lo + hi) // 2
+        a0 = p0
+        a1 = p1
+        a2 = p2
+        a3 = 0
+        if k == 0:
+            a0 = mid
+        else:
+            if k == 1:
+                a1 = mid
+            else:
+                if k == 2:
+                    a2 = mid
+                else:
+                    a3 = mid
+        rc = win_wsprintf(scratch, "%c%c%c%c", a0, a1, a2, a3)
+        r = mem_cmp(addr, scratch, k + 1)
+        if r == 0:
+            return mid
+        if r < 0:
+            hi = mid - 1
+        else:
+            lo = mid + 1
+    return lo
+
+def mem_read_u32(addr: "i64") -> "i64":
+    # Doc u32 LE tai addr (chi Windows: can VirtualAlloc + wsprintf + memcmp).
+    scratch = win_virtual_alloc(0, 16, 12288, 4)
+    if scratch == 0:
+        return 0
+    b0 = mem_read_byte_at(addr, scratch, 0, 0, 0, 0)
+    b1 = mem_read_byte_at(addr, scratch, 1, b0, 0, 0)
+    b2 = mem_read_byte_at(addr, scratch, 2, b0, b1, 0)
+    b3 = mem_read_byte_at(addr, scratch, 3, b0, b1, b2)
+    rc = win_virtual_free(scratch, 0, 32768)
+    return b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
+
+def mem_read_i32(addr: "i64") -> "i32":
+    # Doc i32 LE (u32 roi doi dau; hang so tinh san de tranh literal > i32max).
+    v = mem_read_u32(addr)
+    if v >= 16777216 * 128:
+        v = v - 16777216 * 256
+    return int(v)
+
+def mem_alloc(size: "i32") -> "i64":
+    # Cap phat bo nho native (Windows-only). Tra 0 neu that bai.
+    return win_virtual_alloc(0, size, 12288, 4)
+
+def mem_free(mem: "i64") -> "i32":
+    if mem == 0:
+        return 0
+    return win_virtual_free(mem, 0, 32768)
+
+def mem_copy_from_list(mem: "i64", data: "list[i64]") -> "i32":
+    # Chep list byte vao bo nho native (wsprintf %c). Tra so byte.
+    n = len(data)
+    i = 0
+    while i < n:
+        b0 = 0
+        b1 = 0
+        b2 = 0
+        b3 = 0
+        if i < n:
+            b0 = int(data[i] % 256)
+        if i + 1 < n:
+            b1 = int(data[i + 1] % 256)
+        if i + 2 < n:
+            b2 = int(data[i + 2] % 256)
+        if i + 3 < n:
+            b3 = int(data[i + 3] % 256)
+        rc = win_wsprintf(mem + i, "%c%c%c%c", b0, b1, b2, b3)
+        i = i + 4
+    return n
+
 # =========================================================
 # P1.1 SELFTEST - detect_platform + backend parity (headless)
 # =========================================================
@@ -833,6 +1271,40 @@ def platform_selftest() -> "str":
     platform_check_i(acc, "Win32Platform.backend_name = win32", platform_str_eq(w32n, "win32"), 1)
     platform_check_i(acc, "X11Platform.backend_name = x11", platform_str_eq(x11n, "x11"), 1)
     platform_check_i(acc, "CocoaPlatform.backend_name = cocoa", platform_str_eq(cocn, "cocoa"), 1)
+    # --- memory backend (that, moi platform, headless-safe) ---
+    mp = make_memory_platform()
+    platform_check_i(acc, "memory.backend_name", platform_str_eq(mp.backend_name(), "memory"), 1)
+    mwh = mp.create(0, 0, 8, 8, 0)
+    platform_check(acc, "memory.create handle", mwh.handle != 0)
+    platform_check_i(acc, "memory.create w", mwh.w, 8)
+    mwh0 = mp.create(0, 0, 0, 8, 0)
+    platform_check_i(acc, "memory.create w0 -> 0", mwh0.handle, 0)
+    mwh1 = mp.create(0, 0, 9000, 8, 0)
+    platform_check_i(acc, "memory.create qua lon -> 0", mwh1.handle, 0)
+    mbuf = []
+    surface_ensure_capacity(mbuf, 64)
+    msurf = PixelSurface(8, 8, 8)
+    surface_clear(mbuf, msurf, ColorRgba(10, 20, 30, 255))
+    platform_check_i(acc, "memory.present 64px", mp.present(mbuf, msurf, mwh), 64)
+    platform_check_i(acc, "memory.present handle 0", mp.present(mbuf, msurf, mwh0), 0)
+    mshort = []
+    surface_ensure_capacity(mshort, 10)
+    platform_check_i(acc, "memory.present thieu buf", mp.present(mshort, msurf, mwh), 0)
+    platform_check_i(acc, "memory.diff same", mp.present_diff(mbuf, mbuf, msurf, mwh), 0)
+    mbuf2 = []
+    surface_ensure_capacity(mbuf2, 64)
+    surface_clear(mbuf2, msurf, ColorRgba(10, 20, 30, 255))
+    mbuf2[0] = 1
+    mbuf2[63] = 2
+    platform_check_i(acc, "memory.diff 2px", mp.present_diff(mbuf2, mbuf, msurf, mwh), 2)
+    platform_check_i(acc, "memory.set_pos", mp.set_pos(mwh, 5, 6, 8, 8), 1)
+    platform_check_i(acc, "memory.set_pos x", mwh.x, 5)
+    platform_check_i(acc, "memory.set_alpha", mp.set_alpha(mwh, 128), 1)
+    platform_check_i(acc, "memory.set_title", mp.set_title(mwh, "t"), 1)
+    platform_check_i(acc, "memory.show", mp.show_window(mwh, 5), 1)
+    platform_check_i(acc, "memory.poll", mp.poll_events(), 0)
+    platform_check_i(acc, "memory.close", mp.close_window(mwh), 1)
+    platform_check_i(acc, "memory.present sau close", mp.present(mbuf, msurf, mwh), 0)
     # --- dpi
     platform_check_f(acc, "dpi_scale android (5)", dpi_scale_for_platform(5), 2.0, 0.001)
     platform_check_f(acc, "dpi_scale ios (6)", dpi_scale_for_platform(6), 2.0, 0.001)
@@ -867,9 +1339,137 @@ def platform_selftest() -> "str":
     platform_check_i(acc, "ios present khong ghi vao con tro CGContext", ip.present(buf, surf, iwh), 0)
     platform_check_i(acc, "ios set_frame_buffer tra 1", ip.set_frame_buffer(0), 1)
     platform_check_i(acc, "ios close_window tra 1", ip.close_window(iwh), 1)
+    # --- WinForms interop that (khong Show -> vo hinh, headless-safe)
+    if pid == 1:
+        wf = wf_create("tkvui-wf-probe")
+        platform_check_i(acc, "wf set_title tra 1", wf_set_title(wf, "tkvui-wf-probe"), 1)
+        platform_check_i(acc, "wf set_bounds tra 1", wf_set_bounds(wf, 10, 20, 300, 200), 1)
+        wb = wf_get_bounds(wf)
+        platform_check_i(acc, "wf bounds x", wb[0], 10)
+        platform_check_i(acc, "wf bounds y", wb[1], 20)
+        platform_check_i(acc, "wf bounds w", wb[2], 300)
+        platform_check_i(acc, "wf bounds h", wb[3], 200)
+        platform_check_i(acc, "wf set_opacity tra 1", wf_set_opacity(wf, 0.9), 1)
+        platform_check_i(acc, "wf hide tra 1", wf_hide(wf), 1)
+        platform_check_i(acc, "wf do_events tra 1", wf_do_events(), 1)
+        platform_check_i(acc, "wf close tra 1", wf_close(wf), 1)
     # --- input poll: chi tren Windows
     if pid == 1:
         platform_check_ge(acc, "win_pointer_x khong am", win_pointer_x(), 0)
+    # --- theme theo OS (trung han): detect stub + logic thuan headless-safe
+    live_theme = theme_detect_os()
+    print("  theme_detect_os() = " + str(live_theme))
+    theme_ok = 0
+    if live_theme == 0 or live_theme == 1 or live_theme == 2:
+        theme_ok = 1
+    platform_check(acc, "theme_detect_os tra 0/1/2", theme_ok)
+    td = theme_pick(1)
+    tl = theme_pick(0)
+    tu = theme_pick(2)
+    tds = td.surface
+    tls = tl.surface
+    tus = tu.surface
+    platform_check_i(acc, "theme_pick dark surface.r", tds.r, 18)
+    platform_check_i(acc, "theme_pick light surface.r", tls.r, 250)
+    platform_check_i(acc, "theme_pick unknown -> light", tus.r, 250)
+    platform_check_i(acc, "theme_changed giong nhau", theme_changed(0, 0), 0)
+    platform_check_i(acc, "theme_changed doi", theme_changed(0, 1), 1)
+    platform_check_i(acc, "theme_changed on dinh", theme_changed(1, 1), 0)
+    platform_check_i(acc, "theme_changed unknown -> dark", theme_changed(2, 1), 1)
+    # --- multi-window: pool DIB/memDC theo handle + pump moi window ---
+    mpf = make_win32_platform()
+    platform_check_i(acc, "win32 factory backend", platform_str_eq(mpf.backend_name(), "win32"), 1)
+    mhs = []
+    if pid == 1:
+        platform_check_i(acc, "multi create 2 cua so", win32_create_multiple(mpf, 2, 0, 0, 2, 2, 0, mhs), 2)
+        mh0 = mhs[0]
+        mh1 = mhs[1]
+        mok = 0
+        if mh0.handle != 0:
+            if mh1.handle != 0:
+                mok = 1
+        platform_check(acc, "multi handle != 0", mok)
+        mpf.show_window(mh0, 0)
+        mpf.show_window(mh1, 0)
+        msurf = PixelSurface(2, 2, 2)
+        mflat = []
+        mi = 0
+        while mi < 8:
+            mflat.append(16777216 * 255 + 16777215)
+            mi = mi + 1
+        platform_check_i(acc, "multi present 2x2x2", win32_present_all(mpf, mflat, msurf, mhs, 2), 8)
+        platform_check_i(acc, "multi close 2", win32_close_all(mpf, mhs), 2)
+        mc0 = mhs[0]
+        platform_check_i(acc, "multi handle ve 0", mc0.handle, 0)
+    else:
+        platform_check_i(acc, "multi ngoai win32 -> 0", win32_create_multiple(mpf, 2, 0, 0, 2, 2, 0, mhs), 0)
+        platform_check_i(acc, "multi close stub", win32_close_all(mpf, mhs), 2)
+    # --- P8.3 DPI: pure-math checks (moi platform) + probe that (chi win32) ---
+    platform_check_f(acc, "dpi scale 96", win_dpi_scale(96), 1.0, 0.001)
+    platform_check_f(acc, "dpi scale 144", win_dpi_scale(144), 1.5, 0.001)
+    platform_check_f(acc, "dpi scale 0 -> 1", win_dpi_scale(0), 1.0, 0.001)
+    platform_check_i(acc, "dpi hwnd 0 -> 0", win_dpi_for_window(0), 0)
+    if pid == 1:
+        hasapi = win_has_dpi_api()
+        okapi = 0
+        if hasapi == 0:
+            okapi = 1
+        if hasapi == 1:
+            okapi = 1
+        platform_check(acc, "dpi api probe 0/1", okapi)
+        sysdpi = win_system_dpi()
+        oksys = 0
+        if sysdpi >= 96:
+            if sysdpi <= 384:
+                oksys = 1
+        platform_check(acc, "dpi system 96..384", oksys)
+        chg = win_dpi_changed()
+        okchg = 0
+        if chg == 0:
+            okchg = 1
+        if chg == 1:
+            okchg = 1
+        platform_check(acc, "dpi changed 0/1", okchg)
+        wsc = win_window_dpi_scale(0)
+        platform_check_f(acc, "dpi fallback scale", wsc, win_dpi_scale(sysdpi), 0.001)
+    # --- P8.5 RTL: pure checks (moi platform) + locale that (chi win32) ---
+    platform_check_i(acc, "rtl ar", win_is_rtl_lang(1), 1)
+    platform_check_i(acc, "rtl he", win_is_rtl_lang(13), 1)
+    platform_check_i(acc, "rtl fa", win_is_rtl_lang(41), 1)
+    platform_check_i(acc, "rtl en", win_is_rtl_lang(9), 0)
+    platform_check_i(acc, "rtl vi", win_is_rtl_lang(1066 - 1024), 0)
+    if pid == 1:
+        lang = win_user_lang()
+        oklang = 0
+        if lang >= 0:
+            if lang < 1024:
+                oklang = 1
+        platform_check(acc, "rtl lang range", oklang)
+        r = win_is_rtl()
+        okr = 0
+        if r == 0:
+            okr = 1
+        if r == 1:
+            okr = 1
+        platform_check(acc, "rtl 0/1", okr)
+        print("  locale lang=" + str(lang) + " rtl=" + str(r))
+    # --- mem read primitive (chi Windows): alloc + wsprintf + memcmp ---
+    if pid == 1:
+        mscratch = win_virtual_alloc(0, 16, 12288, 4)
+        mrok = 0
+        if mscratch != 0:
+            mrc = win_wsprintf(mscratch, "%c%c%c%c", 120, 86, 52, 18)
+            if mem_read_u32(mscratch) == 305419896:
+                mrc = win_wsprintf(mscratch, "%c%c%c%c", 0, 0, 0, 128)
+                mhi = 16777216 * 128
+                if mem_read_u32(mscratch) == mhi:
+                    mneg = 0 - 16777216 * 128
+                    if mem_read_i32(mscratch) == mneg:
+                        mrc = win_wsprintf(mscratch, "%c%c%c%c", 44, 1, 0, 0)
+                        if mem_read_i32(mscratch) == 300:
+                            mrok = 1
+            mfr = win_virtual_free(mscratch, 0, 32768)
+        platform_check(acc, "mem read u32/i32 roundtrip", mrok)
     print("--- platform selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
     if acc[0] == acc[1]:
         return "PLATFORM_OK"
@@ -879,3 +1479,41 @@ def platform_str_eq(s: "str", want: "str") -> "i32":
     if s == want:
         return 1
     return 0
+
+THEME_LIGHT = 0
+THEME_DARK = 1
+THEME_UNKNOWN = 2
+
+def theme_detect_os() -> "i32":
+    # Doc che do sang/toi cua OS. HIEN TAI luon tra UNKNOWN: doc that bi chan
+    # (bang chung probe 2026-09-18, du 11 co che):
+    # 1. Registry.GetValue chi co overload (string,string,object) -> tkvc
+    #    exact-match bao MissingMethod (khong type nao map duoc object).
+    # 2. RegGetValueA/RegQueryValueExA can doc out-buffer -> khong co
+    #    primitive doc bo nho (Font.tkv da ghi nhan).
+    # 3. uxtheme ordinal #132 -> linter symbol chan (doi identifier C).
+    # 4. Shim C# rieng + extern_method: BUILD DUOC, goi duoc, nhung tkvc gan
+    #    cung identity Framework (4.0.0.0/b77a) cho moi extern assembly ->
+    #    FileLoadException du DLL dung canh exe (da xoa shim).
+    # 5. Display-name day du / DLL canh tkvc.exe: van template cung.
+    # 6. Delay-sign ECMA key: key khong trich duoc (file tren may khong chua
+    #    RSA blob, sn -e ra 16B rac, khong SDK key).
+    # 7. AppDomain instance qua i64: MissingMethod (return object).
+    # 8. Helper EXE + doc exit code: khong co primitive spawn/wait.
+    # 9. Native C DLL: khong co compiler tren may (them binary cung pha purity).
+    # Can upstream: reference dung identity that cho extern assembly (khi do
+    # shim C# 20 dong la du), hoac marshal object / primitive doc nho.
+    return THEME_UNKNOWN
+
+def theme_pick(dark: "i32") -> "ThemeToken":
+    # Che do toi -> theme_dark, con lai (sang/khong ro) -> theme_light.
+    if dark == THEME_DARK:
+        return theme_dark()
+    return theme_light()
+
+def theme_changed(last: "i32", current: "i32") -> "i32":
+    # Hot-switch runtime (polling): caller giu `last`, goi moi frame voi
+    # che do moi doc duoc; tra 1 khi doi de apply lai ThemeToken.
+    if last == current:
+        return 0
+    return 1
