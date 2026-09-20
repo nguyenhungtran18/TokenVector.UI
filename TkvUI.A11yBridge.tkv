@@ -148,7 +148,7 @@ def ab_node_to_json(nid: "i32", role: "str", parent: "i32", label: "str", value:
 # ROLE MAPS - A11y role -> dinh danh tung nen
 # =========================================================
 def ab_role_uia(role: "i32") -> "i32":
-    # UIA ControlType ids that (MSDN)
+    # UIA ControlType ids (MS UIAutomationClient.h - da doi chieu 2026-09-20).
     if role == 3:
         return 50000
     if role == 11:
@@ -156,11 +156,11 @@ def ab_role_uia(role: "i32") -> "i32":
     if role == 5:
         return 50004
     if role == 10:
-        return 50005
+        return 50015
     if role == 14:
         return 50012
     if role == 13:
-        return 50019
+        return 50018
     if role == 4:
         return 50020
     if role == 6:
@@ -170,9 +170,9 @@ def ab_role_uia(role: "i32") -> "i32":
     if role == 9:
         return 50007
     if role == 12:
-        return 50000
+        return 50005
     if role == 7:
-        return 50020
+        return 50006
     if role == 1:
         return 50032
     if role == 2:
@@ -186,13 +186,13 @@ def ab_role_uia(role: "i32") -> "i32":
     if role == 18:
         return 50021
     if role == 19:
-        return 50017
+        return 50014
     if role == 20:
         return 50038
     if role == 21:
         return 50016
     if role == 22:
-        return 50029
+        return 50022
     if role == 23:
         return 50011
     return 50000
@@ -1192,7 +1192,13 @@ def abridge_selftest() -> "str":
     un = ab_add_tooltip(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, tt, root)
     text_check_i(acc, "bridge tip role", roles[un - 1], 22)
     text_check(acc, "bridge tip label", labels[un - 1] == "hint")
-    text_check_i(acc, "bridge scroll uia", ab_role_uia(19), 50017)
+    text_check_i(acc, "bridge scroll uia", ab_role_uia(19), 50014)
+    text_check_i(acc, "bridge tip uia", ab_role_uia(22), 50022)
+    # hoi quy ControlType ids theo MS spec (tung sai: slider/tab/link/image)
+    text_check_i(acc, "bridge slider uia", ab_role_uia(10), 50015)
+    text_check_i(acc, "bridge tab uia", ab_role_uia(13), 50018)
+    text_check_i(acc, "bridge link uia", ab_role_uia(12), 50005)
+    text_check_i(acc, "bridge image uia", ab_role_uia(7), 50006)
     text_check_i(acc, "bridge table atspi", ab_role_atspi(15) == "table", 1)
     text_check_i(acc, "bridge tree atspi", ab_role_atspi(16) == "tree", 1)
     print("--- abridge selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")

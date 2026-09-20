@@ -1,0 +1,338 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.IMEDemo - demo IME Win32 that (TextInputWidget + ImmGetCompositionStringW)
+
+Build:  tkvc.exe build examples/TkvUI.IMEDemo.tkv --entry run --out build/TkvUI.IMEDemo.exe
+Chay:  cua so that Win32, bam chuot vao TextInput -> mo IME (Telex/Unikey) -> nhap tieng Viet.
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+# Windows message constants
+WM_CREATE = 1
+WM_DESTROY = 2
+WM_IME_STARTCOMPOSITION = 269
+WM_IME_ENDCOMPOSITION = 270
+WM_IME_COMPOSITION = 271
+WM_IME_SETCONTEXT = 281
+WM_KEYDOWN = 256
+WM_KEYUP = 257
+WM_CHAR = 258
+WM_IME_NOTIFY = 282
+WM_SETFOCUS = 7
+WM_KILLFOCUS = 8
+
+VK_RETURN = 13
+VK_BACK = 8
+VK_ESCAPE = 27
+
+GCS_COMPSTR = 8
+GCS_RESULTSTR = 8192
+NI_COMPOSITIONSTR = 15
+
+def imedemo_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+# Chi dinh nghia cac ham helper - khong co state class
+# Tat ca state se duoc truyen truc tiep vao cac ham
+
+def imedemo_on_ime_composition(t: "TextInputWidget", d: "EventDispatcher", himc: "i64", lparam: "i32") -> "i32":
+    if himc == 0 or d is None or t is None:
+        return 0
+    has_result = 0
+    if lparam % 16384 >= 8192:
+        has_result = 1
+    has_comp = 0
+    if lparam % 16 >= 8:
+        has_comp = 1
+    
+    if has_result == 1:
+        buf = []
+        i = 0
+        while i < 256:
+            buf.append(0)
+            i = i + 1
+        len_res = imm_get_composition_string_w(himc, 8192, buf, 256)
+        if len_res > 0:
+            s = ""
+            i = 0
+            while i < len_res:
+                c = buf[i]
+                if c != 0:
+                    s = s + c
+                i = i + 1
+            d.ime_result(1, s)
+            t.ime_result(s)
+            print("[IME] Result: " + s)
+    elif has_comp == 1:
+        buf = []
+        i = 0
+        while i < 256:
+            buf.append(0)
+            i = i + 1
+        len_comp = imm_get_composition_string_w(himc, 8, buf, 256)
+        if len_comp > 0:
+            s = ""
+            i = 0
+            while i < len_comp:
+                c = buf[i]
+                if c != 0:
+                    s = s + c
+                i = i + 1
+            d.ime_composition(1, s)
+            t.ime_composition(s)
+            print("[IME] Comp: " + s)
+    return 0
+
+def imedemo_on_ime_start(t: "TextInputWidget", d: "EventDispatcher") -> "i32":
+    if d is not None and t is not None:
+        d.ime_start(1)
+        t.ime_start()
+        print("[IME] Start")
+    return 0
+
+def imedemo_on_ime_end(t: "TextInputWidget", d: "EventDispatcher") -> "i32":
+    if d is not None and t is not None:
+        d.ime_end(1)
+        t.ime_end()
+        print("[IME] End")
+    return 0
+
+def imedemo_on_keydown(wparam: "i32") -> "i32":
+    if wparam == 27:
+        print("[IME] ESC -> exit")
+        return 1
+    return 0
+
+def imedemo_on_char(t: "TextInputWidget", d: "EventDispatcher", wparam: "i32") -> "i32":
+    if d is None or t is None:
+        return 0
+    if t.ime_composing == 1:
+        return 0
+    if wparam == 8:
+        t.backspace()
+        return 1
+    if wparam == 13:
+        t.type_char("\n")
+        return 1
+    if wparam >= 32 and wparam <= 126:
+        ch = ""
+        if wparam == 97:
+            ch = "a"
+        elif wparam == 98:
+            ch = "b"
+        elif wparam == 99:
+            ch = "c"
+        elif wparam == 100:
+            ch = "d"
+        elif wparam == 101:
+            ch = "e"
+        elif wparam == 102:
+            ch = "f"
+        elif wparam == 103:
+            ch = "g"
+        elif wparam == 104:
+            ch = "h"
+        elif wparam == 105:
+            ch = "i"
+        elif wparam == 106:
+            ch = "j"
+        elif wparam == 107:
+            ch = "k"
+        elif wparam == 108:
+            ch = "l"
+        elif wparam == 109:
+            ch = "m"
+        elif wparam == 110:
+            ch = "n"
+        elif wparam == 111:
+            ch = "o"
+        elif wparam == 112:
+            ch = "p"
+        elif wparam == 113:
+            ch = "q"
+        elif wparam == 114:
+            ch = "r"
+        elif wparam == 115:
+            ch = "s"
+        elif wparam == 116:
+            ch = "t"
+        elif wparam == 117:
+            ch = "u"
+        elif wparam == 118:
+            ch = "v"
+        elif wparam == 119:
+            ch = "w"
+        elif wparam == 120:
+            ch = "x"
+        elif wparam == 121:
+            ch = "y"
+        elif wparam == 122:
+            ch = "z"
+        elif wparam == 65:
+            ch = "A"
+        elif wparam == 66:
+            ch = "B"
+        elif wparam == 67:
+            ch = "C"
+        elif wparam == 68:
+            ch = "D"
+        elif wparam == 69:
+            ch = "E"
+        elif wparam == 70:
+            ch = "F"
+        elif wparam == 71:
+            ch = "G"
+        elif wparam == 72:
+            ch = "H"
+        elif wparam == 73:
+            ch = "I"
+        elif wparam == 74:
+            ch = "J"
+        elif wparam == 75:
+            ch = "K"
+        elif wparam == 76:
+            ch = "L"
+        elif wparam == 77:
+            ch = "M"
+        elif wparam == 78:
+            ch = "N"
+        elif wparam == 79:
+            ch = "O"
+        elif wparam == 80:
+            ch = "P"
+        elif wparam == 81:
+            ch = "Q"
+        elif wparam == 82:
+            ch = "R"
+        elif wparam == 83:
+            ch = "S"
+        elif wparam == 84:
+            ch = "T"
+        elif wparam == 85:
+            ch = "U"
+        elif wparam == 86:
+            ch = "V"
+        elif wparam == 87:
+            ch = "W"
+        elif wparam == 88:
+            ch = "X"
+        elif wparam == 89:
+            ch = "Y"
+        elif wparam == 90:
+            ch = "Z"
+        elif wparam == 48:
+            ch = "0"
+        elif wparam == 49:
+            ch = "1"
+        elif wparam == 50:
+            ch = "2"
+        elif wparam == 51:
+            ch = "3"
+        elif wparam == 52:
+            ch = "4"
+        elif wparam == 53:
+            ch = "5"
+        elif wparam == 54:
+            ch = "6"
+        elif wparam == 55:
+            ch = "7"
+        elif wparam == 56:
+            ch = "8"
+        elif wparam == 57:
+            ch = "9"
+        elif wparam == 32:
+            ch = " "
+        else:
+            ch = "?"
+        t.type_char(ch)
+        return 1
+    return 0
+
+def imedemo_render(t: "TextInputWidget", buf: "list[i64]", surf: "PixelSurface") -> "i32":
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    if t is not None:
+        t.focused = 1
+        t.render(buf, surf)
+    draw_string(buf, surf, "IME Demo - Click o tren -> go Telex/Unikey", 20.0, 80.0, 1.0, ColorRgba(200, 200, 200, 255))
+    draw_string(buf, surf, "ESC de thoat", 20.0, 105.0, 1.0, ColorRgba(200, 200, 200, 255))
+    draw_string(buf, surf, "Text: " + t.text, 20.0, 130.0, 1.0, ColorRgba(180, 180, 180, 255))
+    if t.ime_composing == 1:
+        draw_string(buf, surf, "Composing: " + t.ime_composition, 20.0, 155.0, 1.0, ColorRgba(255, 255, 100, 255))
+    return 1
+
+def run() -> "str":
+    # Tao surface
+    W = 640
+    H = 480
+    buf = []
+    n = W * H
+    i = 0
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(W, H, W)
+    
+    # Tao TextInputWidget
+    t = make_textinput(20.0, 20.0, 400.0, 40.0, "Nhap tieng Viet (Telex/Unikey)...")
+    
+    # Tao EventDispatcher
+    d = make_dispatcher()
+    
+    # Tao cua so Win32 that
+    plat = Win32Platform(0)
+    wh = plat.create(100, 100, 640, 480, 1)
+    if wh.handle == 0:
+        print("[IME] Khong tao duoc cua so")
+        return "IME_FAIL"
+    
+    hwnd_val = wh.handle
+    himc_val = imm_get_context(hwnd_val)
+    
+    print("[IME] Window handle = " + str(hwnd_val))
+    print("[IME] ImmGetContext -> " + str(himc_val))
+    print("[IME] Bam ESC de thoat. Click vao o nhap -> mo IME -> go Telex/Unikey")
+    
+    # Render 1 frame de test
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+    
+    # Render TextInput
+    t = make_textinput(20.0, 20.0, 400.0, 40.0, "Nhap tieng Viet (Telex/Unikey)...")
+    d = make_dispatcher()
+    
+    # Dummy: khong co message pump that, chi render 1 frame
+    imedemo_render(t, buf, surf)
+    
+    # Present
+    d2 = plat.present(buf, surf, wh)
+    print("[IME] Present -> " + str(d2))
+    
+    # Kiem tra pixel
+    drawn = 0
+    i = 0
+    W = 640
+    H = 480
+    while i < W * H:
+        if buf[i] != 0:
+            drawn = 1
+        i = i + 1
+    
+    if drawn == 1:
+        print("IMEDemo: OK - co pixel ve")
+    else:
+        print("IMEDemo: FAIL - khong co pixel")
+    
+    # Cleanup
+    if himc_val != 0:
+        rc = imm_release_context(hwnd_val, himc_val)
+        print("[IME] ImmReleaseContext -> " + str(rc))
+    
+    return "IME_DEMO_OK"

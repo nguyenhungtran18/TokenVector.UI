@@ -1,0 +1,123 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.AnimDemo - demo Phase 8.3+8.4: DPI apply + hover/open animation + fps.
+
+Headless: probe DPI that (Windows) / fallback, ap dung OsTheme scale, chay
+timeline hover-fade + dialog-open, do 60 frames lay ms/frame trung binh.
+Build:
+  tkvc.exe build examples/TkvUI.AnimDemo.tkv --entry anim_run --out build/animdemo.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Platform", "../TkvUI.Widgets.Native"]
+
+def anim_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def anim_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def anim_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def anim_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def anim_run() -> "str":
+    print("== TkvUI.AnimDemo (DPI + animation + fps) ==")
+    acc = [int(0), int(0)]
+    # --- 8.3: DPI probe + apply (pinvoke chi khi win32) ---
+    pid = detect_platform()
+    sysdpi = 96
+    if pid == 1:
+        sysdpi = win_system_dpi()
+    ok_dpi = 0
+    if sysdpi >= 96:
+        if sysdpi <= 384:
+            ok_dpi = 1
+    anim_check(acc, "dpi.range", ok_dpi)
+    scale = win_dpi_scale(sysdpi)
+    th = os_theme_make(0)
+    th.set_scale(scale)
+    m = os_theme_metrics(th)
+    anim_check_f(acc, "dpi.scale", th.scale, scale, 0.001)
+    anim_check_f(acc, "dpi.metrics", m.button_h, 24.0 * scale, 0.01)
+    print("dpi=" + str(sysdpi) + " scale=" + str(scale))
+    # --- 8.4: hover fade timeline (30 frames @60fps) ---
+    w = int(400)
+    h = int(300)
+    surf = PixelSurface(w, h, w)
+    buf = anim_alloc(w * h)
+    black = ColorRgba(0, 0, 0, 255)
+    b = make_native_button(10.0, 10.0, 90.0, 24.0, "OK")
+    fade = os_anim_make(0.0, 4.0)
+    fade.set_target(1.0)
+    f = int(0)
+    while f < 30:
+        fade.step(0.016)
+        b.set_hover(os_anim_hover_state(fade.value))
+        surface_clear(buf, surf, black)
+        b.render(buf, surf, 0)
+        f = f + 1
+    anim_check_i(acc, "fade.done", fade.done, 1)
+    anim_check_i(acc, "fade.state", b.state, 1)
+    anim_check_f(acc, "fade.value", fade.value, 1.0, 0.001)
+    # --- 8.4: dialog open (height 30 -> 150, eased, 20 frames) ---
+    d = make_native_dialog_buttons(70.0, 60.0, 260.0, 30.0, "Open", "Hi", 0, 2)
+    d.show()
+    op = os_anim_open(3.0)
+    f = int(0)
+    while f < 20:
+        op.step(0.016)
+        e = os_anim_ease(op.value)
+        d.bh = os_anim_lerp(30.0, 150.0, e)
+        surface_clear(buf, surf, black)
+        d.render(buf, surf, 0)
+        f = f + 1
+    anim_check_f(acc, "open.bh", d.bh, 150.0, 5.0)
+    # --- 8.4: fps 60 frames scene ---
+    e2 = make_native_lineedit(110.0, 10.0, 150.0, "Name")
+    t0 = text_ticks()
+    f = int(0)
+    while f < 60:
+        surface_clear(buf, surf, black)
+        b.render(buf, surf, 0)
+        e2.render(buf, surf, 0)
+        d.render(buf, surf, 0)
+        f = f + 1
+    t1 = text_ticks()
+    total = t1 - t0
+    avg100 = total * 100 // 60
+    print("frames=60 total_ms=" + str(total))
+    ok_fps = 0
+    if avg100 < 1660:
+        ok_fps = 1
+    anim_check(acc, "fps.avg<16.6ms", ok_fps)
+    anim_check_i(acc, "fps.frames", f, 60)
+    print("anim: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "ANIM_OK"
+    return "ANIM_FAIL"

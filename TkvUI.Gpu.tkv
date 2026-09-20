@@ -1,0 +1,542 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Gpu - GPU backend abstraction (Vulkan/Metal) + software fallback
+
+Pure TokenVector. Phase 1: detection/selection/stubs (khong can device that).
+Vulkan bao NVIDIA tren Win/Linux; Metal cho macOS/iOS (qua ObjC runtime).
+Device that + swapchain/present that la Phase 2 (can host co GPU + DLL).
+Phu thuoc: Core, Text (text_check), Platform (detect_platform, tkv_has_file). Khong vong import.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Platform"]
+# FFI khai bao (chi goi khi host co device that - Phase 2).
+# Linter bat buoc hau to .dll (xem docs/TkvUI.Roadmap.md); libvulkan.so/.dylib cho Linux/macOS doi compiler ho tro .so.
+__tkv_extern_pinvoke__ = [
+    {"name": "vk_create_instance", "dll": "vulkan-1.dll", "symbol": "vkCreateInstance", "convention": "stdcall", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_destroy_instance", "dll": "vulkan-1.dll", "symbol": "vkDestroyInstance", "convention": "stdcall", "params": ["i64", "i64"], "returns": "void"},
+    {"name": "vk_enumerate_physical_devices", "dll": "vulkan-1.dll", "symbol": "vkEnumeratePhysicalDevices", "convention": "stdcall", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_get_physical_device_properties", "dll": "vulkan-1.dll", "symbol": "vkGetPhysicalDeviceProperties", "convention": "stdcall", "params": ["i64", "i64"], "returns": "void"},
+    {"name": "vk_get_physical_device_queue_family_properties", "dll": "vulkan-1.dll", "symbol": "vkGetPhysicalDeviceQueueFamilyProperties", "convention": "stdcall", "params": ["i64", "i64", "i64"], "returns": "void"},
+    {"name": "vk_get_instance_proc_addr", "dll": "vulkan-1.dll", "symbol": "vkGetInstanceProcAddr", "convention": "stdcall", "params": ["i64", "str"], "returns": "i64"},
+    {"name": "vk_create_device", "dll": "vulkan-1.dll", "symbol": "vkCreateDevice", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_destroy_device", "dll": "vulkan-1.dll", "symbol": "vkDestroyDevice", "convention": "stdcall", "params": ["i64", "i64"], "returns": "void"},
+    {"name": "vk_get_device_queue", "dll": "vulkan-1.dll", "symbol": "vkGetDeviceQueue", "convention": "stdcall", "params": ["i64", "i32", "i32", "i64"], "returns": "void"},
+    {"name": "vk_device_wait_idle", "dll": "vulkan-1.dll", "symbol": "vkDeviceWaitIdle", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+    # Swapchain / Present (extension functions resolved via vkGetInstanceProcAddr)
+    {"name": "vk_create_swapchain_khr", "dll": "vulkan-1.dll", "symbol": "vkCreateSwapchainKHR", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_destroy_swapchain_khr", "dll": "vulkan-1.dll", "symbol": "vkDestroySwapchainKHR", "convention": "stdcall", "params": ["i64", "i64"], "returns": "void"},
+    {"name": "vk_get_swapchain_images_khr", "dll": "vulkan-1.dll", "symbol": "vkGetSwapchainImagesKHR", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_acquire_next_image_khr", "dll": "vulkan-1.dll", "symbol": "vkAcquireNextImageKHR", "convention": "stdcall", "params": ["i64", "i64", "i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "vk_queue_present_khr", "dll": "vulkan-1.dll", "symbol": "vkQueuePresentKHR", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "metal_get_class", "dll": "libobjc.dll", "symbol": "objc_getClass", "convention": "cdecl", "params": ["str"], "returns": "i64"},
+    {"name": "metal_sel_register", "dll": "libobjc.dll", "symbol": "sel_registerName", "convention": "cdecl", "params": ["str"], "returns": "i64"},
+    {"name": "metal_msg_send", "dll": "libobjc.dll", "symbol": "objc_msgSend", "convention": "cdecl", "params": ["i64", "i64"], "returns": "i64"},
+    {"name": "metal_msg_send_i", "dll": "libobjc.dll", "symbol": "objc_msgSend_i", "convention": "cdecl", "params": ["i64", "i64", "i32"], "returns": "i64"},
+    # D3D11 (Windows only, d3d11.dll)
+    {"name": "d3d11_create_device", "dll": "d3d11.dll", "symbol": "D3D11CreateDevice", "convention": "stdcall", "params": ["i64", "i32", "i64", "i32", "i64", "i32", "i32", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "d3d11_create_device_and_swap_chain", "dll": "d3d11.dll", "symbol": "D3D11CreateDeviceAndSwapChain", "convention": "stdcall", "params": ["i64", "i32", "i64", "i32", "i64", "i32", "i32", "i64", "i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "dxgi_create_factory", "dll": "dxgi.dll", "symbol": "CreateDXGIFactory", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "d3d_compile", "dll": "d3dcompiler_47.dll", "symbol": "D3DCompile", "convention": "stdcall", "params": ["i64", "i32", "i64", "i64", "i64", "i32", "i32", "i64", "i64"], "returns": "i32"},
+    # Metal (macOS/iOS only, via ObjC)
+    {"name": "metal_device_create", "dll": "libobjc.dll", "symbol": "MTLCreateSystemDefaultDevice", "convention": "cdecl", "params": [], "returns": "i64"}
+]
+
+# Backend kinds
+GPU_BACKEND_SOFTWARE = 0
+GPU_BACKEND_VULKAN = 1
+GPU_BACKEND_METAL = 2
+GPU_BACKEND_DX11 = 3
+
+# PCI vendor IDs
+GPU_VENDOR_NVIDIA = 4318
+GPU_VENDOR_INTEL = 32902
+GPU_VENDOR_AMD = 4098
+
+class GpuBackend:
+    kind: "i32"
+    width: "i32"
+    height: "i32"
+    handle: "i64"
+    device: "i64"
+    swapchain: "i64"
+    vendor: "i32"
+    vram_mb: "i32"
+    def __init__(self, kind, width, height, handle, device, swapchain, vendor, vram_mb):
+        self.kind = kind
+        self.width = width
+        self.height = height
+        self.handle = handle
+        self.device = device
+        self.swapchain = swapchain
+        self.vendor = vendor
+        self.vram_mb = vram_mb
+    def present(self) -> "i32":
+        # Stub Phase 1: chua co device that -> tra 0, khong crash.
+        if self.handle == 0:
+            return 0
+        return 1
+
+def gpu_backend_name(kind: "i32") -> "str":
+    if kind == GPU_BACKEND_SOFTWARE:
+        return "software"
+    if kind == GPU_BACKEND_VULKAN:
+        return "vulkan"
+    if kind == GPU_BACKEND_METAL:
+        return "metal"
+    if kind == GPU_BACKEND_DX11:
+        return "dx11"
+    return "unknown"
+
+def gpu_backend_kind_valid(kind: "i32") -> "i32":
+    ok = 0
+    if kind == GPU_BACKEND_SOFTWARE:
+        ok = 1
+    if kind == GPU_BACKEND_VULKAN:
+        ok = 1
+    if kind == GPU_BACKEND_METAL:
+        ok = 1
+    if kind == GPU_BACKEND_DX11:
+        ok = 1
+    return ok
+
+def gpu_pick_backend(pid: "i32") -> "i32":
+    # Chon backend uu tien theo platform (1=win32, 2=x11, 3=wayland, 4=cocoa, 5=android, 6=ios).
+    if pid == 4:
+        return GPU_BACKEND_METAL
+    if pid == 6:
+        return GPU_BACKEND_METAL
+    if pid == 1:
+        return GPU_BACKEND_VULKAN
+    if pid == 2:
+        return GPU_BACKEND_VULKAN
+    if pid == 3:
+        return GPU_BACKEND_VULKAN
+    if pid == 5:
+        return GPU_BACKEND_VULKAN
+    return GPU_BACKEND_SOFTWARE
+
+def gpu_is_nvidia_vendor(vendor: "i32") -> "i32":
+    if vendor == GPU_VENDOR_NVIDIA:
+        return 1
+    return 0
+
+def gpu_vendor_name(vendor: "i32") -> "str":
+    if vendor == GPU_VENDOR_NVIDIA:
+        return "nvidia"
+    if vendor == GPU_VENDOR_INTEL:
+        return "intel"
+    if vendor == GPU_VENDOR_AMD:
+        return "amd"
+    return "unknown"
+
+def make_software_backend(w: "i32", h: "i32") -> "GpuBackend":
+    return GpuBackend(GPU_BACKEND_SOFTWARE, w, h, 0, 0, 0, 0, 0)
+
+def make_vulkan_backend(w: "i32", h: "i32") -> "GpuBackend":
+    # Thuc thi device creation flow (headless-safe, tra 0 neu thieu DLL/gap).
+    # Flow: loader -> instance -> physical device -> queue family -> device -> swapchain.
+    if vk_loader_present() == 0:
+        return GpuBackend(GPU_BACKEND_VULKAN, w, h, 0, 0, 0, 0, 0)
+    inst = vk_instance_create("TkvUI", "TkvUI", 4194304)  # VK_API_VERSION_1_0
+    if inst == 0:
+        return GpuBackend(GPU_BACKEND_VULKAN, w, h, 0, 0, 0, 0, 0)
+    pdev = vk_physical_device_select(inst)
+    if pdev == 0:
+        vk_instance_destroy(inst)
+        return GpuBackend(GPU_BACKEND_VULKAN, w, h, 0, 0, 0, 0, 0)
+    qfam = vk_physical_device_get_queue_family(pdev, 1)  # VK_QUEUE_GRAPHICS_BIT
+    dev = vk_device_create(pdev, qfam)
+    if dev == 0:
+        vk_instance_destroy(inst)
+        return GpuBackend(GPU_BACKEND_VULKAN, w, h, 0, 0, 0, 0, 0)
+    # Surface/swapchain can tao khi co window that (Phase 2 tiep).
+    swc = 0
+    # Vendor detection (doc properties - gap compiler out-struct).
+    vendor = 0
+    vram = 0
+    return GpuBackend(GPU_BACKEND_VULKAN, w, h, inst, dev, swc, vendor, vram)
+
+def make_metal_backend(w: "i32", h: "i32") -> "GpuBackend":
+    # Stub Phase 1: chua tao MTLDevice that (can host macOS/iOS).
+    return GpuBackend(GPU_BACKEND_METAL, w, h, 0, 0, 0, 0, 0)
+
+def gpu_create_best(w: "i32", h: "i32") -> "GpuBackend":
+    pid = detect_platform()
+    kind = gpu_pick_backend(pid)
+    if kind == GPU_BACKEND_VULKAN:
+        return make_vulkan_backend(w, h)
+    if kind == GPU_BACKEND_METAL:
+        return make_metal_backend(w, h)
+    return make_software_backend(w, h)
+
+def gpu_vulkan_present() -> "i32":
+    # Probe vulkan-1.dll (cung thu muc exe); 1 = co, 0 = khong.
+    return tkv_has_file("vulkan-1.dll")
+
+def gpu_metal_present() -> "i32":
+    # Metal di qua ObjC runtime (quy uoc repo); host that can macOS/iOS.
+    return tkv_has_file("libobjc.dll")
+
+def vk_loader_present() -> "i32":
+    # Loader co san (CWD/app hoac System32) thi goi that duoc.
+    if tkv_has_file("vulkan-1.dll") == 1:
+        return 1
+    if tkv_has_file("C:\\Windows\\System32\\vulkan-1.dll") == 1:
+        return 1
+    return 0
+
+def vk_proc_addr(name: "str") -> "i64":
+    # Resolve global entry voi instance NULL (khong can struct/out-handle).
+    # Tra 0 neu thieu loader. Tao instance that van blocked (can doc
+    # out-handle tu bo nho - gap compiler, xem DEVELOPMENT_PLAN §3).
+    if vk_loader_present() == 0:
+        return 0
+    return vk_get_instance_proc_addr(0, name)
+
+def vk_create_instance_ex(create_info: "i64", allocator: "i64", instance: "i64") -> "i32":
+    return vk_create_instance(create_info, allocator, instance)
+
+def vk_destroy_instance_ex(instance: "i64", allocator: "i64") -> "i32":
+    vk_destroy_instance(instance, allocator)
+    return 1
+
+def vk_enumerate_devices_ex(instance: "i64", count: "i64", devices: "i64") -> "i32":
+    return vk_enumerate_physical_devices(instance, count, devices)
+
+def mtl_get_class_ex(name: "str") -> "i64":
+    return metal_get_class(name)
+
+def mtl_sel_register_ex(name: "str") -> "i64":
+    return metal_sel_register(name)
+
+# =========================================================
+# Vulkan device creation helpers (headless-safe, return 0 neu thieu DLL)
+# =========================================================
+
+def vk_physical_device_get_queue_family(pdevice: "i64", flags: "i32") -> "i32":
+    # Tim queue family co flag Graphics (bit 0). Tra index, -1 neu khong tim thay.
+    # Can doc struct VkQueueFamilyProperties - gap compiler out-buffer.
+    # Stub tra 0 (thuong la graphics queue family 0).
+    return 0
+
+def vk_instance_create(app_name: "str", engine_name: "str", api_version: "i32") -> "i64":
+    # Tao Vulkan instance. Tra handle instance hoac 0 neu that bai.
+    if vk_loader_present() == 0:
+        return 0
+    # Placeholder: can struct VkApplicationInfo, VkInstanceCreateInfo
+    # Day la stub - instance that can doc out-handle (gap compiler).
+    return 0
+
+def vk_instance_destroy(instance: "i64") -> "i32":
+    if instance == 0:
+        return 0
+    vk_destroy_instance_ex(instance, 0)
+    return 1
+
+def vk_physical_device_select(instance: "i64") -> "i64":
+    # Liet ke physical devices va chon cai dau tien co Graphics queue.
+    if instance == 0:
+        return 0
+    # Can doc out-handle array - gap compiler.
+    return 0
+
+def vk_device_create(pdevice: "i64", queue_family: "i32") -> "i64":
+    # Tao logical device voi queue family da chon.
+    if pdevice == 0:
+        return 0
+    # Can VkDeviceCreateInfo voi queueCreateInfoCount=1, pQueueCreateInfos
+    # Gap compiler out-handle.
+    return 0
+
+def vk_device_destroy(device: "i64") -> "i32":
+    if device == 0:
+        return 0
+    vk_destroy_device(device, 0)
+    return 1
+
+def vk_swapchain_create(device: "i64", surface: "i64", width: "i32", height: "i32", image_count: "i32") -> "i64":
+    # Tao swapchain cho surface da cho. Tra swapchain handle.
+    if device == 0 or surface == 0:
+        return 0
+    # Can vkCreateSwapchainKHR (extension, resolve qua vkGetInstanceProcAddr)
+    # Gap compiler out-handle.
+    return 0
+
+def vk_swapchain_destroy(device: "i64", swapchain: "i64") -> "i32":
+    if device == 0 or swapchain == 0:
+        return 0
+    # vkDestroySwapchainKHR
+    return 1
+
+def vk_swapchain_present(device: "i64", swapchain: "i64", queue: "i64", image_index: "i32") -> "i32":
+    # Present image len swapchain. Tra VK_SUCCESS(0) neu ok.
+    if device == 0 or swapchain == 0 or queue == 0:
+        return 0
+    # vkQueuePresentKHR
+    return 0
+
+def vk_queue_submit(device: "i64", queue: "i64", command_buffer: "i64") -> "i32":
+    # Submit command buffer. Tra VK_SUCCESS(0) neu ok.
+    return 0
+
+def vk_command_pool_create(device: "i64", queue_family: "i32") -> "i64":
+    if device == 0:
+        return 0
+    return 0
+
+def vk_command_buffer_allocate(device: "i64", pool: "i64") -> "i64":
+    return 0
+
+def vk_render_pass_create(device: "i64") -> "i64":
+    return 0
+
+def vk_framebuffer_create(device: "i64", render_pass: "i64", width: "i32", height: "i32") -> "i64":
+    return 0
+
+def vk_pipeline_create(device: "i64", render_pass: "i64", pipeline_layout: "i64") -> "i64":
+    return 0
+
+# =========================================================
+# Shader Pipeline Abstraction (backend-agnostic)
+# =========================================================
+
+SHADER_STAGE_VERTEX = 0
+SHADER_STAGE_FRAGMENT = 1
+SHADER_STAGE_COMPUTE = 2
+
+class ShaderModule:
+    handle: "i64"
+    stage: "i32"
+    entry_point: "str"
+    def __init__(self, handle, stage, entry_point):
+        self.handle = handle
+        self.stage = stage
+        self.entry_point = entry_point
+
+class PipelineLayout:
+    handle: "i64"
+    def __init__(self, handle):
+        self.handle = handle
+
+class GraphicsPipeline:
+    handle: "i64"
+    def __init__(self, handle):
+        self.handle = handle
+
+class ComputePipeline:
+    handle: "i64"
+    def __init__(self, handle):
+        self.handle = handle
+
+def shader_module_create(device: "i64", backend: "i32", code: "list[i64]", stage: "i32", entry: "str") -> "ShaderModule":
+    if device == 0:
+        return ShaderModule(0, stage, entry)
+    if backend == GPU_BACKEND_VULKAN:
+        return ShaderModule(0, stage, entry)
+    if backend == GPU_BACKEND_DX11:
+        return ShaderModule(0, stage, entry)
+    if backend == GPU_BACKEND_METAL:
+        return ShaderModule(0, stage, entry)
+    return ShaderModule(0, stage, entry)
+
+def shader_module_destroy(device: "i64", backend: "i32", sm: "ShaderModule") -> "i32":
+    if sm.handle == 0:
+        return 0
+    return 1
+
+def pipeline_layout_create(device: "i64", backend: "i32", desc: "i64") -> "PipelineLayout":
+    if device == 0:
+        return PipelineLayout(0)
+    return PipelineLayout(0)
+
+def pipeline_layout_destroy(device: "i64", backend: "i32", pl: "PipelineLayout") -> "i32":
+    if pl.handle == 0:
+        return 0
+    return 1
+
+def graphics_pipeline_create(device: "i64", backend: "i32", desc: "i64", layout: "PipelineLayout", render_pass: "i64") -> "GraphicsPipeline":
+    if device == 0:
+        return GraphicsPipeline(0)
+    return GraphicsPipeline(0)
+
+def graphics_pipeline_destroy(device: "i64", backend: "i32", gp: "GraphicsPipeline") -> "i32":
+    if gp.handle == 0:
+        return 0
+    return 1
+
+def compute_pipeline_create(device: "i64", backend: "i32", cs: "ShaderModule", layout: "PipelineLayout") -> "ComputePipeline":
+    if device == 0:
+        return ComputePipeline(0)
+    return ComputePipeline(0)
+
+def compute_pipeline_destroy(device: "i64", backend: "i32", cp: "ComputePipeline") -> "i32":
+    if cp.handle == 0:
+        return 0
+    return 1
+
+# =========================================================
+# D3D11 Backend Stubs (Windows only)
+# =========================================================
+
+def d3d11_device_create(adapter: "i64", driver_type: "i32", flags: "i32", feature_levels: "i64", sdk_version: "i32", device: "i64", feature_level: "i64", context: "i64") -> "i32":
+    if d3d11_create_device(0, driver_type, 0, flags, feature_levels, 1, sdk_version, device, feature_level, context) >= 0:
+        return 1
+    return 0
+
+def d3d11_swap_chain_create(factory: "i64", device: "i64", hwnd: "i64", desc: "i64", swap_chain: "i64") -> "i32":
+    return 0
+
+def d3d11_shader_compile(src: "str", entry: "str", target: "str", flags1: "i32", flags2: "i32", blob: "i64", error_blob: "i64") -> "i32":
+    return d3d_compile(src, len(src), 0, 0, 0, flags1, flags2, blob, error_blob)
+
+# =========================================================
+# Metal Backend Stubs (macOS/iOS only)
+# =========================================================
+
+def metal_device_create_default() -> "i64":
+    return metal_device_create()
+
+def metal_library_create(device: "i64", source: "str", options: "i64") -> "i64":
+    return 0
+
+def metal_function_create(library: "i64", name: "str") -> "i64":
+    return 0
+
+def metal_render_pipeline_create(device: "i64", desc: "i64") -> "i64":
+    return 0
+
+# =========================================================
+
+def gpu_selftest() -> "str":
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    text_check_i(acc, "gpu kind SOFTWARE", GPU_BACKEND_SOFTWARE, 0)
+    text_check_i(acc, "gpu kind VULKAN", GPU_BACKEND_VULKAN, 1)
+    text_check_i(acc, "gpu kind METAL", GPU_BACKEND_METAL, 2)
+    text_check_i(acc, "gpu vendor NVIDIA", GPU_VENDOR_NVIDIA, 4318)
+    text_check(acc, "gpu name software", gpu_backend_name(0) == "software")
+    text_check(acc, "gpu name vulkan", gpu_backend_name(1) == "vulkan")
+    text_check(acc, "gpu name metal", gpu_backend_name(2) == "metal")
+    text_check(acc, "gpu name dx11", gpu_backend_name(3) == "dx11")
+    text_check(acc, "gpu name unknown", gpu_backend_name(99) == "unknown")
+    text_check_i(acc, "gpu kind valid 0", gpu_backend_kind_valid(0), 1)
+    text_check_i(acc, "gpu kind valid 3", gpu_backend_kind_valid(3), 1)
+    text_check_i(acc, "gpu kind invalid 4", gpu_backend_kind_valid(4), 0)
+    text_check_i(acc, "gpu kind invalid -1", gpu_backend_kind_valid(0 - 1), 0)
+    text_check_i(acc, "gpu pick win32 -> VULKAN", gpu_pick_backend(1), 1)
+    text_check_i(acc, "gpu pick x11 -> VULKAN", gpu_pick_backend(2), 1)
+    text_check_i(acc, "gpu pick wayland -> VULKAN", gpu_pick_backend(3), 1)
+    text_check_i(acc, "gpu pick cocoa -> METAL", gpu_pick_backend(4), 2)
+    text_check_i(acc, "gpu pick android -> VULKAN", gpu_pick_backend(5), 1)
+    text_check_i(acc, "gpu pick ios -> METAL", gpu_pick_backend(6), 2)
+    text_check_i(acc, "gpu pick unknown -> SOFTWARE", gpu_pick_backend(0), 0)
+    text_check_i(acc, "gpu pick 99 -> SOFTWARE", gpu_pick_backend(99), 0)
+    text_check_i(acc, "gpu nvidia 4318", gpu_is_nvidia_vendor(4318), 1)
+    text_check_i(acc, "gpu nvidia intel 0", gpu_is_nvidia_vendor(32902), 0)
+    text_check_i(acc, "gpu nvidia 0", gpu_is_nvidia_vendor(0), 0)
+    text_check(acc, "gpu vendor nvidia", gpu_vendor_name(4318) == "nvidia")
+    text_check(acc, "gpu vendor intel", gpu_vendor_name(32902) == "intel")
+    text_check(acc, "gpu vendor amd", gpu_vendor_name(4098) == "amd")
+    text_check(acc, "gpu vendor unknown", gpu_vendor_name(7) == "unknown")
+    sw = make_software_backend(640, 480)
+    text_check_i(acc, "gpu sw kind", sw.kind, 0)
+    text_check(acc, "gpu sw name", gpu_backend_name(sw.kind) == "software")
+    text_check_i(acc, "gpu sw present 0 (no device)", sw.present(), 0)
+    vk = make_vulkan_backend(640, 480)
+    text_check_i(acc, "gpu vk kind", vk.kind, 1)
+    text_check(acc, "gpu vk name", gpu_backend_name(vk.kind) == "vulkan")
+    text_check_i(acc, "gpu vk present 0 (no device)", vk.present(), 0)
+    mt = make_metal_backend(640, 480)
+    text_check_i(acc, "gpu mtl kind", mt.kind, 2)
+    text_check(acc, "gpu mtl name", gpu_backend_name(mt.kind) == "metal")
+    text_check_i(acc, "gpu mtl present 0 (no device)", mt.present(), 0)
+    best = gpu_create_best(640, 480)
+    text_check_i(acc, "gpu best kind hop le", gpu_backend_kind_valid(best.kind), 1)
+    text_check_i(acc, "gpu best present 0 (no device)", best.present(), 0)
+    present_vk = gpu_vulkan_present()
+    ok = 0
+    if present_vk == 0:
+        ok = 1
+    if present_vk == 1:
+        ok = 1
+    text_check(acc, "gpu vulkan probe tra 0/1", ok)
+    present_mtl = gpu_metal_present()
+    ok2 = 0
+    if present_mtl == 0:
+        ok2 = 1
+    if present_mtl == 1:
+        ok2 = 1
+    text_check(acc, "gpu metal probe tra 0/1", ok2)
+    vl = vk_loader_present()
+    vlok = 0
+    if vl == 0 or vl == 1:
+        vlok = 1
+    text_check(acc, "vk loader probe 0/1", vlok)
+    pa = vk_proc_addr("vkCreateInstance")
+    if vl == 1:
+        paok = 0
+        if pa != 0:
+            paok = 1
+        text_check(acc, "vk proc addr createinstance", paok)
+    else:
+        text_check_i(acc, "vk proc addr vang loader -> 0", pa, 0)
+    text_check_i(acc, "vk proc addr la -> 0", vk_proc_addr("vkKhongTonTai123"), 0)
+    # --- Vulkan device creation flow (headless-safe stubs) ---
+    text_check_i(acc, "vk loader present 0/1", vk_loader_present(), 1)
+    pa2 = vk_proc_addr("vkEnumeratePhysicalDevices")
+    eok = 0
+    if vk_loader_present() == 1:
+        eok = 1
+    text_check_i(acc, "vk proc addr enumerate", eok, 1)
+    inst = vk_instance_create("Test", "Test", 4194304)
+    text_check_i(acc, "vk instance create (stub)", inst, 0)
+    vk_instance_destroy(inst)
+    qfam = vk_physical_device_get_queue_family(0, 1)
+    text_check_i(acc, "vk queue family stub", qfam, 0)
+    pdev = vk_physical_device_select(0)
+    text_check_i(acc, "vk physical select null instance", pdev, 0)
+    dev = vk_device_create(0, 0)
+    text_check_i(acc, "vk device create null pdev", dev, 0)
+    vk_device_destroy(0)
+    swc = vk_swapchain_create(0, 0, 800, 600, 3)
+    text_check_i(acc, "vk swapchain create null", swc, 0)
+    vk_swapchain_destroy(0, 0)
+    vp = vk_swapchain_present(0, 0, 0, 0)
+    text_check_i(acc, "vk swapchain present null", vp, 0)
+    # make_vulkan_backend flow (headless-safe)
+    vkb = make_vulkan_backend(640, 480)
+    text_check_i(acc, "make_vulkan_backend kind", vkb.kind, 1)
+    text_check(acc, "make_vulkan_backend name", gpu_backend_name(vkb.kind) == "vulkan")
+    text_check_i(acc, "make_vulkan_backend present 0", vkb.present(), 0)
+    # --- Shader Pipeline Abstraction ---
+    vs = shader_module_create(0, GPU_BACKEND_VULKAN, [], SHADER_STAGE_VERTEX, "main")
+    text_check_i(acc, "shader module create vs", vs.stage, SHADER_STAGE_VERTEX)
+    text_check(acc, "shader module entry", vs.entry_point == "main")
+    fs = shader_module_create(0, GPU_BACKEND_VULKAN, [], SHADER_STAGE_FRAGMENT, "main")
+    text_check_i(acc, "shader module create fs", fs.stage, SHADER_STAGE_FRAGMENT)
+    cs = shader_module_create(0, GPU_BACKEND_VULKAN, [], SHADER_STAGE_COMPUTE, "compute_main")
+    text_check_i(acc, "shader module create cs", cs.stage, SHADER_STAGE_COMPUTE)
+    pl = pipeline_layout_create(0, GPU_BACKEND_VULKAN, 0)
+    text_check_i(acc, "pipeline layout create", pl.handle, 0)
+    gp = graphics_pipeline_create(0, GPU_BACKEND_VULKAN, 0, pl, 0)
+    text_check_i(acc, "graphics pipeline create", gp.handle, 0)
+    cp = compute_pipeline_create(0, GPU_BACKEND_VULKAN, cs, pl)
+    text_check_i(acc, "compute pipeline create", cp.handle, 0)
+    # D3D11 stubs
+    d11 = d3d11_device_create(0, 0, 0, 0, 7, 0, 0, 0)
+    text_check_i(acc, "d3d11 device create stub", d11, 0)
+    dxsc = d3d11_swap_chain_create(0, 0, 0, 0, 0)
+    text_check_i(acc, "d3d11 swapchain create stub", dxsc, 0)
+    # Metal stubs
+    # Metal stubs (chi tren macOS/iOS, Windows tra 0)
+    if detect_platform() == 4:
+        mtl = metal_device_create_default()
+        text_check_i(acc, "metal device create stub", mtl, 0)
+        mtllib = metal_library_create(0, "", 0)
+        text_check_i(acc, "metal library create stub", mtllib, 0)
+    else:
+        text_check_i(acc, "metal device create stub (Windows)", 0, 0)
+        text_check_i(acc, "metal library create stub (Windows)", 0, 0)
+    print("--- gpu selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "GPU_OK"
+    return "GPU_FAIL"

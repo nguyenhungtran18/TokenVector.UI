@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""TokenVector.UI - umbrella library, imports all TkvUI modules (v2 P7 + P1.1 hardening)
+"""TokenVector.UI - umbrella library, imports all TkvUI modules (v2 P7 + P1.1 hardening + Viet 134 glyph + Widget API + IME stub)
 
 Entry mac dinh 'main' = chay toan bo selftest cua thu vien (headless, khong mo cua so):
   tkvc.exe build TokenVector.UI.tkv --out build/tkvui_suite.exe && build/tkvui_suite.exe
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Widgets"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Theme", "TkvUI.Widgets", "TkvUI.Widgets.Native", "TkvUI.Media", "TkvUI.Bidi", "TkvUI.Gpu", "TkvUI.A11y", "TkvUI.A11yBridge", "TkvUI.Data", "TkvUI.SQLite", "TkvUI.Printing", "TkvUI.FontFallback", "TkvUI.NativeDlg", "TkvUI.Ime", "TkvUI.Uia", "TkvUI.Atspi"]
 
 def tkvui_version() -> "str":
-    return "2.3.1"
+    return "2.8.0"
 
 def tkvui_selftest() -> "str":
     # Chay TAT CA selftest cua thu vien va gop ket qua. Moi selftest tra ve "<MODULE>_OK"
@@ -21,7 +21,22 @@ def tkvui_selftest() -> "str":
     r6 = input_selftest()
     r7 = layout_selftest()
     r8 = widget_selftest()
-    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " ===")
+    r9 = media_selftest()
+    r10 = bidi_selftest()
+    r11 = gpu_selftest()
+    r12 = a11y_selftest()
+    r13 = theme_selftest()
+    r14 = native_selftest()
+    r15 = data_selftest()
+    r16 = sqlite_selftest()
+    r17 = printing_selftest()
+    r18 = abridge_selftest()
+    r19 = fallback_selftest()
+    r20 = nativedlg_selftest()
+    r21 = ime_selftest()
+    r22 = uia_selftest()
+    r23 = atspi_selftest()
+    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " / " + r9 + " / " + r10 + " / " + r11 + " / " + r12 + " / " + r13 + " / " + r14 + " / " + r15 + " / " + r16 + " / " + r17 + " / " + r18 + " / " + r19 + " / " + r20 + " / " + r21 + " / " + r22 + " / " + r23 + " ===")
     bad = int(0)
     if r1 != "CORE_OK":
         bad = bad + 1
@@ -38,6 +53,36 @@ def tkvui_selftest() -> "str":
     if r7 != "LAYOUT_OK":
         bad = bad + 1
     if r8 != "WIDGETS_OK":
+        bad = bad + 1
+    if r9 != "MEDIA_OK":
+        bad = bad + 1
+    if r10 != "BIDI_OK":
+        bad = bad + 1
+    if r11 != "GPU_OK":
+        bad = bad + 1
+    if r12 != "A11Y_OK":
+        bad = bad + 1
+    if r13 != "THEME_OK":
+        bad = bad + 1
+    if r14 != "NATIVE_OK":
+        bad = bad + 1
+    if r15 != "DATA_OK":
+        bad = bad + 1
+    if r16 != "SQLITE_OK":
+        bad = bad + 1
+    if r17 != "PRINTING_OK":
+        bad = bad + 1
+    if r18 != "ABRIDGE_OK":
+        bad = bad + 1
+    if r19 != "FALLBACK_OK":
+        bad = bad + 1
+    if r20 != "NATIVEDLG_OK":
+        bad = bad + 1
+    if r21 != "IME_OK":
+        bad = bad + 1
+    if r22 != "UIA_OK":
+        bad = bad + 1
+    if r23 != "ATSPI_OK":
         bad = bad + 1
     if bad == 0:
         print("TKVUI_OK")

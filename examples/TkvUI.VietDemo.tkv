@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.VietDemo - demo Vietnamese UI widgets (Button, TextInput) + cross-platform
+
+Build:  tkvc.exe build examples/TkvUI.VietDemo.tkv --entry run --out build/TkvUI.VietDemo.exe
+Chay:  hien cua so 640x480 voi cac widget tieng Viet.
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+def vietdemo_alloc_surface(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def vietdemo_draw_frame(buf: "list[i64]", surf: "PixelSurface") -> "i32":
+    th = theme_dark()
+    bg = th.surface
+    surface_clear(buf, surf, bg)
+
+    # Tieu de
+    draw_string(buf, surf, "TkvUI Vietnamese UI Demo", 20.0, 20.0, 1.5, ColorRgba(255, 255, 255, 255))
+
+    # --- Button thuong
+    btn1 = make_button(20.0, 60.0, 180.0, 40.0, "Nút thường")
+    btn1.render(buf, surf)
+
+    # --- Button outline
+    btn2 = make_button_outline(220.0, 60.0, 180.0, 40.0, "Nút viền")
+    btn2.render(buf, surf)
+
+    # --- Button tiếng Việt có dấu
+    btn3 = make_button(420.0, 60.0, 180.0, 40.0, "Xin chào")
+    btn3.render(buf, surf)
+
+    # --- TextInput placeholder
+    txt1 = make_textinput(20.0, 120.0, 300.0, 40.0, "Nhập tiếng Việt...")
+    txt1.render(buf, surf)
+
+    # --- TextInput với text tiếng Việt
+    txt2 = make_textinput(20.0, 180.0, 300.0, 40.0, "Email")
+    txt2.text = "nguyễn.văn.a@example.com"
+    txt2.caret = len(txt2.text)
+    txt2.render(buf, surf)
+
+    # --- TextInput focus demo
+    txt3 = make_textinput(20.0, 240.0, 300.0, 40.0, "Tìm kiếm...")
+    txt3.focused = 1
+    txt3.text = "Tìm kiếm: Việt Nam"
+    txt3.caret = vi_strlen(txt3.text)
+    txt3.render(buf, surf)
+
+    # --- Test vi_truncate hiển thị
+    s = "Việt Nam là quốc gia đẹp"
+    t = vi_truncate(s, 10)
+    draw_string(buf, surf, "vi_truncate 10 cot: " + t, 20.0, 310.0, 1.0, ColorRgba(200, 200, 200, 255))
+
+    # --- Test vi_strlen
+    draw_string(buf, surf, "vi_strlen('Việt') = " + str(vi_strlen("Việt")), 20.0, 335.0, 1.0, ColorRgba(200, 200, 200, 255))
+    draw_string(buf, surf, "vi_strlen('ABC') = " + str(vi_strlen("ABC")), 20.0, 355.0, 1.0, ColorRgba(200, 200, 200, 255))
+
+    # --- Test vi_seq_len_at
+    draw_string(buf, surf, "vi_seq_len_at('Việt', 0, 6) = " + str(vi_seq_len_at("Việt", 0, 6)), 20.0, 375.0, 1.0, ColorRgba(200, 200, 200, 255))
+    draw_string(buf, surf, "vi_seq_len_at('Việt', 2, 6) = " + str(vi_seq_len_at("Việt", 2, 6)), 20.0, 395.0, 1.0, ColorRgba(200, 200, 200, 255))
+
+    # --- Platform info
+    pid = detect_platform()
+    draw_string(buf, surf, "Platform: " + detect_platform_id() + " (" + str(pid) + ")", 20.0, 425.0, 1.0, ColorRgba(180, 180, 180, 255))
+
+    return 1
+
+def run() -> "str":
+    # Tao surface 640x480
+    buf = vietdemo_alloc_surface(640, 480)
+    surf = PixelSurface(640, 480, 640)
+
+    # Ve frame
+    vietdemo_draw_frame(buf, surf)
+
+    # Kiem tra pixel ve
+    drawn = 0
+    i = 0
+    while i < 640 * 480:
+        if buf[i] != 0:
+            drawn = 1
+        i = i + 1
+
+    if drawn == 1:
+        print("VietDemo: OK - co pixel ve")
+    else:
+        print("VietDemo: FAIL - khong co pixel")
+
+    # In thong tin text
+    print("vi_strlen(Việt) = " + str(vi_strlen("Việt")))
+    print("vi_truncate 10 = " + vi_truncate("Việt Nam", 10))
+
+    return "VIET_DEMO_OK"

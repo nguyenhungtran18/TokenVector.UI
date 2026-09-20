@@ -1,0 +1,1151 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Designer - visual form builder (Phase 5, headless-testable).
+
+Mo hinh form trong caller lists (record cam chua list):
+  kinds: loai widget; xs/ys/ws/hs: geometry; texts: label/text; extras: gia tri
+  phu (checked/selected/value int).
+Render preview bang Native widgets that; serialize/deserialize JSON schema
+rieng (parser thuan .tkv). Ban GUI tuong tac (keo-tha chuot) la lop vo tren
+cu Model kata (xem TkvUI.Live harness).
+Build:
+  tkvc.exe build examples/TkvUI.Designer.tkv --entry designer_run --out build/designer.exe
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+__tkv_extern_method__ = [{"name": "ds_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}]
+
+# Widget kinds (tai lieu; code dung literal so)
+DS_BUTTON = 0
+DS_LABEL = 1
+DS_EDIT = 2
+DS_CHECK = 3
+DS_SLIDER = 4
+DS_PROGRESS = 5
+DS_LIST = 6
+DS_TABS = 7
+DS_KIND_COUNT = 8
+
+class DsForm:
+    title: "str"
+    fw: "f64"
+    fh: "f64"
+    sel: "i32"
+    mode: "i32"
+    grid: "f64"
+    def __init__(self, title, fw, fh, sel, mode, grid):
+        self.title = title
+        self.fw = fw
+        self.fh = fh
+        self.sel = sel
+        self.mode = mode
+        self.grid = grid
+    def count(self, kinds: "list[i32]") -> "i32":
+        return len(kinds)
+    def select(self, idx: "i32", n: "i32") -> "i32":
+        if idx < -1:
+            idx = -1
+        if idx >= n:
+            idx = -1
+        self.sel = idx
+        return idx
+    def snap(self, v: "f64") -> "f64":
+        if self.grid <= 0.0:
+            return v
+        g = self.grid
+        q = int(v / g)
+        return float(q) * g
+
+def ds_make_form(title: "str", w: "f64", h: "f64") -> "DsForm":
+    return DsForm(title, w, h, -1, 0, 4.0)
+
+def ds_kind_name(kind: "i32") -> "str":
+    if kind == 1:
+        return "label"
+    if kind == 2:
+        return "edit"
+    if kind == 3:
+        return "check"
+    if kind == 4:
+        return "slider"
+    if kind == 5:
+        return "progress"
+    if kind == 6:
+        return "list"
+    if kind == 7:
+        return "tabs"
+    return "button"
+
+def ds_kind_of(name: "str") -> "i32":
+    if name == "label":
+        return 1
+    if name == "edit":
+        return 2
+    if name == "check":
+        return 3
+    if name == "slider":
+        return 4
+    if name == "progress":
+        return 5
+    if name == "list":
+        return 6
+    if name == "tabs":
+        return 7
+    return 0
+
+def ds_add(kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", kind: "i32", x: "f64", y: "f64", w: "f64", h: "f64", text: "str") -> "i32":
+    if kind < 0:
+        return -1
+    if kind > 7:
+        return -1
+    if w <= 0.0:
+        return -1
+    if h <= 0.0:
+        return -1
+    kinds.append(kind)
+    xs.append(x)
+    ys.append(y)
+    ws.append(w)
+    hs.append(h)
+    texts.append(text)
+    extras.append(0)
+    return len(kinds) - 1
+
+def ds_remove_at(kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", idx: "i32") -> "i32":
+    # Xoa stable (giu thu tu z-order)
+    n = len(kinds)
+    if idx < 0:
+        return 0
+    if idx >= n:
+        return 0
+    k = idx
+    while k < n - 1:
+        kinds[k] = kinds[k + 1]
+        xs[k] = xs[k + 1]
+        ys[k] = ys[k + 1]
+        ws[k] = ws[k + 1]
+        hs[k] = hs[k + 1]
+        texts[k] = texts[k + 1]
+        extras[k] = extras[k + 1]
+        k = k + 1
+    kinds.pop()
+    xs.pop()
+    ys.pop()
+    ws.pop()
+    hs.pop()
+    texts.pop()
+    extras.pop()
+    return 1
+
+def ds_hit(xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", n: "i32", px: "f64", py: "f64") -> "i32":
+    # Topmost-first (cuoi = tren cung)
+    i = n - 1
+    while i >= 0:
+        if px >= xs[i]:
+            if py >= ys[i]:
+                if px < xs[i] + ws[i]:
+                    if py < ys[i] + hs[i]:
+                        return i
+        i = i - 1
+    return -1
+
+def ds_move(kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", idx: "i32", dx: "f64", dy: "f64", form: "DsForm") -> "i32":
+    if idx < 0:
+        return 0
+    if idx >= len(kinds):
+        return 0
+    nx = form.snap(xs[idx] + dx)
+    ny = form.snap(ys[idx] + dy)
+    if nx < 0.0:
+        nx = 0.0
+    if ny < 0.0:
+        ny = 0.0
+    xs[idx] = nx
+    ys[idx] = ny
+    return 1
+
+def ds_resize(ws: "list[f64]", hs: "list[f64]", idx: "i32", dw: "f64", dh: "f64", form: "DsForm") -> "i32":
+    if idx < 0:
+        return 0
+    if idx >= len(ws):
+        return 0
+    nw = form.snap(ws[idx] + dw)
+    nh = form.snap(hs[idx] + dh)
+    if nw < 8.0:
+        nw = 8.0
+    if nh < 8.0:
+        nh = 8.0
+    ws[idx] = nw
+    hs[idx] = nh
+    return 1
+
+def ds_set_text(texts: "list[str]", idx: "i32", text: "str") -> "i32":
+    if idx < 0:
+        return 0
+    if idx >= len(texts):
+        return 0
+    texts[idx] = text
+    return 1
+
+def ds_set_extra(extras: "list[i32]", idx: "i32", v: "i32") -> "i32":
+    if idx < 0:
+        return 0
+    if idx >= len(extras):
+        return 0
+    extras[idx] = v
+    return 1
+
+def ds_clear(kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]") -> "i32":
+    while len(kinds) > 0:
+        kinds.pop()
+    while len(xs) > 0:
+        xs.pop()
+    while len(ys) > 0:
+        ys.pop()
+    while len(ws) > 0:
+        ws.pop()
+    while len(hs) > 0:
+        hs.pop()
+    while len(texts) > 0:
+        texts.pop()
+    while len(extras) > 0:
+        extras.pop()
+    return 0
+
+# =========================================================
+# SERIALIZE - form schema JSON
+# =========================================================
+def ds_escape(text: "str") -> "str":
+    out = ""
+    i = int(0)
+    while i < len(text):
+        ch = text[i]
+        if ch == "\"":
+            out = out + "\\\""
+        else:
+            if ch == "\\":
+                out = out + "\\\\"
+            else:
+                if ch == "\n":
+                    out = out + "\\n"
+                else:
+                    out = out + ch
+        i = i + 1
+    return out
+
+def ds_to_json(form: "DsForm", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]") -> "str":
+    sb = "{\"title\":" + "\"" + ds_escape(form.title) + "\""
+    sb = sb + ",\"w\":" + str(form.fw) + ",\"h\":" + str(form.fh) + ",\"widgets\":["
+    i = int(0)
+    n = len(kinds)
+    while i < n:
+        if i > 0:
+            sb = sb + ","
+        sb = sb + "{\"kind\":" + "\"" + ds_kind_name(kinds[i]) + "\""
+        sb = sb + ",\"x\":" + str(xs[i]) + ",\"y\":" + str(ys[i])
+        sb = sb + ",\"w\":" + str(ws[i]) + ",\"h\":" + str(hs[i])
+        sb = sb + ",\"text\":" + "\"" + ds_escape(texts[i]) + "\""
+        sb = sb + ",\"extra\":" + str(extras[i]) + "}"
+        i = i + 1
+    sb = sb + "]}"
+    return sb
+
+# =========================================================
+# PARSER - doc lai schema do chinh minh sinh (format co dinh)
+# =========================================================
+class DsCursor:
+    pos: "i32"
+    ok: "i32"
+    def __init__(self, pos, ok):
+        self.pos = pos
+        self.ok = ok
+
+def ds_make_cursor() -> "DsCursor":
+    return DsCursor(0, 1)
+
+def ds_skip_ws(s: "str", c: "DsCursor") -> "i32":
+    n = len(s)
+    while c.pos < n:
+        ch = s[c.pos]
+        if ch == " ":
+            c.pos = c.pos + 1
+        else:
+            if ch == "\n":
+                c.pos = c.pos + 1
+            else:
+                break
+    return c.pos
+
+def ds_expect(s: "str", c: "DsCursor", want: "str") -> "i32":
+    ds_skip_ws(s, c)
+    if c.pos >= len(s):
+        c.ok = 0
+        return 0
+    if s[c.pos] == want:
+        c.pos = c.pos + 1
+        return 1
+    c.ok = 0
+    return 0
+
+def ds_parse_str(s: "str", c: "DsCursor") -> "str":
+    # Doc "..." (ho tro \" \\ \n), tra "" khi loi
+    ds_skip_ws(s, c)
+    out = ""
+    if c.pos >= len(s):
+        c.ok = 0
+        return ""
+    if s[c.pos] != "\"":
+        c.ok = 0
+        return ""
+    c.pos = c.pos + 1
+    n = len(s)
+    while c.pos < n:
+        ch = s[c.pos]
+        if ch == "\"":
+            c.pos = c.pos + 1
+            return out
+        if ch == "\\":
+            c.pos = c.pos + 1
+            if c.pos >= n:
+                break
+            e2 = s[c.pos]
+            if e2 == "n":
+                out = out + "\n"
+            else:
+                out = out + e2
+            c.pos = c.pos + 1
+        else:
+            out = out + ch
+            c.pos = c.pos + 1
+    c.ok = 0
+    return out
+
+def ds_parse_float(s: "str", c: "DsCursor") -> "f64":
+    # So thap phan don gian: [-]digits[.digits]
+    ds_skip_ws(s, c)
+    n = len(s)
+    neg = 1.0
+    if c.pos < n:
+        if s[c.pos] == "-":
+            neg = 0.0 - 1.0
+            c.pos = c.pos + 1
+    whole = 0.0
+    got = 0
+    while c.pos < n:
+        ch = s[c.pos]
+        d = mv_digit_val(ch)
+        if d < 0:
+            break
+        whole = whole * 10.0 + float(d)
+        got = 1
+        c.pos = c.pos + 1
+    frac = 0.0
+    div = 1.0
+    if c.pos < n:
+        if s[c.pos] == ".":
+            c.pos = c.pos + 1
+            while c.pos < n:
+                ch = s[c.pos]
+                d = mv_digit_val(ch)
+                if d < 0:
+                    break
+                frac = frac * 10.0 + float(d)
+                div = div * 10.0
+                got = 1
+                c.pos = c.pos + 1
+    if got == 0:
+        c.ok = 0
+        return 0.0
+    return neg * (whole + frac / div)
+
+def ds_parse_int(s: "str", c: "DsCursor") -> "i32":
+    ds_skip_ws(s, c)
+    n = len(s)
+    neg = 0
+    if c.pos < n:
+        if s[c.pos] == "-":
+            neg = 1
+            c.pos = c.pos + 1
+    v = int(0)
+    got = 0
+    while c.pos < n:
+        d = mv_digit_val(s[c.pos])
+        if d < 0:
+            break
+        v = v * 10 + d
+        got = 1
+        c.pos = c.pos + 1
+    if got == 0:
+        c.ok = 0
+        return 0
+    if neg == 1:
+        v = 0 - v
+    return v
+
+def ds_parse_key(s: "str", c: "DsCursor") -> "str":
+    key = ds_parse_str(s, c)
+    ds_skip_ws(s, c)
+    ds_expect(s, c, ":")
+    return key
+
+def ds_from_json(form: "DsForm", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", data: "str") -> "i32":
+    # Parse schema form; tra so widget doc duoc, -1 khi loi cu phap
+    ds_clear(kinds, xs, ys, ws, hs, texts, extras)
+    c = ds_make_cursor()
+    if ds_expect(data, c, "{") == 0:
+        return -1
+    n = int(0)
+    trop = int(0)
+    while trop < 64:
+        ds_skip_ws(data, c)
+        if c.pos < len(data):
+            if data[c.pos] == "}":
+                c.pos = c.pos + 1
+                break
+        key = ds_parse_key(data, c)
+        if c.ok == 0:
+            return -1
+        if key == "title":
+            form.title = ds_parse_str(data, c)
+        else:
+            if key == "w":
+                form.fw = ds_parse_float(data, c)
+            else:
+                if key == "h":
+                    form.fh = ds_parse_float(data, c)
+                else:
+                    if key == "widgets":
+                        if ds_expect(data, c, "[") == 0:
+                            return -1
+                        wloop = int(0)
+                        while wloop < 512:
+                            ds_skip_ws(data, c)
+                            if c.pos < len(data):
+                                if data[c.pos] == "]":
+                                    c.pos = c.pos + 1
+                                    break
+                            if ds_expect(data, c, "{") == 0:
+                                return -1
+                            kind = 0
+                            x = 0.0
+                            y = 0.0
+                            w = 0.0
+                            h = 0.0
+                            text = ""
+                            extra = 0
+                            floop = int(0)
+                            while floop < 16:
+                                ds_skip_ws(data, c)
+                                if c.pos < len(data):
+                                    if data[c.pos] == "}":
+                                        c.pos = c.pos + 1
+                                        break
+                                fk = ds_parse_key(data, c)
+                                if c.ok == 0:
+                                    return -1
+                                if fk == "kind":
+                                    kind = ds_kind_of(ds_parse_str(data, c))
+                                else:
+                                    if fk == "x":
+                                        x = ds_parse_float(data, c)
+                                    else:
+                                        if fk == "y":
+                                            y = ds_parse_float(data, c)
+                                        else:
+                                            if fk == "w":
+                                                w = ds_parse_float(data, c)
+                                            else:
+                                                if fk == "h":
+                                                    h = ds_parse_float(data, c)
+                                                else:
+                                                    if fk == "text":
+                                                        text = ds_parse_str(data, c)
+                                                    else:
+                                                        if fk == "extra":
+                                                            extra = ds_parse_int(data, c)
+                                                        else:
+                                                            c.ok = 0
+                                                            return -1
+                                ds_skip_ws(data, c)
+                                if c.pos < len(data):
+                                    if data[c.pos] == ",":
+                                        c.pos = c.pos + 1
+                                floop = floop + 1
+                            kinds.append(kind)
+                            xs.append(x)
+                            ys.append(y)
+                            ws.append(w)
+                            hs.append(h)
+                            texts.append(text)
+                            extras.append(extra)
+                            n = n + 1
+                            ds_skip_ws(data, c)
+                            if c.pos < len(data):
+                                if data[c.pos] == ",":
+                                    c.pos = c.pos + 1
+                            wloop = wloop + 1
+                    else:
+                        c.ok = 0
+                        return -1
+        ds_skip_ws(data, c)
+        if c.pos < len(data):
+            if data[c.pos] == ",":
+                c.pos = c.pos + 1
+        trop = trop + 1
+    if c.ok == 0:
+        return -1
+    form.sel = -1
+    return n
+
+# =========================================================
+# RENDER PREVIEW - form -> surface qua Native widgets
+# =========================================================
+def ds_render_item(buf: "list[i64]", surf: "PixelSurface", mode: "i32", kind: "i32", x: "f64", y: "f64", w: "f64", h: "f64", text: "str", extra: "i32") -> "i32":
+    if kind == 1:
+        draw_string(buf, surf, text, x, y + (h - 7.0) / 2.0, 1.0, os_role_color(os_palette_for_mode(mode), 1))
+        return 1
+    if kind == 2:
+        e = make_native_lineedit(x, y, w, text)
+        return e.render(buf, surf, mode)
+    if kind == 3:
+        b = make_native_check(x, y, w, h, text)
+        if extra == 1:
+            b.click()
+        return b.render(buf, surf, mode)
+    if kind == 4:
+        s = make_native_slider(x, y, w, float(extra))
+        return s.render(buf, surf, mode)
+    if kind == 5:
+        p = make_native_progress(x, y, w)
+        p.set_value(float(extra))
+        return p.render(buf, surf, mode)
+    if kind == 6:
+        lv = make_native_listview(x, y, w, h, 3)
+        lv.select(extra)
+        rows = ds_demo_rows()
+        return lv.render(buf, surf, mode, rows, 3)
+    if kind == 7:
+        t = make_native_tabs(x, y, w, 2)
+        t.select(extra)
+        tabs = ds_demo_tabs()
+        return t.render(buf, surf, mode, tabs, 2)
+    b = make_native_button(x, y, w, h, text)
+    return b.render(buf, surf, mode)
+
+def ds_demo_rows() -> "list[str]":
+    out = []
+    out.append("Row0")
+    out.append("Row1")
+    out.append("Row2")
+    return out
+
+def ds_demo_tabs() -> "list[str]":
+    out = []
+    out.append("Tab0")
+    out.append("Tab1")
+    return out
+
+def ds_render(buf: "list[i64]", surf: "PixelSurface", form: "DsForm", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]") -> "i32":
+    pal = os_palette_for_mode(form.mode)
+    fr = Rect2D(0.0, 0.0, form.fw, form.fh)
+    fill_round_rect(buf, surf, fr, 0.0, os_role_color(pal, 0))
+    i = int(0)
+    n = len(kinds)
+    while i < n:
+        ds_render_item(buf, surf, form.mode, kinds[i], xs[i], ys[i], ws[i], hs[i], texts[i], extras[i])
+        if i == form.sel:
+            sr = Rect2D(xs[i] - 2.0, ys[i] - 2.0, ws[i] + 4.0, hs[i] + 4.0)
+            stroke_round_rect(buf, surf, sr, 0.0, 1.5, os_focus_color(pal))
+        i = i + 1
+    return n
+
+# =========================================================
+# SELFTEST - designer_run
+# =========================================================
+def dscheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def dscheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def dscheck_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def dscheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def ds_new_lists() -> "list[i32]":
+    return []
+
+def designer_run() -> "str":
+    print("== TkvUI.Designer selftest ==")
+    acc = [int(0), int(0)]
+    form = ds_make_form("Login", 320.0, 200.0)
+    kinds = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    texts = []
+    extras = []
+    # add
+    i0 = ds_add(kinds, xs, ys, ws, hs, texts, extras, 1, 20.0, 20.0, 200.0, 22.0, "Username:")
+    i1 = ds_add(kinds, xs, ys, ws, hs, texts, extras, 2, 20.0, 46.0, 200.0, 22.0, "Name")
+    i2 = ds_add(kinds, xs, ys, ws, hs, texts, extras, 0, 20.0, 80.0, 90.0, 24.0, "Login")
+    i3 = ds_add(kinds, xs, ys, ws, hs, texts, extras, 3, 120.0, 80.0, 120.0, 24.0, "Remember")
+    dscheck_i(acc, "add.ids", i3, 3)
+    dscheck_i(acc, "add.count", form.count(kinds), 4)
+    dscheck_i(acc, "add.bad", ds_add(kinds, xs, ys, ws, hs, texts, extras, 9, 0.0, 0.0, 10.0, 10.0, "x"), -1)
+    dscheck_s(acc, "kind.name", ds_kind_name(4), "slider")
+    dscheck_i(acc, "kind.of", ds_kind_of("tabs"), 7)
+    # hit/select/move/resize
+    dscheck_i(acc, "hit", ds_hit(xs, ys, ws, hs, 4, 30.0, 90.0), 2)
+    dscheck_i(acc, "hit.miss", ds_hit(xs, ys, ws, hs, 4, 300.0, 190.0), -1)
+    form.select(2, 4)
+    dscheck_i(acc, "select", form.sel, 2)
+    ds_move(kinds, xs, ys, 2, 8.0, 4.0, form)
+    dscheck_f(acc, "move.snap", xs[2], 28.0, 0.001)
+    ds_resize(ws, hs, 2, 6.0, 0.0, form)
+    dscheck_f(acc, "resize.snap", ws[2], 96.0, 0.001)
+    ds_set_text(texts, 2, "Sign in")
+    dscheck_s(acc, "set.text", texts[2], "Sign in")
+    ds_set_extra(extras, 3, 1)
+    dscheck_i(acc, "set.extra", extras[3], 1)
+    # remove stable
+    ds_remove_at(kinds, xs, ys, ws, hs, texts, extras, 0)
+    dscheck_i(acc, "remove.count", form.count(kinds), 3)
+    dscheck_s(acc, "remove.stable", texts[0], "Name")
+    # serialize
+    js = ds_to_json(form, kinds, xs, ys, ws, hs, texts, extras)
+    dscheck(acc, "json.title", mv_contains_safe2(js, "Login"))
+    dscheck(acc, "json.kind", mv_contains_safe2(js, "\"check\""))
+    # parse back
+    f2 = ds_make_form("", 0.0, 0.0)
+    k2 = []
+    x2 = []
+    y2 = []
+    w2 = []
+    h2 = []
+    t2 = []
+    e2 = []
+    n2 = ds_from_json(f2, k2, x2, y2, w2, h2, t2, e2, js)
+    dscheck_i(acc, "parse.n", n2, 3)
+    dscheck_s(acc, "parse.title", f2.title, "Login")
+    dscheck_f(acc, "parse.x", x2[0], 20.0, 0.001)
+    dscheck_s(acc, "parse.text", t2[1], "Sign in")
+    dscheck_i(acc, "parse.extra", e2[2], 1)
+    fb = ds_make_form("", 0.0, 0.0)
+    kb = []
+    xb = []
+    yb = []
+    wb = []
+    hb = []
+    tb = []
+    eb = []
+    dscheck_i(acc, "parse.bad", ds_from_json(fb, kb, xb, yb, wb, hb, tb, eb, "{bad"), -1)
+    # float parser
+    c0 = ds_make_cursor()
+    dscheck_f(acc, "parse.float", ds_parse_float("12.5]", c0), 12.5, 0.001)
+    c1 = ds_make_cursor()
+    dscheck_f(acc, "parse.neg", ds_parse_float("-3.25,", c1), -3.25, 0.001)
+    # render preview
+    surf = PixelSurface(320, 200, 320)
+    buf = ds_alloc(320 * 200)
+    surface_clear(buf, surf, ColorRgba(240, 240, 240, 255))
+    f2.mode = 0
+    f2.sel = 1
+    painted = ds_render(buf, surf, f2, k2, x2, y2, w2, h2, t2, e2)
+    dscheck_i(acc, "render.n", painted, 3)
+    bgc = ColorRgba(240, 240, 240, 255)
+    bg = bgc.to_uint32()
+    cnt = ds_count(buf, bg)
+    ok_p = 0
+    if cnt > 2000:
+        ok_p = 1
+    dscheck(acc, "render.painted", ok_p)
+    # escape roundtrip
+    ds_set_text(t2, 0, "Say \"hi\"")
+    js2 = ds_to_json(f2, k2, x2, y2, w2, h2, t2, e2)
+    f3 = ds_make_form("", 0.0, 0.0)
+    k3 = []
+    x3 = []
+    y3 = []
+    w3 = []
+    h3 = []
+    t3 = []
+    e3 = []
+    ds_from_json(f3, k3, x3, y3, w3, h3, t3, e3, js2)
+    dscheck_s(acc, "escape.rt", t3[0], "Say \"hi\"")
+    print("designer: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "DESIGNER_OK"
+    return "DESIGNER_FAIL"
+
+def ds_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def ds_count(buf: "list[i64]", bg: "i64") -> "i32":
+    c = int(0)
+    i = int(0)
+    while i < len(buf):
+        if buf[i] != bg:
+            c = c + 1
+        i = i + 1
+    return c
+
+def mv_contains_safe2(hay: "str", nd: "str") -> "i32":
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0
+
+# =========================================================
+# DESIGNER APP - interactive tool state + shared handlers (P12.1)
+# Dung chung cho headless scripted test (designer_app_test) va vong
+# windowed (designer_live). Palette trai 120px, canvas ben phai.
+# =========================================================
+def ds_pal_w() -> "f64":
+    return 120.0
+
+def ds_slot_h() -> "f64":
+    return 30.0
+
+def ds_def_w(kind: "i32") -> "f64":
+    if kind == 1:
+        return 100.0
+    if kind == 2:
+        return 140.0
+    if kind == 3:
+        return 120.0
+    if kind == 4:
+        return 140.0
+    if kind == 5:
+        return 140.0
+    if kind == 6:
+        return 140.0
+    if kind == 7:
+        return 200.0
+    return 80.0
+
+def ds_def_h(kind: "i32") -> "f64":
+    if kind == 1:
+        return 18.0
+    if kind == 2:
+        return 22.0
+    if kind == 3:
+        return 20.0
+    if kind == 4:
+        return 22.0
+    if kind == 5:
+        return 14.0
+    if kind == 6:
+        return 80.0
+    if kind == 7:
+        return 24.0
+    return 24.0
+
+def ds_def_text(kind: "i32") -> "str":
+    if kind == 1:
+        return "Label"
+    if kind == 2:
+        return "Edit"
+    if kind == 3:
+        return "Check"
+    if kind == 4:
+        return "Slider"
+    if kind == 5:
+        return "Progress"
+    if kind == 6:
+        return "List"
+    if kind == 7:
+        return "Tabs"
+    return "Button"
+
+def ds_pal_hit(py: "f64") -> "i32":
+    # Slot palette: 8 o, bat dau y=40, cao 30 -> kind 0..7, -1 neu miss
+    rel = py - 40.0
+    if rel < 0.0:
+        return -1
+    k = int(rel / 30.0)
+    if k < 0:
+        return -1
+    if k > 7:
+        return -1
+    return k
+
+class DsTool:
+    tool: "i32"
+    dragging: "i32"
+    sx: "f64"
+    sy: "f64"
+    ox: "f64"
+    oy: "f64"
+    def __init__(self, tool, dragging, sx, sy, ox, oy):
+        self.tool = tool
+        self.dragging = dragging
+        self.sx = sx
+        self.sy = sy
+        self.ox = ox
+        self.oy = oy
+    def set_tool(self, t: "i32") -> "i32":
+        if t < 0:
+            t = 0
+        if t > 7:
+            t = 0
+        self.tool = t
+        self.dragging = 0
+        return t
+
+def ds_make_tool() -> "DsTool":
+    return DsTool(0, 0, 0.0, 0.0, 0.0, 0.0)
+
+def ds_handle_down(form: "DsForm", tool: "DsTool", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", px: "f64", py: "f64") -> "i32":
+    # Tra: 0=miss, 1=chon palette, 2=them widget, 3=chon widget
+    if px < ds_pal_w():
+        k = ds_pal_hit(py)
+        if k < 0:
+            return 0
+        if k == 0:
+            tool.set_tool(0)
+        else:
+            tool.set_tool(k)
+        return 1
+    lx = px - ds_pal_w()
+    if tool.tool == 0:
+        hit = ds_hit(xs, ys, ws, hs, len(kinds), lx, py)
+        form.select(hit, len(kinds))
+        if hit >= 0:
+            tool.dragging = 1
+            tool.sx = lx
+            tool.sy = py
+            tool.ox = xs[hit]
+            tool.oy = ys[hit]
+        return 3
+    idx = ds_add(kinds, xs, ys, ws, hs, texts, extras, tool.tool, form.snap(lx), form.snap(py), ds_def_w(tool.tool), ds_def_h(tool.tool), ds_def_text(tool.tool))
+    form.select(idx, len(kinds))
+    return 2
+
+def ds_handle_move(form: "DsForm", tool: "DsTool", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", px: "f64", py: "f64") -> "i32":
+    if tool.dragging == 0:
+        return 0
+    if form.sel < 0:
+        return 0
+    if form.sel >= len(kinds):
+        return 0
+    dx = px - ds_pal_w() - tool.sx
+    dy = py - tool.sy
+    nx = form.snap(tool.ox + dx)
+    ny = form.snap(tool.oy + dy)
+    if nx < 0.0:
+        nx = 0.0
+    if ny < 0.0:
+        ny = 0.0
+    xs[form.sel] = nx
+    ys[form.sel] = ny
+    return 1
+
+def ds_handle_up(tool: "DsTool") -> "i32":
+    tool.dragging = 0
+    return 0
+
+def ds_handle_key(form: "DsForm", tool: "DsTool", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", key: "i32") -> "i32":
+    # 27=Esc bo chon, 46=Delete xoa, 48..55 = chon tool 0..7. Tra 1 neu xu ly.
+    if key == 27:
+        form.select(-1, len(kinds))
+        tool.dragging = 0
+        return 1
+    if key == 46:
+        if form.sel >= 0:
+            ds_remove_at(kinds, xs, ys, ws, hs, texts, extras, form.sel)
+            form.select(-1, len(kinds))
+            return 1
+        return 0
+    if key >= 48:
+        if key <= 55:
+            tool.set_tool(key - 48)
+            return 1
+    return 0
+
+def ds_save(form: "DsForm", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", path: "str") -> "i32":
+    data = ds_to_json(form, kinds, xs, ys, ws, hs, texts, extras)
+    ds_file_write(path, data)
+    return len(data)
+
+# =========================================================
+# RENDER APP - sidebar palette + canvas + statusbar
+# =========================================================
+def ds_render_app(buf: "list[i64]", surf: "PixelSurface", mode: "i32", form: "DsForm", tool: "DsTool", kinds: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", texts: "list[str]", extras: "list[i32]", w: "f64", h: "f64") -> "i32":
+    pal = os_palette_for_mode(mode)
+    pw = ds_pal_w()
+    side = Rect2D(0.0, 0.0, pw, h)
+    fill_round_rect(buf, surf, side, 0.0, os_state_color(pal, 7, 0))
+    draw_string(buf, surf, "Palette", 8.0, 8.0, 1.0, os_role_color(pal, 1))
+    k = int(0)
+    while k < 8:
+        ky = 40.0 + float(k) * 30.0
+        cell = Rect2D(4.0, ky, pw - 8.0, 26.0)
+        nm = "Select"
+        if k > 0:
+            nm = ds_kind_name(k)
+        cur = tool.tool
+        if k == 0:
+            if cur == 0:
+                fill_round_rect(buf, surf, cell, 2.0, os_role_color(pal, 11))
+                draw_string(buf, surf, nm, 10.0, ky + 9.0, 1.0, os_role_color(pal, 12))
+            else:
+                draw_string(buf, surf, nm, 10.0, ky + 9.0, 1.0, os_role_color(pal, 1))
+        else:
+            if cur == k:
+                fill_round_rect(buf, surf, cell, 2.0, os_role_color(pal, 11))
+                draw_string(buf, surf, nm, 10.0, ky + 9.0, 1.0, os_role_color(pal, 12))
+            else:
+                draw_string(buf, surf, nm, 10.0, ky + 9.0, 1.0, os_role_color(pal, 1))
+        k = k + 1
+    # canvas
+    cbg = Rect2D(pw, 0.0, w - pw, h - 20.0)
+    fill_round_rect(buf, surf, cbg, 0.0, os_role_color(pal, 0))
+    i = int(0)
+    n = len(kinds)
+    while i < n:
+        ds_render_item(buf, surf, mode, kinds[i], pw + xs[i], ys[i], ws[i], hs[i], texts[i], extras[i])
+        if i == form.sel:
+            sr = Rect2D(pw + xs[i] - 2.0, ys[i] - 2.0, ws[i] + 4.0, hs[i] + 4.0)
+            stroke_round_rect(buf, surf, sr, 0.0, 1.5, os_focus_color(pal))
+        i = i + 1
+    # statusbar
+    sbar = Rect2D(0.0, h - 20.0, w, 20.0)
+    fill_round_rect(buf, surf, sbar, 0.0, os_state_color(pal, 7, 0))
+    msg = "n=" + str(n) + " tool=" + ds_kind_name(tool.tool) + " sel=" + str(form.sel)
+    if tool.tool == 0:
+        msg = "n=" + str(n) + " tool=Select sel=" + str(form.sel)
+    draw_string(buf, surf, msg, 8.0, h - 14.0, 1.0, os_role_color(pal, 1))
+    return n
+
+# =========================================================
+# HEADLESS SCRIPTED TEST - cung handlers, khong can chuot that
+# =========================================================
+def dsapp_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def dsapp_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def dsapp_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def designer_app_test() -> "str":
+    print("== TkvUI.DesignerApp scripted test ==")
+    acc = [int(0), int(0)]
+    form = ds_make_form("App", 640.0, 480.0)
+    tool = ds_make_tool()
+    kinds = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    texts = []
+    extras = []
+    # click empty canvas voi tool select -> miss select
+    dsapp_check_i(acc, "down.empty", ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 300.0, 100.0), 3)
+    dsapp_check_i(acc, "sel.none", form.sel, -1)
+    # chon palette slot button (k=0? slot0=Select) -> slot add-button la k=0? Khong:
+    # slot 0 = Select; muon add button (kind 0) phai dung phim 0. Test palette slot 2 (edit)
+    dsapp_check_i(acc, "pal.edit", ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 60.0, 105.0), 1)
+    dsapp_check_i(acc, "tool.edit", tool.tool, 2)
+    # click canvas them edit tai (200,100) -> local (80,100)
+    dsapp_check_i(acc, "add", ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 200.0, 100.0), 2)
+    dsapp_check_i(acc, "count", len(kinds), 1)
+    dsapp_check_f(acc, "add.x", xs[0], 80.0, 0.001)
+    dsapp_check_i(acc, "sel.0", form.sel, 0)
+    # ve select, down len widget, keo +20+12
+    tool.set_tool(0)
+    dsapp_check_i(acc, "pick", ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 200.0, 105.0), 3)
+    dsapp_check_i(acc, "drag.move", ds_handle_move(form, tool, kinds, xs, ys, 220.0, 112.0), 1)
+    dsapp_check_f(acc, "moved.x", xs[0], 100.0, 0.001)
+    dsapp_check_f(acc, "moved.y", ys[0], 104.0, 0.001)
+    ds_handle_up(tool)
+    dsapp_check_i(acc, "up", tool.dragging, 0)
+    # phim Delete xoa
+    dsapp_check_i(acc, "key.del", ds_handle_key(form, tool, kinds, xs, ys, ws, hs, texts, extras, 46), 1)
+    dsapp_check_i(acc, "count0", len(kinds), 0)
+    # phim 3 -> tool check; them 2 widget; save
+    ds_handle_key(form, tool, kinds, xs, ys, ws, hs, texts, extras, 51)
+    dsapp_check_i(acc, "tool.check", tool.tool, 3)
+    ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 200.0, 100.0)
+    ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, 200.0, 200.0)
+    dsapp_check_i(acc, "count2", len(kinds), 2)
+    nb = ds_save(form, kinds, xs, ys, ws, hs, texts, extras, "build/designer_app_test.json")
+    okb = 0
+    if nb > 100:
+        okb = 1
+    dsapp_check(acc, "save", okb)
+    # render app headless
+    surf = PixelSurface(640, 480, 640)
+    buf = ds_alloc(640 * 480)
+    black = ColorRgba(0, 0, 0, 255)
+    surface_clear(buf, surf, black)
+    painted = ds_render_app(buf, surf, 0, form, tool, kinds, xs, ys, ws, hs, texts, extras, 640.0, 480.0)
+    dsapp_check_i(acc, "render.n", painted, 2)
+    print("app: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "DESIGNER_APP_OK"
+    return "DESIGNER_APP_FAIL"
+
+# =========================================================
+# WINDOWED LOOP - designer_live (ESC thoat, 600 vong tu ket thuc)
+# Delete xoa, S luu build/designer_live.json, 0-7 chon tool, chuot that.
+# =========================================================
+def designer_live() -> "str":
+    print("== TkvUI.DesignerApp live ==")
+    W = 800
+    H = 600
+    buf = ds_alloc(W * H)
+    shown = ds_alloc(W * H)
+    surf = PixelSurface(W, H, W)
+    form = ds_make_form("App", 660.0, 560.0)
+    tool = ds_make_tool()
+    kinds = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    texts = []
+    extras = []
+    plat = Win32Platform(0)
+    wh = plat.create(100, 100, W, H, 1)
+    if wh.handle == 0:
+        print("[designer] khong tao duoc cua so -> headless")
+        return "DESIGNER_LIVE_HEADLESS"
+    ds_render_app(buf, surf, 0, form, tool, kinds, xs, ys, ws, hs, texts, extras, float(W), float(H))
+    pdv = plat.present_diff(buf, shown, surf, wh)
+    surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+    cap = int(0)
+    rendered = int(0)
+    prev_down = int(0)
+    prev_del = int(0)
+    prev_s = int(0)
+    quit_v = int(0)
+    while cap < 600:
+        cap = cap + 1
+        dchg = win_dpi_changed()
+        if dchg == 1:
+            dack = win_dpi_ack()
+        pump = win_poll_messages()
+        pxs = win_pointer_x()
+        pys = win_pointer_y()
+        xf = float(pxs) - float(wh.x)
+        yf = float(pys) - float(wh.y)
+        if quit_v == 0:
+            if win_key_down(27) != 0:
+                quit_v = 1
+        down = win_key_down(1)
+        dirty = 0
+        if down == 1:
+            if prev_down == 0:
+                ds_handle_down(form, tool, kinds, xs, ys, ws, hs, texts, extras, xf, yf)
+                dirty = 1
+            else:
+                if ds_handle_move(form, tool, kinds, xs, ys, xf, yf) == 1:
+                    dirty = 1
+        else:
+            if prev_down == 1:
+                ds_handle_up(tool)
+        prev_down = down
+        delk = win_key_down(46)
+        if delk == 1:
+            if prev_del == 0:
+                if ds_handle_key(form, tool, kinds, xs, ys, ws, hs, texts, extras, 46) == 1:
+                    dirty = 1
+        prev_del = delk
+        sk = win_key_down(83)
+        if sk == 1:
+            if prev_s == 0:
+                nb = ds_save(form, kinds, xs, ys, ws, hs, texts, extras, "build/designer_live.json")
+                print("[designer] saved bytes=" + str(nb))
+                dirty = 1
+        prev_s = sk
+        kk = 48
+        while kk <= 55:
+            if win_key_down(kk) == 1:
+                if ds_handle_key(form, tool, kinds, xs, ys, ws, hs, texts, extras, kk) == 1:
+                    dirty = 1
+            kk = kk + 1
+        if cap == 1:
+            dirty = 1
+        if pump > 0:
+            dirty = 1
+        if dirty == 1:
+            ds_render_app(buf, surf, 0, form, tool, kinds, xs, ys, ws, hs, texts, extras, float(W), float(H))
+            pdv = plat.present_diff(buf, shown, surf, wh)
+            surface_fast_blit(shown, surf, buf, surf, 0, 0, W, H, 0, 0)
+            rendered = rendered + 1
+        if quit_v == 1:
+            cap = 600
+    print("[designer] frames=600 rendered=" + str(rendered))
+    return "DESIGNER_LIVE_OK"

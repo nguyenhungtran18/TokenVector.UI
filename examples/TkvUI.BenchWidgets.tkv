@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.BenchWidgets - benchmark tao widget (Phase 6.3).
+
+1000 NativeButton: construct (x100 lap) + render (x20 lap). GetTickCount (ms).
+Build:
+  tkvc.exe build examples/TkvUI.BenchWidgets.tkv --entry bench_widgets_create --out build/bench_widgets.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Widgets.Native"]
+
+def bench_widgets_create() -> "str":
+    n = 1000
+    # construct x100
+    t0 = text_ticks()
+    rep = int(0)
+    while rep < 100:
+        i = int(0)
+        while i < n:
+            col = i - (i // 10) * 10
+            row = i // 10
+            b = make_native_button(float(col) * 82.0, float(row) * 26.0, 80.0, 24.0, "B")
+            i = i + 1
+        rep = rep + 1
+    t1 = text_ticks()
+    construct_ms = t1 - t0
+    # render x20 (surface 820x2600)
+    w = int(820)
+    h = int(2600)
+    surf = PixelSurface(w, h, w)
+    buf = []
+    k = int(0)
+    while k < w * h:
+        buf.append(0)
+        k = k + 1
+    black = ColorRgba(0, 0, 0, 255)
+    t0 = text_ticks()
+    rep = int(0)
+    while rep < 20:
+        surface_clear(buf, surf, black)
+        i = int(0)
+        while i < n:
+            col = i - (i // 10) * 10
+            row = i // 10
+            b = make_native_button(float(col) * 82.0, float(row) * 26.0, 80.0, 24.0, "B")
+            b.render(buf, surf, 0)
+            i = i + 1
+        rep = rep + 1
+    t1 = text_ticks()
+    render_ms = t1 - t0
+    return "construct_ms=" + str(construct_ms) + "_x100 render_ms=" + str(render_ms) + "_x20 n=" + str(n)

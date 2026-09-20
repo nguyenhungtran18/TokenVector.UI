@@ -1,0 +1,55 @@
+== TkvUI.Data selftest ==
+  PASS rows = 3
+  PASS cell = Binh
+  PASS set = 26
+  PASS append = 4
+  PASS remove = 3
+  PASS contains = 1
+  PASS nocontains = 0
+  PASS parse = -42
+  PASS isint = 0
+  PASS cmp = -1
+  PASS filter.shown = 1
+  PASS filter.map = 1
+  PASS filter.count = 1
+  PASS sort.first = 1
+  PASS sort.last = 2
+  PASS sort.desc.first = 2
+  PASS sort.desc.mid = 0
+  PASS sort.desc.last = 1
+  PASS sort.str.first = 0
+  PASS sort.str.last = 2
+  PASS sort.stable = 1
+  PASS sort.stable.eq1 = 2
+  PASS sort.stable.eq2 = 3
+  PASS sort.dir0 = 3
+  PASS sort.empty = 0
+  PASS dlg.text = 1
+  PASS dlg.text.ink = 1
+  PASS dlg.check.off = 1
+  PASS dlg.check.on = 1
+  PASS dlg.check.more
+  PASS dlg.prog.0 = 1
+  PASS dlg.prog.100 = 1
+  PASS dlg.prog.more
+  PASS dlg.slider = 1
+  PASS dlg.rtyped = 2
+  PASS dlg.rtyped.ink = 1
+  PASS state.sel = 1
+  PASS state.sort = 1
+  PASS slist.ins = x
+  PASS slist.rm = x
+  PASS text.edit = new
+  PASS spin.edit = 100
+  PASS spin.bad = 5
+  PASS spin.step = 6
+  PASS combo.ok = 2
+  PASS combo.bad = 0
+  PASS date.leap = 1
+  PASS date.valid = 0
+  PASS date.ok = 1
+  PASS date.edit = 20240101
+  PASS date.text = 2024-09-02
+  PASS index.same = 1
+data: 52/52
+DATA_OK

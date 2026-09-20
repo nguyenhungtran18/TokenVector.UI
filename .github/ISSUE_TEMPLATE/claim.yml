@@ -1,0 +1,20 @@
+# False claim — tuyên bố chưa có bằng chứng chạy được
+name: False Claim
+description: A claim (plan/doc/README) without runnable evidence
+title: "[claim] "
+labels: ["docs"]
+body:
+  - type: textarea
+    id: claim
+    attributes:
+      label: Claim
+      description: Câu chữ + file/dòng đưa ra tuyên bố
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Missing evidence
+      description: Số đo/log/screenshot còn thiếu để chứng minh
+    validations:
+      required: true

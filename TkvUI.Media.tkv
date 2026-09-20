@@ -1,0 +1,1523 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Media - media-player UI widget library (pure 100% TokenVector)
+
+Tham khao kien truc: AndroidX Media3 PlayerControlView (play/pause/seek/prev/next/
+repeat/shuffle/mute/progress/time/fullscreen/show_timeout), Nyx MusicPlayer
+(track/queue/theme/equalizer), Video.js/Kibo (composable controls), PyQt media
+player (playlist/A-B loop/speed/presets/bookmarks). Viet lai hoan toan bang
+TokenVector (.tkv), ve bang software rasterizer, khong phu thuoc ngoai.
+
+Quy uoc (giong TkvUI.Widgets/P6):
+- Record chi giu scalar (i32/i64/f64/str + record cung file); list truyen qua
+  tham so method (render/handle/step), caller giu buffer.
+- Ma su kien/hit-test dung literal so trong than method.
+- Moi widget co ham make_* (ctor positional du field).
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.Events", "TkvUI.Input"]
+
+# Ma nut transport (documentation - than method dung literal so)
+# 1=prev, 2=play/pause, 3=stop, 4=next
+
+def media_format_time(sec: "i32") -> "str":
+    # Giay -> "m:ss" hoac "h:mm:ss". Am -> "0:00".
+    s = sec
+    if s < 0:
+        s = 0
+    h = s // 3600
+    m = (s - h * 3600) // 60
+    r = s - h * 3600 - m * 60
+    rs = str(r)
+    if r < 10:
+        rs = "0" + rs
+    if h > 0:
+        ms = str(m)
+        if m < 10:
+            ms = "0" + ms
+        return str(h) + ":" + ms + ":" + rs
+    return str(m) + ":" + rs
+
+def media_list_count_f(vals: "list[f64]") -> "i32":
+    # Helper unify kieu list[f64] truoc khi truyen vao method (rang buoc P7.5)
+    return len(vals)
+
+def media_list_count_s(items: "list[str]") -> "i32":
+    # Helper unify kieu list[str] truoc khi truyen vao method (rang buoc P7.5)
+    return len(items)
+
+def media_count_non_bg(buf: "list[i64]", surf: "PixelSurface", bg: "i64") -> "i32":
+    n = int(0)
+    total = surf.width * surf.height
+    i = int(0)
+    while i < total:
+        if buf[i] != bg:
+            n = n + 1
+        i = i + 1
+    return n
+
+# =========================================================
+# 1) MEDIA TRANSPORT - prev / play-pause / stop / next
+# =========================================================
+class MediaTransportWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    playing: "i32"
+    show_prev: "i32"
+    show_next: "i32"
+    show_stop: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, playing, show_prev, show_next, show_stop, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.playing = playing
+        self.show_prev = show_prev
+        self.show_next = show_next
+        self.show_stop = show_stop
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_playing(self, v: "i32") -> "i32":
+        self.playing = v
+        return v
+    def toggle(self) -> "i32":
+        if self.playing == 1:
+            self.playing = 0
+        else:
+            self.playing = 1
+        return self.playing
+    def slot_count(self) -> "i32":
+        n = 1
+        if self.show_prev == 1:
+            n = n + 1
+        if self.show_stop == 1:
+            n = n + 1
+        if self.show_next == 1:
+            n = n + 1
+        return n
+    def slot_kind(self, k: "i32") -> "i32":
+        # 1=prev, 2=play, 3=stop, 4=next (bo qua slot an)
+        c = 0
+        if self.show_prev == 1:
+            if k == c:
+                return 1
+            c = c + 1
+        if k == c:
+            return 2
+        c = c + 1
+        if self.show_stop == 1:
+            if k == c:
+                return 3
+            c = c + 1
+        if self.show_next == 1:
+            if k == c:
+                return 4
+            c = c + 1
+        return 0
+    def slot_x(self, k: "i32") -> "f64":
+        total = float(self.slot_count()) * 50.0
+        return self.bx + (self.bw - total) / 2.0 + float(k) * 50.0
+    def hit(self, px: "f64", py: "f64") -> "i32":
+        if py < self.by + 2.0:
+            return 0
+        if py >= self.by + self.bh - 2.0:
+            return 0
+        n = self.slot_count()
+        k = int(0)
+        while k < n:
+            x = self.slot_x(k)
+            if px >= x:
+                if px < x + 44.0:
+                    return self.slot_kind(k)
+            k = k + 1
+        return 0
+    def activate(self, px: "f64", py: "f64") -> "i32":
+        h = self.hit(px, py)
+        if h == 2:
+            self.toggle()
+            return 2
+        if h > 0:
+            return h
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            h = self.hit(e.px, e.py)
+            if h > 0:
+                self.hover = h
+            else:
+                self.hover = -1
+            return 0
+        h = self.hit(e.px, e.py)
+        self.hover = -1
+        if h == 2:
+            self.toggle()
+            return 2
+        if h > 0:
+            return h
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        n = self.slot_count()
+        k = int(0)
+        while k < n:
+            x = self.slot_x(k)
+            y = self.by + (self.bh - 44.0) / 2.0
+            kind = self.slot_kind(k)
+            cx = x + 22.0
+            cy = y + 22.0
+            bg = ColorRgba(32, 32, 40, 255)
+            if self.hover == kind:
+                bg = ColorRgba(48, 48, 58, 255)
+            draw_arc(buf, surf, cx, cy, 22.0, 44.0, 0.0, 360.0, bg)
+            col = ColorRgba(235, 235, 242, 255)
+            if kind == 1:
+                fill_round_rect(buf, surf, Rect2D(x + 10.0, cy - 10.0, 4.0, 20.0), 1.0, col)
+                draw_line(buf, surf, x + 32.0, cy - 10.0, x + 32.0, cy + 10.0, 2.5, col)
+                draw_line(buf, surf, x + 32.0, cy - 10.0, x + 15.0, cy, 2.5, col)
+                draw_line(buf, surf, x + 15.0, cy, x + 32.0, cy + 10.0, 2.5, col)
+            elif kind == 2:
+                if self.playing == 1:
+                    fill_round_rect(buf, surf, Rect2D(cx - 7.0, cy - 10.0, 5.0, 20.0), 1.0, col)
+                    fill_round_rect(buf, surf, Rect2D(cx + 2.0, cy - 10.0, 5.0, 20.0), 1.0, col)
+                else:
+                    draw_line(buf, surf, cx - 7.0, cy - 11.0, cx - 7.0, cy + 11.0, 2.5, col)
+                    draw_line(buf, surf, cx - 7.0, cy - 11.0, cx + 10.0, cy, 2.5, col)
+                    draw_line(buf, surf, cx + 10.0, cy, cx - 7.0, cy + 11.0, 2.5, col)
+            elif kind == 3:
+                fill_round_rect(buf, surf, Rect2D(cx - 8.0, cy - 8.0, 16.0, 16.0), 2.0, col)
+            else:
+                draw_line(buf, surf, x + 12.0, cy - 10.0, x + 12.0, cy + 10.0, 2.5, col)
+                draw_line(buf, surf, x + 12.0, cy - 10.0, x + 29.0, cy, 2.5, col)
+                draw_line(buf, surf, x + 29.0, cy, x + 12.0, cy + 10.0, 2.5, col)
+                fill_round_rect(buf, surf, Rect2D(x + 30.0, cy - 10.0, 4.0, 20.0), 1.0, col)
+            k = k + 1
+        return 1
+
+def make_media_transport(x: "f64", y: "f64", w: "f64", show_prev: "i32" = 1, show_next: "i32" = 1, show_stop: "i32" = 1) -> "MediaTransportWidget":
+    return MediaTransportWidget(x, y, w, 48.0, 0, show_prev, show_next, show_stop, -1, 22, 119, 255, 255)
+
+# =========================================================
+# 2) MEDIA SEEK BAR - progress + buffered + scrub + time
+# =========================================================
+class MediaSeekBarWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    pos_ms: "i32"
+    dur_ms: "i32"
+    buf_ms: "i32"
+    dragging: "i32"
+    hover: "i32"
+    show_knob: "i32"
+    show_time: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, pos_ms, dur_ms, buf_ms, dragging, hover, show_knob, show_time, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.pos_ms = pos_ms
+        self.dur_ms = dur_ms
+        self.buf_ms = buf_ms
+        self.dragging = dragging
+        self.hover = hover
+        self.show_knob = show_knob
+        self.show_time = show_time
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def ratio(self) -> "f64":
+        if self.dur_ms <= 0:
+            return 0.0
+        r = float(self.pos_ms) / float(self.dur_ms)
+        if r < 0.0:
+            r = 0.0
+        if r > 1.0:
+            r = 1.0
+        return r
+    def buf_ratio(self) -> "f64":
+        if self.dur_ms <= 0:
+            return 0.0
+        r = float(self.buf_ms) / float(self.dur_ms)
+        if r < 0.0:
+            r = 0.0
+        if r > 1.0:
+            r = 1.0
+        return r
+    def set_pos(self, ms: "i32") -> "i32":
+        if ms < 0:
+            ms = 0
+        if ms > self.dur_ms:
+            ms = self.dur_ms
+        self.pos_ms = ms
+        return ms
+    def set_from_pointer(self, px: "f64") -> "i32":
+        x0 = self.bx + 8.0
+        sw = self.bw - 16.0
+        if sw <= 0.0:
+            return self.pos_ms
+        t = (px - x0) / sw
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        ms = int(float(self.dur_ms) * t)
+        return self.set_pos(ms)
+    def track_y(self) -> "f64":
+        if self.show_time == 1:
+            return self.by + 20.0
+        return self.by + self.bh / 2.0
+    def hit(self, px: "f64", py: "f64") -> "i32":
+        ty = self.track_y()
+        if px < self.bx:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py < ty - 9.0:
+            return 0
+        if py >= ty + 9.0:
+            return 0
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            if self.hit(e.px, e.py) == 1:
+                self.dragging = 1
+                self.set_from_pointer(e.px)
+                return 1
+            return 0
+        if self.dragging == 1:
+            if self.hit(e.px, e.py) == 1:
+                self.set_from_pointer(e.px)
+            self.dragging = 0
+            return 2
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        ty = self.track_y()
+        x0 = self.bx + 8.0
+        sw = self.bw - 16.0
+        draw_line(buf, surf, x0, ty, x0 + sw, ty, 4.0, ColorRgba(55, 55, 64, 255))
+        bw2 = sw * self.buf_ratio()
+        if bw2 > 1.0:
+            draw_line(buf, surf, x0, ty, x0 + bw2, ty, 4.0, ColorRgba(120, 130, 150, 255))
+        pw = sw * self.ratio()
+        if pw > 1.0:
+            draw_line(buf, surf, x0, ty, x0 + pw, ty, 4.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        if self.show_knob == 1:
+            kx = x0 + pw
+            draw_arc(buf, surf, kx, ty, 3.0, 6.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+            draw_arc(buf, surf, kx, ty, 6.0, 1.5, 0.0, 360.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        if self.show_time == 1:
+            cur = media_format_time(self.pos_ms // 1000)
+            tot = media_format_time(self.dur_ms // 1000)
+            draw_string(buf, surf, cur, self.bx, self.by, 1.0, ColorRgba(200, 200, 208, 255))
+            tm = measure_string(tot, 1.0)
+            draw_string(buf, surf, tot, self.bx + self.bw - tm.w, self.by, 1.0, ColorRgba(200, 200, 208, 255))
+        return 1
+
+def make_media_seekbar(x: "f64", y: "f64", w: "f64", pos_ms: "i32", dur_ms: "i32") -> "MediaSeekBarWidget":
+    bm = dur_ms // 3
+    return MediaSeekBarWidget(x, y, w, 34.0, pos_ms, dur_ms, bm, 0, -1, 1, 1, 22, 119, 255, 255)
+
+# =========================================================
+# 3) MEDIA VOLUME - mute + slider (ngang/doc)
+# =========================================================
+class MediaVolumeWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    volume: "f64"
+    muted: "i32"
+    prev_vol: "f64"
+    dragging: "i32"
+    orient: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, volume, muted, prev_vol, dragging, orient, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.volume = volume
+        self.muted = muted
+        self.prev_vol = prev_vol
+        self.dragging = dragging
+        self.orient = orient
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_volume(self, v: "f64") -> "f64":
+        if v < 0.0:
+            v = 0.0
+        if v > 1.0:
+            v = 1.0
+        self.volume = v
+        if v > 0.0:
+            self.muted = 0
+        return v
+    def toggle_mute(self) -> "i32":
+        if self.muted == 1:
+            self.muted = 0
+            self.volume = self.prev_vol
+        else:
+            self.prev_vol = self.volume
+            self.muted = 1
+            self.volume = 0.0
+        return self.muted
+    def eff_volume(self) -> "f64":
+        if self.muted == 1:
+            return 0.0
+        return self.volume
+    def slider_x0(self) -> "f64":
+        return self.bx + 36.0
+    def slider_sw(self) -> "f64":
+        return self.bw - 40.0
+    def slider_y1(self) -> "f64":
+        return self.by + self.bh - 34.0
+    def slider_y0(self) -> "f64":
+        return self.by + 6.0
+    def set_from_pointer(self, px: "f64", py: "f64") -> "f64":
+        if self.orient == 1:
+            y1 = self.slider_y1()
+            y0 = self.slider_y0()
+            if y1 <= y0:
+                return self.volume
+            t = (y1 - py) / (y1 - y0)
+            if t < 0.0:
+                t = 0.0
+            if t > 1.0:
+                t = 1.0
+            return self.set_volume(t)
+        x0 = self.slider_x0()
+        sw = self.slider_sw()
+        if sw <= 0.0:
+            return self.volume
+        t = (px - x0) / sw
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        return self.set_volume(t)
+    def hit(self, px: "f64", py: "f64") -> "i32":
+        if self.orient == 1:
+            cx = self.bx + self.bw / 2.0
+            if px >= cx - 14.0:
+                if px < cx + 14.0:
+                    if py >= self.by + self.bh - 32.0:
+                        if py < self.by + self.bh - 4.0:
+                            return 1
+            if px >= cx - 10.0:
+                if px < cx + 10.0:
+                    if py >= self.slider_y0():
+                        if py < self.slider_y1():
+                            return 2
+            return 0
+        if px >= self.bx:
+            if px < self.bx + 32.0:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        if px >= self.slider_x0():
+            if px < self.slider_x0() + self.slider_sw():
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 2
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            h = self.hit(e.px, e.py)
+            if h == 2:
+                self.dragging = 1
+                self.set_from_pointer(e.px, e.py)
+                return 1
+            return 0
+        if self.dragging == 1:
+            self.dragging = 0
+            return 2
+        h = self.hit(e.px, e.py)
+        if h == 1:
+            self.toggle_mute()
+            return 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        col = ColorRgba(225, 225, 232, 255)
+        if self.orient == 1:
+            cx = self.bx + self.bw / 2.0
+            sy = self.by + self.bh - 18.0
+            fill_round_rect(buf, surf, Rect2D(cx - 12.0, sy - 6.0, 8.0, 12.0), 1.0, col)
+            draw_line(buf, surf, cx - 4.0, sy - 6.0, cx + 4.0, sy, 2.0, col)
+            draw_line(buf, surf, cx + 4.0, sy, cx - 4.0, sy + 6.0, 2.0, col)
+            if self.muted == 1:
+                draw_line(buf, surf, cx + 8.0, sy - 5.0, cx + 16.0, sy + 5.0, 2.0, col)
+                draw_line(buf, surf, cx + 8.0, sy + 5.0, cx + 16.0, sy - 5.0, 2.0, col)
+            else:
+                draw_arc(buf, surf, cx + 6.0, sy, 7.0, 2.0, -40.0, 80.0, col)
+                draw_arc(buf, surf, cx + 6.0, sy, 12.0, 2.0, -40.0, 80.0, col)
+            y1 = self.slider_y1()
+            y0 = self.slider_y0()
+            draw_line(buf, surf, cx, y0, cx, y1, 4.0, ColorRgba(55, 55, 64, 255))
+            fh = (y1 - y0) * self.eff_volume()
+            if fh > 1.0:
+                draw_line(buf, surf, cx, y1, cx, y1 - fh, 4.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                draw_arc(buf, surf, cx, y1 - fh, 3.0, 6.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+            return 1
+        sx = self.bx + 2.0
+        cy = self.by + self.bh / 2.0
+        fill_round_rect(buf, surf, Rect2D(sx + 2.0, cy - 6.0, 8.0, 12.0), 1.0, col)
+        draw_line(buf, surf, sx + 10.0, cy - 6.0, sx + 18.0, cy, 2.0, col)
+        draw_line(buf, surf, sx + 18.0, cy, sx + 10.0, cy + 6.0, 2.0, col)
+        if self.muted == 1:
+            draw_line(buf, surf, sx + 22.0, cy - 5.0, sx + 30.0, cy + 5.0, 2.0, col)
+            draw_line(buf, surf, sx + 22.0, cy + 5.0, sx + 30.0, cy - 5.0, 2.0, col)
+        else:
+            draw_arc(buf, surf, sx + 20.0, cy, 7.0, 2.0, -40.0, 80.0, col)
+            draw_arc(buf, surf, sx + 20.0, cy, 12.0, 2.0, -40.0, 80.0, col)
+        x0 = self.slider_x0()
+        sw = self.slider_sw()
+        draw_line(buf, surf, x0, cy, x0 + sw, cy, 4.0, ColorRgba(55, 55, 64, 255))
+        fw = sw * self.eff_volume()
+        if fw > 1.0:
+            draw_line(buf, surf, x0, cy, x0 + fw, cy, 4.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            draw_arc(buf, surf, x0 + fw, cy, 3.0, 6.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+        return 1
+
+def make_media_volume(x: "f64", y: "f64", w: "f64", volume: "f64", orient: "i32") -> "MediaVolumeWidget":
+    v = volume
+    if v < 0.0:
+        v = 0.0
+    if v > 1.0:
+        v = 1.0
+    h = 28.0
+    if orient == 1:
+        h = 140.0
+    return MediaVolumeWidget(x, y, w, h, v, 0, v, 0, orient, -1, 22, 119, 255, 255)
+
+# =========================================================
+# 4) MEDIA REPEAT - off / all / one
+# =========================================================
+class MediaRepeatWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    mode: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, mode, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.mode = mode
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def cycle(self) -> "i32":
+        m = self.mode + 1
+        if m > 2:
+            m = 0
+        self.mode = m
+        return m
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            return 0
+        if self.hit_test(e.px, e.py) == 1:
+            self.cycle()
+            return self.mode + 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        col = ColorRgba(130, 130, 142, 255)
+        if self.mode != 0:
+            col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        draw_arc(buf, surf, cx, cy, 9.0, 2.5, 90.0, 270.0, col)
+        draw_line(buf, surf, cx + 9.0, cy, cx + 4.0, cy - 4.0, 2.0, col)
+        draw_line(buf, surf, cx + 9.0, cy, cx + 4.0, cy + 4.0, 2.0, col)
+        if self.mode == 2:
+            draw_string(buf, surf, "1", cx - 3.0, cy - 4.0, 1.0, col)
+        return 1
+
+def make_media_repeat(x: "f64", y: "f64") -> "MediaRepeatWidget":
+    return MediaRepeatWidget(x, y, 44.0, 32.0, 0, -1, 22, 119, 255, 255)
+
+# =========================================================
+# 5) MEDIA SHUFFLE - bat/tat tron bai
+# =========================================================
+class MediaShuffleWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    on: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, on, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.on = on
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def toggle(self) -> "i32":
+        if self.on == 1:
+            self.on = 0
+        else:
+            self.on = 1
+        return self.on
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            return 0
+        if self.hit_test(e.px, e.py) == 1:
+            self.toggle()
+            return 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        col = ColorRgba(130, 130, 142, 255)
+        if self.on == 1:
+            col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        draw_line(buf, surf, cx - 11.0, cy - 7.0, cx + 11.0, cy + 7.0, 2.0, col)
+        draw_line(buf, surf, cx - 11.0, cy + 7.0, cx + 11.0, cy - 7.0, 2.0, col)
+        draw_line(buf, surf, cx + 11.0, cy - 7.0, cx + 6.0, cy - 7.0, 2.0, col)
+        draw_line(buf, surf, cx + 11.0, cy - 7.0, cx + 11.0, cy - 2.0, 2.0, col)
+        draw_line(buf, surf, cx + 11.0, cy + 7.0, cx + 6.0, cy + 7.0, 2.0, col)
+        draw_line(buf, surf, cx + 11.0, cy + 7.0, cx + 11.0, cy + 2.0, 2.0, col)
+        if self.on == 1:
+            draw_arc(buf, surf, cx, cy + 12.0, 1.5, 3.0, 0.0, 360.0, col)
+        return 1
+
+def make_media_shuffle(x: "f64", y: "f64") -> "MediaShuffleWidget":
+    return MediaShuffleWidget(x, y, 44.0, 32.0, 0, -1, 22, 119, 255, 255)
+
+# =========================================================
+# 6) MEDIA SPEED - 0.5x / 1x / 1.25x / 1.5x / 2x
+# =========================================================
+class MediaSpeedWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    idx: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, idx, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.idx = idx
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def label(self) -> "str":
+        if self.idx == 0:
+            return "0.5x"
+        if self.idx == 2:
+            return "1.25x"
+        if self.idx == 3:
+            return "1.5x"
+        if self.idx == 4:
+            return "2x"
+        return "1x"
+    def set_idx(self, v: "i32") -> "i32":
+        if v < 0:
+            v = 0
+        if v > 4:
+            v = 4
+        self.idx = v
+        return v
+    def cycle(self) -> "i32":
+        v = self.idx + 1
+        if v > 4:
+            v = 0
+        return self.set_idx(v)
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            return 0
+        if self.hit_test(e.px, e.py) == 1:
+            self.cycle()
+            return self.idx + 10
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(40, 40, 50, 255))
+        stroke_round_rect(buf, surf, r, 8.0, 1.0, ColorRgba(80, 80, 95, 255))
+        txt = self.label()
+        tm = measure_string(txt, 1.0)
+        tx = self.bx + (self.bw - tm.w) / 2.0
+        ty = self.by + (self.bh - tm.h) / 2.0
+        draw_string(buf, surf, txt, tx, ty, 1.0, ColorRgba(230, 230, 238, 255))
+        return 1
+
+def make_media_speed(x: "f64", y: "f64") -> "MediaSpeedWidget":
+    return MediaSpeedWidget(x, y, 56.0, 28.0, 1, -1, 22, 119, 255, 255)
+
+# =========================================================
+# 7) MEDIA PLAYLIST - danh sach bai (title/artist/duration)
+# =========================================================
+class MediaPlaylistWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    row_h: "f64"
+    selected: "i32"
+    playing: "i32"
+    hover: "i32"
+    scroll: "f64"
+    show_dur: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, row_h, selected, playing, hover, scroll, show_dur, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.row_h = row_h
+        self.selected = selected
+        self.playing = playing
+        self.hover = hover
+        self.scroll = scroll
+        self.show_dur = show_dur
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def first_visible(self) -> "i32":
+        if self.row_h <= 0.0:
+            return 0
+        f = int(self.scroll / self.row_h)
+        if f < 0:
+            f = 0
+        return f
+    def visible_count(self) -> "i32":
+        if self.row_h <= 0.0:
+            return 0
+        return int(self.bh / self.row_h) + 1
+    def scroll_by(self, dy: "f64", content_h: "f64") -> "f64":
+        self.scroll = self.scroll + dy
+        if self.scroll < 0.0:
+            self.scroll = 0.0
+        mx = content_h - self.bh
+        if mx < 0.0:
+            mx = 0.0
+        if self.scroll > mx:
+            self.scroll = mx
+        return self.scroll
+    def select_row(self, idx: "i32", n: "i32") -> "i32":
+        if idx < 0:
+            self.selected = -1
+            return -1
+        if idx >= n:
+            idx = n - 1
+        self.selected = idx
+        return idx
+    def set_playing(self, idx: "i32", n: "i32") -> "i32":
+        if idx < 0:
+            idx = 0
+        if idx >= n:
+            idx = n - 1
+        self.playing = idx
+        self.selected = idx
+        return idx
+    def hit(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        if px < self.bx:
+            return -1
+        if px >= self.bx + self.bw:
+            return -1
+        if py < self.by:
+            return -1
+        if py >= self.by + self.bh:
+            return -1
+        idx = self.first_visible() + int((py - self.by) / self.row_h)
+        if idx < 0:
+            return -1
+        if idx >= n:
+            return -1
+        return idx
+    def activate(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        h = self.hit(px, py, n)
+        if h < 0:
+            return -1
+        self.hover = h
+        self.selected = h
+        return h
+    def render(self, buf: "list[i64]", surf: "PixelSurface", titles: "list[str]", artists: "list[str]", durs: "list[str]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        if len(titles) < n:
+            return 0
+        if len(artists) < n:
+            return 0
+        if len(durs) < n:
+            return 0
+        clip = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, clip, 8.0, ColorRgba(22, 22, 28, 255))
+        first = self.first_visible()
+        vc = self.visible_count()
+        i = int(0)
+        while i < vc:
+            idx = first + i
+            if idx < n:
+                y = self.by + float(idx) * self.row_h - self.scroll
+                if y + self.row_h > self.by:
+                    if y < self.by + self.bh:
+                        row = Rect2D(self.bx + 3.0, y + 1.0, self.bw - 6.0, self.row_h - 2.0)
+                        if idx == self.selected:
+                            fill_round_rect(buf, surf, row, 6.0, ColorRgba(self.cr, self.cg, self.cb, 60))
+                        else:
+                            if idx == self.hover:
+                                fill_round_rect(buf, surf, row, 6.0, ColorRgba(255, 255, 255, 14))
+                        tx = self.bx + 28.0
+                        if idx == self.playing:
+                            px0 = self.bx + 10.0
+                            py0 = y + self.row_h / 2.0
+                            draw_line(buf, surf, px0, py0 - 5.0, px0, py0 + 5.0, 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                            draw_line(buf, surf, px0, py0 - 5.0, px0 + 8.0, py0, 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                            draw_line(buf, surf, px0 + 8.0, py0, px0, py0 + 5.0, 2.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                            tx = self.bx + 30.0
+                        tcol = ColorRgba(235, 235, 242, 255)
+                        if idx == self.playing:
+                            tcol = ColorRgba(255, 255, 255, 255)
+                        maxc = int((self.bw - 110.0) / 6.0)
+                        t = titles[idx]
+                        if maxc > 0:
+                            seg = vi_truncate(t, maxc)
+                            draw_string(buf, surf, seg, tx, y + 6.0, 1.0, tcol)
+                        a = artists[idx]
+                        if maxc > 0:
+                            aseg = vi_truncate(a, maxc)
+                            draw_string(buf, surf, aseg, tx, y + 22.0, 1.0, ColorRgba(140, 140, 152, 255))
+                        if self.show_dur == 1:
+                            d = durs[idx]
+                            tm = measure_string(d, 1.0)
+                            draw_string(buf, surf, d, self.bx + self.bw - tm.w - 10.0, y + (self.row_h - 7.0) / 2.0, 1.0, ColorRgba(150, 150, 160, 255))
+            i = i + 1
+        return 1
+
+def make_media_playlist(x: "f64", y: "f64", w: "f64", rows_visible: "i32" = 4, row_h: "f64" = 44.0) -> "MediaPlaylistWidget":
+    bh = float(rows_visible) * row_h
+    return MediaPlaylistWidget(x, y, w, bh, row_h, -1, -1, -1, 0.0, 1, 22, 119, 255, 255)
+
+# =========================================================
+# 8) MEDIA EQUALIZER - N-band EQ (+presets)
+# =========================================================
+class MediaEqualizerWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    nbands: "i32"
+    min_db: "f64"
+    max_db: "f64"
+    selected: "i32"
+    dragging: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, nbands, min_db, max_db, selected, dragging, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.nbands = nbands
+        self.min_db = min_db
+        self.max_db = max_db
+        self.selected = selected
+        self.dragging = dragging
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def band_top(self) -> "f64":
+        return self.by + 8.0
+    def band_bot(self) -> "f64":
+        return self.by + self.bh - 26.0
+    def band_x(self, i: "i32") -> "f64":
+        slot = self.bw / float(self.nbands)
+        return self.bx + slot * float(i) + slot / 2.0
+    def band_y(self, v: "f64") -> "f64":
+        top = self.band_top()
+        bot = self.band_bot()
+        span = self.max_db - self.min_db
+        if span <= 0.0:
+            return bot
+        return bot - (v - self.min_db) / span * (bot - top)
+    def band_from_y(self, py: "f64") -> "f64":
+        top = self.band_top()
+        bot = self.band_bot()
+        span = self.max_db - self.min_db
+        if span <= 0.0:
+            return self.min_db
+        if bot <= top:
+            return self.min_db
+        t = (bot - py) / (bot - top)
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        return self.min_db + t * span
+    def hit(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        if n <= 0:
+            return -1
+        if py < self.band_top():
+            return -1
+        if py >= self.band_bot():
+            return -1
+        slot = self.bw / float(self.nbands)
+        i = int(0)
+        while i < n:
+            x = self.band_x(i)
+            if px >= x - slot / 2.0:
+                if px < x + slot / 2.0:
+                    return i
+            i = i + 1
+        return -1
+    def set_band(self, gains: "list[f64]", i: "i32", v: "f64") -> "i32":
+        if i < 0:
+            return 0
+        if i >= self.nbands:
+            return 0
+        if v < self.min_db:
+            v = self.min_db
+        if v > self.max_db:
+            v = self.max_db
+        gains[i] = v
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs", gains: "list[f64]", n: "i32") -> "i32":
+        if e.is_down == 1:
+            h = self.hit(e.px, e.py, n)
+            if h < 0:
+                return 0
+            self.selected = h
+            self.dragging = 1
+            v = self.band_from_y(e.py)
+            self.set_band(gains, h, v)
+            return 1
+        if self.dragging == 1:
+            self.dragging = 0
+            return 2
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface", gains: "list[f64]", labels: "list[str]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        if len(gains) < n:
+            return 0
+        if len(labels) < n:
+            return 0
+        top = self.band_top()
+        bot = self.band_bot()
+        if self.min_db < 0.0:
+            if self.max_db > 0.0:
+                zy = self.band_y(0.0)
+                draw_line(buf, surf, self.bx + 6.0, zy, self.bx + self.bw - 6.0, zy, 1.0, ColorRgba(110, 110, 125, 255))
+        i = int(0)
+        while i < n:
+            x = self.band_x(i)
+            draw_line(buf, surf, x, top, x, bot, 3.0, ColorRgba(55, 55, 64, 255))
+            v = gains[i]
+            ky = self.band_y(v)
+            zy = self.band_y(0.0)
+            if ky < zy:
+                draw_line(buf, surf, x, ky, x, zy, 5.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            else:
+                draw_line(buf, surf, x, zy, x, ky, 5.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            draw_arc(buf, surf, x, ky, 2.5, 5.0, 0.0, 360.0, ColorRgba(245, 245, 250, 255))
+            draw_arc(buf, surf, x, ky, 5.0, 1.5, 0.0, 360.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+            lab = labels[i]
+            tm = measure_string(lab, 1.0)
+            draw_string(buf, surf, lab, x - tm.w / 2.0, bot + 6.0, 1.0, ColorRgba(150, 150, 160, 255))
+            if i == self.selected:
+                gv = str(int(v)) + "dB"
+                gm = measure_string(gv, 1.0)
+                draw_string(buf, surf, gv, x - gm.w / 2.0, top - 2.0, 1.0, ColorRgba(230, 230, 238, 255))
+            i = i + 1
+        return 1
+
+def make_media_equalizer(x: "f64", y: "f64", w: "f64", h: "f64", nbands: "i32") -> "MediaEqualizerWidget":
+    if nbands < 1:
+        nbands = 1
+    return MediaEqualizerWidget(x, y, w, h, nbands, -12.0, 12.0, -1, 0, 22, 119, 255, 255)
+
+def media_eq_preset_value(kind: "i32", band: "i32") -> "f64":
+    # kind: 0=flat, 1=pop, 2=rock, 3=jazz, 4=classical. band 0..9 (60..16k).
+    if kind == 1:
+        if band == 0:
+            return -1.0
+        if band == 1:
+            return -1.0
+        if band == 2:
+            return 2.0
+        if band == 3:
+            return 4.0
+        if band == 4:
+            return 5.0
+        if band == 5:
+            return 4.0
+        if band == 6:
+            return 2.0
+        if band == 7:
+            return -1.0
+        if band == 8:
+            return -1.0
+        return -2.0
+    if kind == 2:
+        if band == 0:
+            return 5.0
+        if band == 1:
+            return 4.0
+        if band == 2:
+            return 3.0
+        if band == 3:
+            return 1.0
+        if band == 4:
+            return 0.0
+        if band == 5:
+            return 1.0
+        if band == 6:
+            return 3.0
+        if band == 7:
+            return 4.0
+        if band == 8:
+            return 5.0
+        return 5.0
+    if kind == 3:
+        if band == 0:
+            return 3.0
+        if band == 1:
+            return 2.0
+        if band == 2:
+            return 1.0
+        if band == 3:
+            return 2.0
+        if band == 4:
+            return 4.0
+        if band == 5:
+            return 4.0
+        if band == 6:
+            return 3.0
+        if band == 7:
+            return 2.0
+        if band == 8:
+            return 2.0
+        return 3.0
+    if kind == 4:
+        if band == 0:
+            return 4.0
+        if band == 1:
+            return 3.0
+        if band == 2:
+            return 2.0
+        if band == 3:
+            return 1.0
+        if band == 4:
+            return 0.0
+        if band == 5:
+            return 1.0
+        if band == 6:
+            return 2.0
+        if band == 7:
+            return 3.0
+        if band == 8:
+            return 4.0
+        return 4.0
+    return 0.0
+
+def media_eq_apply_preset(gains: "list[f64]", n: "i32", kind: "i32") -> "i32":
+    i = int(0)
+    while i < n:
+        b = i
+        if b > 9:
+            b = 9
+        gains[i] = media_eq_preset_value(kind, b)
+        i = i + 1
+    return n
+
+# =========================================================
+# 9) MEDIA SPECTRUM - thanh pho spectrum + peak falloff
+# =========================================================
+class MediaSpectrumWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    nbars: "i32"
+    decay: "f64"
+    peak_fall: "f64"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, nbars, decay, peak_fall, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.nbars = nbars
+        self.decay = decay
+        self.peak_fall = peak_fall
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def step(self, dt: "f64", vals: "list[f64]", peaks: "list[f64]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        if len(vals) < n:
+            return 0
+        if len(peaks) < n:
+            return 0
+        i = int(0)
+        while i < n:
+            v = vals[i] - self.decay * dt
+            if v < 0.0:
+                v = 0.0
+            if v > 1.0:
+                v = 1.0
+            vals[i] = v
+            p = peaks[i] - self.peak_fall * dt
+            if p < v:
+                p = v
+            if p > 1.0:
+                p = 1.0
+            peaks[i] = p
+            i = i + 1
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", vals: "list[f64]", peaks: "list[f64]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        if len(vals) < n:
+            return 0
+        if len(peaks) < n:
+            return 0
+        slot = self.bw / float(self.nbars)
+        top = self.by + 2.0
+        bot = self.by + self.bh - 2.0
+        i = int(0)
+        while i < n:
+            v = vals[i]
+            if v < 0.0:
+                v = 0.0
+            if v > 1.0:
+                v = 1.0
+            x = self.bx + slot * float(i) + 1.0
+            w = slot - 2.0
+            if w < 1.0:
+                w = 1.0
+            h = v * (self.bh - 4.0)
+            col = ColorRgba(80, 200, 120, 255)
+            if v >= 0.6:
+                col = ColorRgba(250, 200, 60, 255)
+            if v >= 0.85:
+                col = ColorRgba(255, 90, 90, 255)
+            if h > 0.5:
+                bar = Rect2D(x, bot - h, w, h)
+                fill_round_rect(buf, surf, bar, 1.0, col)
+            p = peaks[i]
+            if p < 0.0:
+                p = 0.0
+            if p > 1.0:
+                p = 1.0
+            py = bot - p * (self.bh - 4.0)
+            draw_line(buf, surf, x, py, x + w, py, 2.0, ColorRgba(240, 240, 245, 255))
+            i = i + 1
+        return 1
+
+def make_media_spectrum(x: "f64", y: "f64", w: "f64", h: "f64", nbars: "i32") -> "MediaSpectrumWidget":
+    if nbars < 1:
+        nbars = 1
+    return MediaSpectrumWidget(x, y, w, h, nbars, 0.6, 1.0, 22, 119, 255, 255)
+
+# =========================================================
+# 10) MEDIA A-B LOOP - lap doan A..B
+# =========================================================
+class MediaABLoopWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    a_ms: "i32"
+    b_ms: "i32"
+    armed: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, a_ms, b_ms, armed, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.a_ms = a_ms
+        self.b_ms = b_ms
+        self.armed = armed
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def clear_loop(self) -> "i32":
+        self.a_ms = -1
+        self.b_ms = -1
+        self.armed = 0
+        return 0
+    def press(self, pos_ms: "i32") -> "i32":
+        if self.armed == 0:
+            self.a_ms = pos_ms
+            self.b_ms = -1
+            self.armed = 1
+            return 1
+        if self.armed == 1:
+            if pos_ms > self.a_ms:
+                self.b_ms = pos_ms
+                self.armed = 2
+                return 2
+            self.a_ms = pos_ms
+            return 1
+        self.clear_loop()
+        return 0
+    def is_looping(self, pos_ms: "i32") -> "i32":
+        if self.armed != 2:
+            return 0
+        if pos_ms < self.a_ms:
+            return 0
+        if pos_ms > self.b_ms:
+            return 0
+        return 1
+    def label(self) -> "str":
+        if self.armed == 1:
+            return "A " + media_format_time(self.a_ms // 1000) + "..."
+        if self.armed == 2:
+            return media_format_time(self.a_ms // 1000) + "-" + media_format_time(self.b_ms // 1000)
+        return "A-B Off"
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs", pos_ms: "i32") -> "i32":
+        if e.is_down == 1:
+            return 0
+        if self.hit_test(e.px, e.py) == 1:
+            return self.press(pos_ms)
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(40, 40, 50, 255))
+        if self.armed == 2:
+            stroke_round_rect(buf, surf, r, 8.0, 1.5, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        else:
+            stroke_round_rect(buf, surf, r, 8.0, 1.0, ColorRgba(80, 80, 95, 255))
+        txt = self.label()
+        tm = measure_string(txt, 1.0)
+        tx = self.bx + (self.bw - tm.w) / 2.0
+        ty = self.by + (self.bh - tm.h) / 2.0
+        col = ColorRgba(200, 200, 208, 255)
+        if self.armed == 2:
+            col = ColorRgba(255, 255, 255, 255)
+        draw_string(buf, surf, txt, tx, ty, 1.0, col)
+        return 1
+
+def make_media_abloop(x: "f64", y: "f64", w: "f64") -> "MediaABLoopWidget":
+    return MediaABLoopWidget(x, y, w, 28.0, -1, -1, 0, -1, 22, 119, 255, 255)
+
+# =========================================================
+# MEDIA SELFTEST - headless (khong cua so, khong am thanh that)
+# =========================================================
+def media_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def media_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def media_check_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    acc[1] = acc[1] + 1
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def media_check_ge(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got >= lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " (" + str(got) + ")")
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want >= " + str(lo))
+    return 0
+
+def media_selftest() -> "str":
+    print("=== TkvUI.Media selftest ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    W = 480
+    H = 360
+    buf = []
+    i = int(0)
+    total = W * H
+    while i < total:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(W, H, W)
+    mblack = ColorRgba(14, 14, 18, 255)
+    surface_clear(buf, surf, mblack)
+    bgp = mblack.to_uint32()
+    # --- dinh dang thoi gian
+    t0ok = 0
+    if media_format_time(0) == "0:00":
+        t0ok = 1
+    media_check(acc, "format 0 -> 0:00", t0ok)
+    t1ok = 0
+    if media_format_time(65) == "1:05":
+        t1ok = 1
+    media_check(acc, "format 65 -> 1:05", t1ok)
+    t2ok = 0
+    if media_format_time(3661) == "1:01:01":
+        t2ok = 1
+    media_check(acc, "format 3661 -> 1:01:01", t2ok)
+    t3ok = 0
+    if media_format_time(-5) == "0:00":
+        t3ok = 1
+    media_check(acc, "format am -> 0:00", t3ok)
+    # --- transport
+    tp = make_media_transport(10.0, 10.0, 300.0, 1, 1, 1)
+    media_check_i(acc, "transport slots", tp.slot_count(), 4)
+    media_check_i(acc, "transport hit play", tp.hit(132.0, 32.0), 2)
+    media_check_i(acc, "transport hit prev", tp.hit(82.0, 32.0), 1)
+    media_check_i(acc, "transport hit next", tp.hit(232.0, 32.0), 4)
+    media_check_i(acc, "transport hit stop", tp.hit(182.0, 32.0), 3)
+    media_check_i(acc, "transport miss", tp.hit(5.0, 5.0), 0)
+    media_check_i(acc, "transport activate toggle", tp.activate(132.0, 32.0), 2)
+    media_check_i(acc, "transport playing", tp.playing, 1)
+    media_check_i(acc, "transport render", tp.render(buf, surf), 1)
+    # --- seekbar
+    sk = make_media_seekbar(10.0, 100.0, 300.0, 30000, 180000)
+    media_check_f(acc, "seek ratio", sk.ratio(), 0.1667, 0.001)
+    media_check_f(acc, "seek buf ratio", sk.buf_ratio(), 0.3333, 0.001)
+    media_check_i(acc, "seek pointer mid", sk.set_from_pointer(160.0), 90000)
+    media_check_i(acc, "seek clamp lo", sk.set_from_pointer(0.0), 0)
+    media_check_i(acc, "seek clamp hi", sk.set_from_pointer(500.0), 180000)
+    ed = PointerEventArgs(200.0, 118.0, 1, 1)
+    media_check_i(acc, "seek drag down", sk.handle_pointer(ed), 1)
+    em = PointerEventArgs(220.0, 118.0, 1, 1)
+    media_check_i(acc, "seek drag move", sk.handle_pointer(em), 1)
+    eu = PointerEventArgs(220.0, 118.0, 1, 0)
+    media_check_i(acc, "seek drag up", sk.handle_pointer(eu), 2)
+    media_check_i(acc, "seek render", sk.render(buf, surf), 1)
+    # --- volume
+    vo = make_media_volume(10.0, 150.0, 200.0, 0.7, 0)
+    media_check_i(acc, "volume mute on", vo.toggle_mute(), 1)
+    media_check_f(acc, "volume eff muted", vo.eff_volume(), 0.0, 0.001)
+    media_check_i(acc, "volume mute off", vo.toggle_mute(), 0)
+    media_check_f(acc, "volume restore", vo.eff_volume(), 0.7, 0.001)
+    media_check_f(acc, "volume clamp hi", vo.set_volume(1.5), 1.0, 0.001)
+    media_check_f(acc, "volume clamp lo", vo.set_volume(-0.2), 0.0, 0.001)
+    media_check_f(acc, "volume slider lo", vo.set_from_pointer(44.0, 164.0), 0.0, 0.001)
+    media_check_f(acc, "volume slider hi", vo.set_from_pointer(206.0, 164.0), 1.0, 0.001)
+    media_check_i(acc, "volume render h", vo.render(buf, surf), 1)
+    vv = make_media_volume(330.0, 180.0, 36.0, 0.5, 1)
+    media_check_f(acc, "volume vslider top", vv.set_from_pointer(348.0, 186.0), 1.0, 0.02)
+    media_check_f(acc, "volume vslider bottom", vv.set_from_pointer(348.0, 285.0), 0.0, 0.02)
+    media_check_i(acc, "volume render v", vv.render(buf, surf), 1)
+    # --- repeat / shuffle / speed
+    rp = make_media_repeat(10.0, 200.0)
+    media_check_i(acc, "repeat cycle 1", rp.cycle(), 1)
+    media_check_i(acc, "repeat cycle 2", rp.cycle(), 2)
+    media_check_i(acc, "repeat cycle 0", rp.cycle(), 0)
+    media_check_i(acc, "repeat render", rp.render(buf, surf), 1)
+    sh = make_media_shuffle(60.0, 200.0)
+    media_check_i(acc, "shuffle toggle on", sh.toggle(), 1)
+    media_check_i(acc, "shuffle toggle off", sh.toggle(), 0)
+    media_check_i(acc, "shuffle render", sh.render(buf, surf), 1)
+    sp = make_media_speed(110.0, 200.0)
+    spok = 0
+    if sp.label() == "1x":
+        spok = 1
+    media_check(acc, "speed label 1x", spok)
+    sp.cycle()
+    spok = 0
+    if sp.label() == "1.25x":
+        spok = 1
+    media_check(acc, "speed label 1.25x", spok)
+    media_check_i(acc, "speed clamp hi", sp.set_idx(9), 4)
+    media_check_i(acc, "speed clamp lo", sp.set_idx(-3), 0)
+    media_check_i(acc, "speed render", sp.render(buf, surf), 1)
+    # --- playlist
+    titles = []
+    titles.append("Song A")
+    titles.append("Song B")
+    titles.append("Song C")
+    titles.append("Song D")
+    artists = []
+    artists.append("Singer 1")
+    artists.append("Singer 2")
+    artists.append("Singer 3")
+    artists.append("Singer 4")
+    durs = []
+    durs.append("3:12")
+    durs.append("4:05")
+    durs.append("2:48")
+    durs.append("5:01")
+    tc = media_list_count_s(titles)
+    ac2 = media_list_count_s(artists)
+    dc = media_list_count_s(durs)
+    media_check_i(acc, "playlist titles", tc, 4)
+    media_check_i(acc, "playlist artists", ac2, 4)
+    media_check_i(acc, "playlist durs", dc, 4)
+    pl = make_media_playlist(10.0, 236.0, 300.0, 2, 44.0)
+    media_check_i(acc, "playlist select", pl.select_row(2, 4), 2)
+    media_check_i(acc, "playlist activate row1", pl.activate(50.0, 304.0, 4), 1)
+    media_check_i(acc, "playlist miss", pl.activate(400.0, 300.0, 4), -1)
+    media_check_i(acc, "playlist set playing", pl.set_playing(2, 4), 2)
+    media_check_f(acc, "playlist scroll", pl.scroll_by(44.0, 264.0), 44.0, 0.001)
+    media_check_i(acc, "playlist first visible", pl.first_visible(), 1)
+    media_check_i(acc, "playlist render", pl.render(buf, surf, titles, artists, durs, 4), 1)
+    # --- equalizer
+    eq = make_media_equalizer(330.0, 40.0, 140.0, 110.0, 5)
+    gains = []
+    gi = int(0)
+    while gi < 5:
+        gains.append(0.0)
+        gi = gi + 1
+    gc = media_list_count_f(gains)
+    media_check_i(acc, "eq gains len", gc, 5)
+    media_eq_apply_preset(gains, 5, 0)
+    media_check_f(acc, "eq flat", gains[2], 0.0, 0.001)
+    media_eq_apply_preset(gains, 5, 2)
+    media_check_f(acc, "eq rock band0", gains[0], 5.0, 0.001)
+    media_check_f(acc, "eq rock band4", gains[4], 0.0, 0.001)
+    media_check_i(acc, "eq set clamp", eq.set_band(gains, 0, 20.0), 1)
+    media_check_f(acc, "eq clamped value", gains[0], 12.0, 0.001)
+    media_check_i(acc, "eq hit band1", eq.hit(372.0, 80.0, 5), 1)
+    ed2 = PointerEventArgs(372.0, 80.0, 1, 1)
+    media_check_i(acc, "eq drag down", eq.handle_pointer(ed2, gains, 5), 1)
+    eu2 = PointerEventArgs(372.0, 80.0, 1, 0)
+    media_check_i(acc, "eq drag up", eq.handle_pointer(eu2, gains, 5), 2)
+    elabs = []
+    elabs.append("60")
+    elabs.append("250")
+    elabs.append("1k")
+    elabs.append("4k")
+    elabs.append("16k")
+    lc = media_list_count_s(elabs)
+    media_check_i(acc, "eq labels", lc, 5)
+    media_check_i(acc, "eq render", eq.render(buf, surf, gains, elabs, 5), 1)
+    # --- spectrum
+    spc = make_media_spectrum(330.0, 250.0, 140.0, 70.0, 8)
+    vals = []
+    pks = []
+    vi = int(0)
+    while vi < 8:
+        vals.append(0.0)
+        pks.append(0.0)
+        vi = vi + 1
+    vc = media_list_count_f(vals)
+    pc = media_list_count_f(pks)
+    media_check_i(acc, "spectrum vals len", vc, 8)
+    media_check_i(acc, "spectrum peaks len", pc, 8)
+    vals[0] = 0.8
+    vals[3] = 0.5
+    pks[0] = 0.9
+    spc.step(0.5, vals, pks, 8)
+    media_check_f(acc, "spectrum decay", vals[0], 0.5, 0.001)
+    media_check_f(acc, "spectrum peak fall", pks[0], 0.5, 0.001)
+    media_check_i(acc, "spectrum render", spc.render(buf, surf, vals, pks, 8), 1)
+    # --- ab loop
+    ab = make_media_abloop(170.0, 200.0, 150.0)
+    media_check_i(acc, "ab press A", ab.press(60000), 1)
+    media_check_i(acc, "ab press B", ab.press(120000), 2)
+    abok = 0
+    if ab.label() == "1:00-2:00":
+        abok = 1
+    media_check(acc, "ab label", abok)
+    media_check_i(acc, "ab looping inside", ab.is_looping(90000), 1)
+    media_check_i(acc, "ab looping outside", ab.is_looping(130000), 0)
+    media_check_i(acc, "ab press clear", ab.press(0), 0)
+    media_check_i(acc, "ab render", ab.render(buf, surf), 1)
+    painted = media_count_non_bg(buf, surf, bgp)
+    media_check_ge(acc, "media widgets painted", painted, 4000)
+    print("--- media selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "MEDIA_OK"
+    return "MEDIA_FAIL"

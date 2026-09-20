@@ -1,0 +1,175 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.CrudDemo - CRUD mau doi chung Phase 6.4 (headless, in-memory).
+
+staff(id,name,age,city): SQLite in-memory + MvTableState + NativeTableView
+render + NativeDialog mo phong + export JSON. GHI NHAN: khong co persistence
+file (SQLite module in-memory) va khong co vong lap GUI tuong tac — 2 diem
+ma PyQt mau co (staff_pyqt.db + QDialog that).
+Build:
+  tkvc.exe build examples/TkvUI.CrudDemo.tkv --entry crud_run --out build/cruddemo.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Data", "../TkvUI.SQLite", "../TkvUI.Widgets.Native"]
+
+def crud_cols() -> "list[str]":
+    out = []
+    out.append("id")
+    out.append("name")
+    out.append("age")
+    out.append("city")
+    return out
+
+def crud_types() -> "list[i32]":
+    out = []
+    out.append(1)
+    out.append(0)
+    out.append(1)
+    out.append(0)
+    return out
+
+def crud_row(a: "str", b: "str", c: "str", d: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    out.append(d)
+    return out
+
+def crud_headers() -> "list[str]":
+    out = []
+    out.append("id")
+    out.append("name")
+    out.append("age")
+    out.append("city")
+    return out
+
+def crud_widths() -> "list[f64]":
+    out = []
+    out.append(40.0)
+    out.append(120.0)
+    out.append(60.0)
+    out.append(120.0)
+    return out
+
+def crud_export_json(tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "str":
+    sb = "["
+    tidx = sql_table_idx(tnames, "staff")
+    n = tcount[tidx]
+    r = int(0)
+    while r < n:
+        if r > 0:
+            sb = sb + ","
+        sb = sb + "{\"id\":" + sql_row_get(rows, tstart, tncol, tidx, r, 0)
+        sb = sb + ",\"name\":\"" + sql_row_get(rows, tstart, tncol, tidx, r, 1) + "\""
+        sb = sb + ",\"age\":" + sql_row_get(rows, tstart, tncol, tidx, r, 2)
+        sb = sb + ",\"city\":\"" + sql_row_get(rows, tstart, tncol, tidx, r, 3) + "\"}"
+        r = r + 1
+    sb = sb + "]"
+    return sb
+
+def crud_check(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def crud_check_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def crud_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def mv_contains_safe3(hay: "str", nd: "str") -> "i32":
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0
+
+def crud_run() -> "str":
+    print("== TkvUI.CrudDemo ==")
+    acc = [int(0), int(0)]
+    db = make_sql_db()
+    sql_open(db, ":memory:")
+    tn = []
+    ct = []
+    cn = []
+    cy = []
+    nn = []
+    pk = []
+    ts = []
+    tc = []
+    tnc = []
+    rows = []
+    sql_create_table(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, "staff", crud_cols(), crud_types())
+    # create
+    sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", crud_row("1", "An", "30", "HN"))
+    sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", crud_row("2", "Binh", "25", "HCM"))
+    sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", crud_row("3", "Chi", "35", "DN"))
+    crud_check(acc, "create", sql_count_rows(tn, tc, "staff"), 3)
+    # read + sort age desc qua model
+    m = make_sql_tablemodel()
+    m.bind(sql_table_idx(tn, "staff"))
+    m.set_sort(2, 2)
+    order = []
+    vis = []
+    shown = sql_model_refresh(m, ts, tc, tnc, rows, order, vis)
+    crud_check(acc, "read.shown", shown, 3)
+    crud_check_s(acc, "read.oldest", sql_model_cell(m, ts, tnc, rows, order, vis, 0, 1), "Chi")
+    # update (dialog mo phong OK)
+    d = make_native_dialog_buttons(100.0, 80.0, 260.0, 140.0, "Edit", "Save?", 0, 2)
+    d.show()
+    d.hide(d.hit_button(130.0, 185.0))
+    aff = 0
+    if d.result == 0:
+        aff = sql_update_rows(db, tn, ct, cn, ts, tc, tnc, rows, "staff", "age", "26", "name", 0, "Binh")
+    crud_check(acc, "update.aff", aff, 1)
+    # delete
+    rem = sql_delete_rows(db, tn, ct, cn, ts, tc, tnc, rows, "staff", "name", 0, "Chi")
+    crud_check(acc, "delete", rem, 1)
+    crud_check(acc, "count", sql_count_rows(tn, tc, "staff"), 2)
+    # render table
+    st = make_mv_table(0.0, 0.0, 340.0, 120.0)
+    st.sort_by(2)
+    surf = PixelSurface(340, 120, 340)
+    buf = crud_alloc(340 * 120)
+    black = ColorRgba(0, 0, 0, 255)
+    surface_clear(buf, surf, black)
+    flat = []
+    sql_model_project(ts, tc, tnc, rows, sql_table_idx(tn, "staff"), flat)
+    shown2 = st.render(buf, surf, 0, crud_headers(), flat, crud_widths(), 4, order, vis)
+    crud_check(acc, "render.rows", shown2, 2)
+    # export
+    js = crud_export_json(tn, ct, cn, ts, tc, tnc, rows)
+    crud_check(acc, "export", mv_contains_safe3(js, "Binh"), 1)
+    print("crud: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "CRUD_TKVUI_OK"
+    return "CRUD_TKVUI_FAIL"

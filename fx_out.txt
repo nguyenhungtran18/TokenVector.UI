@@ -1,0 +1,39 @@
+=== TkvUI.Effects selftest (P2) ===
+  PASS khung trang sach 10x10 = 100 px = 100
+  PASS blur radius 0 -> khong lam gi = 0
+  PASS blur radius 99 bi clamp -> tra 1 = 1
+  PASS blur lam lan mau ra ngoai 100 px = 316
+  PASS tam sau blur van sang hon nen = 88
+  PASS tam sang hon vung xa trong cung bounds
+  PASS ngoai bounds blur khong bi cham = 0
+  PASS box_blur_pass ngang tra 1 = 1
+  PASS vung deu -> trung binh khong doi = 100
+  PASS box_blur_pass doc -> trung binh khong doi = 100
+  PASS kawase radius 0 -> 0 = 0
+  PASS kawase radius 3 -> 1 = 1
+  PASS kawase tren vung deu giu mau = 100
+  PASS backdrop_blur tra 1 = 1
+  PASS backdrop tint sang hon nen xam = 143
+  PASS specular tra 1 = 1
+  PASS specular alpha 80 -> r=80 = 80
+  PASS specular chi 1 hang = 0
+  PASS specular khong cham vao goc (x < radius) = 0
+  PASS drop_shadow tra 1 = 1
+  PASS bong alpha 90 tren xam -> r=82 = 82
+  PASS phan tren bounds khong bi bong = 128
+  PASS bong alpha 45 (opacity 0.5) -> r=105 = 105
+  PASS bong bo goc + blur -> co diem trung gian = 118
+bench blur: ref=2266ms opt=2094ms (10 lap 800x200 r=4)
+blur speedup ~1.0x
+  PASS blur opt == ref (pixel-exact) = 0
+  PASS blur opt khong cham hon ref qua 15%
+bench blur full=1016ms half=484ms (5 lap 800x200 r=8, half ke ca copy)
+half-res speedup ~2.0x
+  PASS half_res_blur tra 1 = 1
+  PASS half_res tren vung deu giu mau = 100
+  PASS half-res nhanh hon full-res = 532
+  PASS bilinear px le giua 2 vung (r < 200) = 51
+  PASS bilinear px le giua 2 vung (r > 100) = 49
+  PASS bilinear gradient tiep tuc den vung trong (r13 < r7) = 49
+--- effects selftest: 32/32 PASS ---
+EFFECTS_OK

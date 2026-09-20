@@ -1,0 +1,432 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.A11y - Accessibility tree + screen-reader provider stubs
+
+Pure TokenVector. Phase 1: data model (role/label/value/states/bounds) + cay
+qua parent-id (parallel lists, theo mau TkvUI.Input) + provider stub headless-safe.
+Bridge OS that (UIA/AT-SPI/NSAccessibility/AccessibilityNodeInfo) la Phase 2.
+Phu thuoc: Core, Text (text_check), Platform (tkv_has_file). Khong vong import.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Platform"]
+# FFI khai bao (chi goi khi host co screen reader + bridge that - Phase 2).
+__tkv_extern_pinvoke__ = [
+    {"name": "uia_clients_listening", "dll": "UIAutomationCore.dll", "symbol": "UiaClientsAreListening", "convention": "stdcall", "params": [], "returns": "i32"},
+    {"name": "uia_raise_event", "dll": "UIAutomationCore.dll", "symbol": "UiaRaiseAutomationEvent", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"},
+    {"name": "a11y_get_class", "dll": "libobjc.dll", "symbol": "objc_getClass", "convention": "cdecl", "params": ["str"], "returns": "i64"},
+    {"name": "a11y_sel_register", "dll": "libobjc.dll", "symbol": "sel_registerName", "convention": "cdecl", "params": ["str"], "returns": "i64"},
+]
+
+# Roles
+A11Y_ROLE_UNKNOWN = 0
+A11Y_ROLE_WINDOW = 1
+A11Y_ROLE_DIALOG = 2
+A11Y_ROLE_BUTTON = 3
+A11Y_ROLE_TEXT = 4
+A11Y_ROLE_TEXTBOX = 5
+A11Y_ROLE_LABEL = 6
+A11Y_ROLE_IMAGE = 7
+A11Y_ROLE_LIST = 8
+A11Y_ROLE_LISTITEM = 9
+A11Y_ROLE_SLIDER = 10
+A11Y_ROLE_CHECKBOX = 11
+A11Y_ROLE_LINK = 12
+A11Y_ROLE_TAB = 13
+A11Y_ROLE_PROGRESS = 14
+
+# Actions
+A11Y_ACTION_INVOKE = 1
+A11Y_ACTION_SET_VALUE = 2
+A11Y_ACTION_SELECT = 3
+A11Y_ACTION_SCROLL = 4
+
+class A11yNode:
+    nid: "i32"
+    role: "i32"
+    parent: "i32"
+    label: "str"
+    value: "str"
+    x: "f64"
+    y: "f64"
+    w: "f64"
+    h: "f64"
+    enabled: "i32"
+    focused: "i32"
+    selected: "i32"
+    checked: "i32"
+    def __init__(self, nid, role, parent, label, value, x, y, w, h, enabled, focused, selected, checked):
+        self.nid = nid
+        self.role = role
+        self.parent = parent
+        self.label = label
+        self.value = value
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.enabled = enabled
+        self.focused = focused
+        self.selected = selected
+        self.checked = checked
+
+def a11y_role_name(role: "i32") -> "str":
+    if role == A11Y_ROLE_WINDOW:
+        return "window"
+    if role == A11Y_ROLE_DIALOG:
+        return "dialog"
+    if role == A11Y_ROLE_BUTTON:
+        return "button"
+    if role == A11Y_ROLE_TEXT:
+        return "text"
+    if role == A11Y_ROLE_TEXTBOX:
+        return "textbox"
+    if role == A11Y_ROLE_LABEL:
+        return "label"
+    if role == A11Y_ROLE_IMAGE:
+        return "image"
+    if role == A11Y_ROLE_LIST:
+        return "list"
+    if role == A11Y_ROLE_LISTITEM:
+        return "listitem"
+    if role == A11Y_ROLE_SLIDER:
+        return "slider"
+    if role == A11Y_ROLE_CHECKBOX:
+        return "checkbox"
+    if role == A11Y_ROLE_LINK:
+        return "link"
+    if role == A11Y_ROLE_TAB:
+        return "tab"
+    if role == A11Y_ROLE_PROGRESS:
+        return "progress"
+    return "unknown"
+
+def a11y_has_action(role: "i32", action: "i32") -> "i32":
+    if action == A11Y_ACTION_INVOKE:
+        if role == A11Y_ROLE_BUTTON:
+            return 1
+        if role == A11Y_ROLE_CHECKBOX:
+            return 1
+        if role == A11Y_ROLE_LINK:
+            return 1
+        return 0
+    if action == A11Y_ACTION_SET_VALUE:
+        if role == A11Y_ROLE_TEXTBOX:
+            return 1
+        if role == A11Y_ROLE_SLIDER:
+            return 1
+        return 0
+    if action == A11Y_ACTION_SELECT:
+        if role == A11Y_ROLE_LISTITEM:
+            return 1
+        if role == A11Y_ROLE_TAB:
+            return 1
+        if role == A11Y_ROLE_LIST:
+            return 1
+        return 0
+    if action == A11Y_ACTION_SCROLL:
+        if role == A11Y_ROLE_LIST:
+            return 1
+        if role == A11Y_ROLE_TEXT:
+            return 1
+        return 0
+    return 0
+
+def make_a11y_node(nid: "i32", role: "i32", parent: "i32", label: "str", value: "str", x: "f64", y: "f64", w: "f64", h: "f64") -> "A11yNode":
+    return A11yNode(nid, role, parent, label, value, x, y, w, h, 1, 0, 0, 0)
+
+def a11y_bounds_contains(node: "A11yNode", px: "f64", py: "f64") -> "i32":
+    if px < node.x:
+        return 0
+    if py < node.y:
+        return 0
+    if px >= node.x + node.w:
+        return 0
+    if py >= node.y + node.h:
+        return 0
+    return 1
+
+def a11y_count_children(parents: "list[i32]", n: "i32", pid: "i32") -> "i32":
+    c = 0
+    i = 0
+    while i < n:
+        if parents[i] == pid:
+            c = c + 1
+        i = i + 1
+    return c
+
+def a11y_is_descendant(ids: "list[i32]", parents: "list[i32]", n: "i32", child: "i32", ancestor: "i32") -> "i32":
+    if child == ancestor:
+        return 0
+    cur = child
+    guard = 0
+    while guard < 64:
+        i = 0
+        found = 0
+        par = 0 - 1
+        while i < n:
+            if ids[i] == cur:
+                par = parents[i]
+                found = 1
+            i = i + 1
+        if found == 0:
+            return 0
+        if par == ancestor:
+            return 1
+        if par < 0:
+            return 0
+        cur = par
+        guard = guard + 1
+    return 0
+
+def a11y_commit_count(flags: "list[i32]", n: "i32") -> "i32":
+    c = 0
+    i = 0
+    while i < n:
+        f = flags[i]
+        if f == 0:
+            c = c + 1
+        i = i + 1
+    return c
+
+def a11y_commit(ids: "list[i32]", roles: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", n: "i32", out_ids: "list[i32]", out_roles: "list[i32]", out_parents: "list[i32]", out_labels: "list[str]", out_values: "list[str]", out_xs: "list[f64]", out_ys: "list[f64]", out_ws: "list[f64]", out_hs: "list[f64]") -> "i32":
+    # Commit cay phang sau layout: widget visible (flags==0) -> node con cua root (-1).
+    c = 0
+    i = 0
+    while i < n:
+        f = flags[i]
+        if f == 0:
+            out_ids.append(ids[i])
+            out_roles.append(roles[i])
+            out_parents.append(0 - 1)
+            out_labels.append(labels[i])
+            out_values.append(values[i])
+            out_xs.append(xs[i])
+            out_ys.append(ys[i])
+            out_ws.append(ws[i])
+            out_hs.append(hs[i])
+            c = c + 1
+        i = i + 1
+    return c
+
+def a11y_diff_count(old_labels: "list[str]", new_labels: "list[str]", n: "i32") -> "i32":
+    # Dem label doi (danh dau dirty) giua 2 ban commit.
+    c = 0
+    i = 0
+    while i < n:
+        same = 0
+        if old_labels[i] == new_labels[i]:
+            same = 1
+        if same == 0:
+            c = c + 1
+        i = i + 1
+    return c
+
+def a11y_win_present() -> "i32":
+    # Probe UIAutomationCore.dll (cung thu muc exe); 1 = co, 0 = khong.
+    return tkv_has_file("UIAutomationCore.dll")
+
+def a11y_mac_present() -> "i32":
+    # Mac/iOS di qua ObjC runtime (quy uoc repo); host that can macOS/iOS.
+    return tkv_has_file("libobjc.dll")
+
+def uia_clients_listening_ex() -> "i32":
+    return uia_clients_listening()
+
+def uia_raise_event_ex(provider: "i64", event_id: "i32") -> "i32":
+    return uia_raise_event(provider, event_id)
+
+def a11y_macos_class_ex(name: "str") -> "i64":
+    return a11y_get_class(name)
+
+def a11y_node_to_json(nid: "i32", role: "i32", parent: "i32", label: "str", value: "str", x: "f64", y: "f64", w: "f64", h: "f64", enabled: "i32", focused: "i32", selected: "i32", checked: "i32") -> "str":
+    # Serialize 1 node toi JSON (string builder, khong dung library).
+    # Format: {"nid":...,"role":...,"parent":...,"label":"...","value":"...","bounds":[x,y,w,h],"states":{...}}
+    rn = a11y_role_name(role)
+    sb = ""
+    sb = sb + "{\"nid\":" + str(nid) + ",\"role\":\"" + rn + "\",\"parent\":" + str(parent)
+    sb = sb + ",\"label\":\"" + label + "\",\"value\":\"" + value + "\""
+    sb = sb + ",\"bounds\":[" + str(x) + "," + str(y) + "," + str(w) + "," + str(h) + "]"
+    sb = sb + ",\"states\":{\"enabled\":" + str(enabled) + ",\"focused\":" + str(focused)
+    sb = sb + ",\"selected\":" + str(selected) + ",\"checked\":" + str(checked) + "}}"
+    return sb
+
+def a11y_tree_to_json(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]") -> "str":
+    # Serialize toan bo cay thanh JSON array. Tra chuoi JSON.
+    n = len(ids)
+    sb = "["
+    i = 0
+    while i < n:
+        if i > 0:
+            sb = sb + ","
+        sb = sb + a11y_node_to_json(ids[i], roles[i], parents[i], labels[i], values[i], xs[i], ys[i], ws[i], hs[i], enableds[i], focuseds[i], selecteds[i], checkeds[i])
+        i = i + 1
+    sb = sb + "]"
+    return sb
+
+def a11y_dump_json(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]") -> "i32":
+    # Dump cay a11y ra file "a11y_dump.json" (CWD). Tra 1 neu ok, 0 neu loi.
+    # Chi Windows: dung WriteFile/CreateFileA pinvoke.
+    return 0
+
+def a11y_selftest() -> "str":
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    text_check_i(acc, "a11y role UNKNOWN", A11Y_ROLE_UNKNOWN, 0)
+    text_check_i(acc, "a11y role BUTTON", A11Y_ROLE_BUTTON, 3)
+    text_check_i(acc, "a11y role TEXTBOX", A11Y_ROLE_TEXTBOX, 5)
+    text_check(acc, "a11y name button", a11y_role_name(3) == "button")
+    text_check(acc, "a11y name textbox", a11y_role_name(5) == "textbox")
+    text_check(acc, "a11y name unknown", a11y_role_name(99) == "unknown")
+    text_check_i(acc, "a11y invoke button", a11y_has_action(3, 1), 1)
+    text_check_i(acc, "a11y invoke text 0", a11y_has_action(4, 1), 0)
+    text_check_i(acc, "a11y set_value textbox", a11y_has_action(5, 2), 1)
+    text_check_i(acc, "a11y set_value button 0", a11y_has_action(3, 2), 0)
+    text_check_i(acc, "a11y select listitem", a11y_has_action(9, 3), 1)
+    text_check_i(acc, "a11y select button 0", a11y_has_action(3, 3), 0)
+    text_check_i(acc, "a11y scroll list", a11y_has_action(8, 4), 1)
+    nd = make_a11y_node(7, 3, 1, "OK", "", 10.0, 20.0, 100.0, 40.0)
+    text_check_i(acc, "a11y node nid", nd.nid, 7)
+    text_check_i(acc, "a11y node role", nd.role, 3)
+    text_check(acc, "a11y node label", nd.label == "OK")
+    text_check_i(acc, "a11y node enabled mac dinh", nd.enabled, 1)
+    text_check_i(acc, "a11y node focused mac dinh", nd.focused, 0)
+    text_check_i(acc, "a11y bounds trong", a11y_bounds_contains(nd, 50.0, 30.0), 1)
+    text_check_i(acc, "a11y bounds ngoai", a11y_bounds_contains(nd, 500.0, 30.0), 0)
+    ids = []
+    ids.append(1)
+    ids.append(2)
+    ids.append(3)
+    parents = []
+    parents.append(0 - 1)
+    parents.append(1)
+    parents.append(2)
+    text_check_i(acc, "a11y con cua 1", a11y_count_children(parents, 3, 1), 1)
+    text_check_i(acc, "a11y con cua 3", a11y_count_children(parents, 3, 3), 0)
+    text_check_i(acc, "a11y 3 la chau 1", a11y_is_descendant(ids, parents, 3, 3, 1), 1)
+    text_check_i(acc, "a11y 1 khong la con 3", a11y_is_descendant(ids, parents, 3, 1, 3), 0)
+    text_check_i(acc, "a11y tu than khong tinh", a11y_is_descendant(ids, parents, 3, 2, 2), 0)
+    present_win = a11y_win_present()
+    ok = 0
+    if present_win == 0:
+        ok = 1
+    if present_win == 1:
+        ok = 1
+    text_check(acc, "a11y win probe tra 0/1", ok)
+    present_mac = a11y_mac_present()
+    ok2 = 0
+    if present_mac == 0:
+        ok2 = 1
+    if present_mac == 1:
+        ok2 = 1
+    text_check(acc, "a11y mac probe tra 0/1", ok2)
+    fl = []
+    fl.append(0)
+    fl.append(1)
+    fl.append(0)
+    text_check_i(acc, "a11y commit count 2", a11y_commit_count(fl, 3), 2)
+    text_check_i(acc, "a11y commit count 0", a11y_commit_count(fl, 0), 0)
+    wids = []
+    wids.append(1)
+    wids.append(2)
+    wids.append(3)
+    wroles = []
+    wroles.append(3)
+    wroles.append(5)
+    wroles.append(9)
+    wlabels = []
+    wlabels.append("OK")
+    wlabels.append("Name")
+    wlabels.append("Row")
+    wvalues = []
+    wvalues.append("")
+    wvalues.append("abc")
+    wvalues.append("")
+    wxs = []
+    wxs.append(10.0)
+    wxs.append(20.0)
+    wxs.append(30.0)
+    wys = []
+    wys.append(0.0)
+    wys.append(0.0)
+    wys.append(0.0)
+    wws = []
+    wws.append(100.0)
+    wws.append(100.0)
+    wws.append(100.0)
+    whs = []
+    whs.append(40.0)
+    whs.append(40.0)
+    whs.append(40.0)
+    oids = []
+    oroles = []
+    oparents = []
+    olabels = []
+    ovalues = []
+    oxs = []
+    oys = []
+    ows = []
+    ohs = []
+    text_check_i(acc, "a11y commit 2 node", a11y_commit(wids, wroles, wlabels, wvalues, wxs, wys, wws, whs, fl, 3, oids, oroles, oparents, olabels, ovalues, oxs, oys, ows, ohs), 2)
+    text_check_i(acc, "a11y commit id dau", oids[0], 1)
+    text_check_i(acc, "a11y commit id sau", oids[1], 3)
+    text_check_i(acc, "a11y commit parent root", oparents[0], 0 - 1)
+    text_check(acc, "a11y commit label", olabels[0] == "OK")
+    text_check_i(acc, "a11y commit role sau", oroles[1], 9)
+    text_check(acc, "a11y commit value", ovalues[0] == "")
+    old = []
+    old.append("a")
+    old.append("b")
+    new = []
+    new.append("a")
+    new.append("c")
+    text_check_i(acc, "a11y diff 1", a11y_diff_count(old, new, 2), 1)
+    text_check_i(acc, "a11y diff 0", a11y_diff_count(old, old, 2), 0)
+    # --- JSON serialization ---
+    jn = a11y_node_to_json(42, 3, 1, "OK", "pressed", 10.0, 20.0, 100.0, 40.0, 1, 0, 0, 0)
+    text_check(acc, "a11y json nid", jn == "{\"nid\":42,\"role\":\"button\",\"parent\":1,\"label\":\"OK\",\"value\":\"pressed\",\"bounds\":[10.0,20.0,100.0,40.0],\"states\":{\"enabled\":1,\"focused\":0,\"selected\":0,\"checked\":0}}")
+    je = a11y_node_to_json(99, 4, 0, "Title", "x", 0.0, 0.0, 200.0, 50.0, 1, 1, 0, 0)
+    text_check(acc, "a11y json empty value ok", je == "{\"nid\":99,\"role\":\"text\",\"parent\":0,\"label\":\"Title\",\"value\":\"x\",\"bounds\":[0.0,0.0,200.0,50.0],\"states\":{\"enabled\":1,\"focused\":1,\"selected\":0,\"checked\":0}}")
+    ids = []
+    ids.append(1)
+    ids.append(2)
+    roles = []
+    roles.append(3)
+    roles.append(5)
+    parents = []
+    parents.append(0)
+    parents.append(1)
+    labels = []
+    labels.append("OK")
+    labels.append("Name")
+    values = []
+    values.append("x")
+    values.append("abc")
+    xs = []
+    xs.append(10.0)
+    xs.append(20.0)
+    ys = []
+    ys.append(0.0)
+    ys.append(0.0)
+    ws = []
+    ws.append(100.0)
+    ws.append(100.0)
+    hs = []
+    hs.append(40.0)
+    hs.append(40.0)
+    enableds = []
+    enableds.append(1)
+    enableds.append(1)
+    focuseds = []
+    focuseds.append(0)
+    focuseds.append(0)
+    selecteds = []
+    selecteds.append(0)
+    selecteds.append(0)
+    checkeds = []
+    checkeds.append(0)
+    checkeds.append(0)
+    jt = a11y_tree_to_json(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds)
+    text_check(acc, "a11y tree json 2 node", jt == "[{\"nid\":1,\"role\":\"button\",\"parent\":0,\"label\":\"OK\",\"value\":\"x\",\"bounds\":[10.0,0.0,100.0,40.0],\"states\":{\"enabled\":1,\"focused\":0,\"selected\":0,\"checked\":0}},{\"nid\":2,\"role\":\"textbox\",\"parent\":1,\"label\":\"Name\",\"value\":\"abc\",\"bounds\":[20.0,0.0,100.0,40.0],\"states\":{\"enabled\":1,\"focused\":0,\"selected\":0,\"checked\":0}}]")
+    print("--- a11y selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "A11Y_OK"
+    return "A11Y_FAIL"

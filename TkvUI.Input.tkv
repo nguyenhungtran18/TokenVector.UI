@@ -24,6 +24,11 @@ TKV_EVT_TOUCH_START = 6
 TKV_EVT_TOUCH_MOVE = 7
 TKV_EVT_TOUCH_END = 8
 TKV_EVT_GESTURE = 9
+# IME events
+TKV_EVT_IME_START = 10
+TKV_EVT_IME_COMPOSITION = 11
+TKV_EVT_IME_END = 12
+TKV_EVT_IME_RESULT = 13
 
 # Gesture codes
 TKV_GESTURE_NONE = 0
@@ -53,6 +58,14 @@ def input_event_name(code: "i32") -> "str":
         return "OnTouchEnd"
     if code == 9:
         return "OnGesture"
+    if code == 10:
+        return "OnIMEStart"
+    if code == 11:
+        return "OnIMEComposition"
+    if code == 12:
+        return "OnIMEEnd"
+    if code == 13:
+        return "OnIMEResult"
     return "None"
 
 def gesture_name(gtype: "i32") -> "str":
@@ -275,6 +288,9 @@ class EventDispatcher:
     press_y: "f64"
     drag_dx: "f64"
     drag_dy: "f64"
+    # IME state
+    ime_composing: "i32"
+    ime_composition: "str"
     def __init__(self, last_x, last_y, hover_id, down_id, last_event, last_target, prev_event, prev_target, press_x, press_y, drag_dx, drag_dy):
         self.last_x = last_x
         self.last_y = last_y
@@ -288,6 +304,8 @@ class EventDispatcher:
         self.press_y = press_y
         self.drag_dx = drag_dx
         self.drag_dy = drag_dy
+        self.ime_composing = 0
+        self.ime_composition = ""
     def push_event(self, code: "i32", target: "i32") -> "i32":
         self.prev_event = self.last_event
         self.prev_target = self.last_target
@@ -360,9 +378,28 @@ class EventDispatcher:
         return 1
     def event_name(self) -> "str":
         return input_event_name(self.last_event)
+    def ime_start(self, target: "i32") -> "i32":
+        self.ime_composing = 1
+        self.ime_composition = ""
+        self.push_event(10, target)
+        return 1
+    def ime_composition(self, target: "i32", text: "str") -> "i32":
+        if self.ime_composing == 1:
+            self.ime_composition = text
+            self.push_event(11, target)
+        return 1
+    def ime_end(self, target: "i32") -> "i32":
+        self.ime_composing = 0
+        self.push_event(12, target)
+        return 1
+    def ime_result(self, target: "i32", text: "str") -> "i32":
+        self.ime_composing = 0
+        self.ime_composition = text
+        self.push_event(13, target)
+        return 1
 
 def make_dispatcher() -> "EventDispatcher":
-    return EventDispatcher(0.0, 0.0, -1, -1, 0, -1, 0, -1, 0.0, 0.0, 0.0, 0.0)
+    return EventDispatcher(0.0, 0.0, -1, -1, 0, -1, 0, -1, 0.0, 0.0, 0.0, 0.0, 0, "")
 
 # =========================================================
 # P5 SELFTEST - headless, khong tao cua so

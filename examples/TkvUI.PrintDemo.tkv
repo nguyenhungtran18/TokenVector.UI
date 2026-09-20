@@ -1,0 +1,94 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.PrintDemo - demo Phase 3: PrintPreview + PDF export tu TableView.
+
+Headless: render preview ra PixelSurface, export PDF ra file, kiem tra.
+Build:
+  tkvc.exe build examples/TkvUI.PrintDemo.tkv --entry printdemo_run --out build/printdemo.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Data", "../TkvUI.Printing", "../TkvUI.Platform"]
+
+def printdemo_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def printdemo_headers() -> "list[str]":
+    out = []
+    out.append("Name")
+    out.append("Age")
+    out.append("City")
+    return out
+
+def printdemo_widths() -> "list[f64]":
+    out = []
+    out.append(180.0)
+    out.append(80.0)
+    out.append(150.0)
+    return out
+
+def printdemo_cells() -> "list[str]":
+    out = []
+    out.append("An")
+    out.append("30")
+    out.append("HN")
+    out.append("Binh")
+    out.append("25")
+    out.append("HCM")
+    out.append("Chi")
+    out.append("35")
+    out.append("DN")
+    out.append("Dung")
+    out.append("28")
+    out.append("HP")
+    out.append("Em")
+    out.append("22")
+    out.append("HCM")
+    return out
+
+def printdemo_run() -> "str":
+    print("== PrintDemo: preview + table PDF export ==")
+    cells = printdemo_cells()
+    heads = printdemo_headers()
+    widths = printdemo_widths()
+    pr = pdf_make_printer()
+    doc = pdf_make_doc("Staff report", "PrintDemo")
+    pages = []
+    npg = pdf_export_table(pr, doc, pages, "Staff report", heads, cells, widths, 3)
+    print("pages=" + str(npg))
+    # preview render
+    w = int(360)
+    h = int(480)
+    surf = PixelSurface(w, h, w)
+    buf = printdemo_alloc(w, h)
+    surface_clear(buf, surf, ColorRgba(240, 240, 240, 255))
+    pv = print_make_preview(10.0, 10.0, 340.0, 460.0)
+    pv.set_pages(npg)
+    paper = pr.paper()
+    pv.render(buf, surf, 0, paper, "Staff report")
+    n = printdemo_overview(buf, surf, pv, paper)
+    # save + verify
+    path = "build/tkvui_printdemo.pdf"
+    nbytes = pdf_save(doc, pages, paper, path)
+    exists = tkv_has_file(path)
+    print("bytes=" + str(nbytes) + " exists=" + str(exists))
+    ok = 1
+    if npg != 1:
+        ok = 0
+    if n != npg:
+        ok = 0
+    if exists != 1:
+        ok = 0
+    if nbytes < 1000:
+        ok = 0
+    if ok == 1:
+        print("PRINTDEMO_OK")
+        return "PRINTDEMO_OK"
+    print("PRINTDEMO_FAIL")
+    return "PRINTDEMO_FAIL"
+
+def printdemo_overview(buf: "list[i64]", surf: "PixelSurface", pv: "PrintPreview", paper: "PdfPaper") -> "i32":
+    return print_preview_overview(buf, surf, 0, pv, paper, 2)

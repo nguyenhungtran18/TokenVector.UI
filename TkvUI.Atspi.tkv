@@ -1,0 +1,349 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Atspi - AT-SPI2 provider kieu host-driven + SIM (Phase 9.3).
+
+KIEN TRUC THAT (khi co .so pinvoke + D-Bus session tren Linux): app dang ky
+voi at-spi-bus-launcher qua socket (`/tmp/at-spi2/socket`), expose cay
+Accessible, nhan/rise event qua D-Bus messages. Hien tai: role/state/event
+THAT (ten AT-SPI chuan), transport = outbox list + file JSON (host doc),
+D-Bus envelope builders dang string (de host goi that hoac test offline).
+
+Tien to atspi_*/Atspi* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Platform", "TkvUI.A11y"]
+__tkv_extern_method__ = [{"name": "atspi_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}]
+
+# AT-SPI event kinds (tai lieu; code dung literal so)
+ATSPI_EV_FOCUS = 1
+ATSPI_EV_STATE = 2
+ATSPI_EV_PROPERTY = 3
+ATSPI_EV_SELECTION = 4
+ATSPI_EV_VALUE = 5
+ATSPI_EV_ALERT = 6
+
+def atspi_role_name(role: "i32") -> "str":
+    # Ten role chuan AT-SPI (giong ab_role_atspi nhung self-contained de
+    # module dung doc lap khong can Bridge).
+    if role == 3:
+        return "push button"
+    if role == 11:
+        return "check box"
+    if role == 5:
+        return "entry"
+    if role == 10:
+        return "slider"
+    if role == 14:
+        return "progress bar"
+    if role == 13:
+        return "page tab"
+    if role == 4:
+        return "text"
+    if role == 6:
+        return "label"
+    if role == 8:
+        return "list"
+    if role == 9:
+        return "list item"
+    if role == 12:
+        return "link"
+    if role == 7:
+        return "image"
+    if role == 1:
+        return "frame"
+    if role == 2:
+        return "dialog"
+    return "unknown"
+
+def atspi_state_names(disabled: "i32", focused: "i32", selected: "i32", checked: "i32", expanded: "i32", readonly: "i32") -> "str":
+    # Tap state AT-SPI (chuoi, cach nhau boi ';').
+    out = ""
+    if disabled == 1:
+        out = out + "disabled;"
+    else:
+        out = out + "enabled;"
+    if focused == 1:
+        out = out + "focused;"
+    if selected == 1:
+        out = out + "selected;"
+    if checked == 1:
+        out = out + "checked;"
+    if expanded == 1:
+        out = out + "expanded;"
+    if readonly == 1:
+        out = out + "read-only;"
+    if out == "":
+        out = "showing;"
+    else:
+        out = out + "showing;"
+    return out
+
+def atspi_event_name(kind: "i32") -> "str":
+    if kind == 1:
+        return "object:state-changed:focused"
+    if kind == 2:
+        return "object:state-changed"
+    if kind == 3:
+        return "object:property-change"
+    if kind == 4:
+        return "object:selection-changed"
+    if kind == 5:
+        return "object:value-changed"
+    if kind == 6:
+        return "object:announcement"
+    return "object:unknown"
+
+# =========================================================
+# D-Bus ENVELOPES - method_call dang string (host parse/gui that)
+# =========================================================
+def atspi_bus_name(app: "str", pid: "i32") -> "str":
+    return "org.a11y.atspi.Registry." + app + "." + str(pid)
+
+def atspi_msg_register(bus: "str", path: "str") -> "str":
+    return "method_call dest=org.a11y.atspi.Registry path=/org/a11y/atspi/registry iface=org.a11y.atspi.Registry member=RegisterApplication body=(s=" + bus + ",o=" + path + ")"
+
+def atspi_msg_event(sender: "str", path: "str", event: "str", detail1: "i32", detail2: "i32") -> "str":
+    return "signal sender=" + sender + " path=" + path + " iface=org.a11y.atspi.Event.Object member=" + event + " body=(i=" + str(detail1) + ",i=" + str(detail2) + ")"
+
+def atspi_msg_get_role(path: "str") -> "str":
+    return "method_call path=" + path + " iface=org.a11y.atspi.Accessible member=GetRole"
+
+def atspi_msg_get_state(path: "str") -> "str":
+    return "method_call path=" + path + " iface=org.a11y.atspi.Accessible member=GetState"
+
+# =========================================================
+# AtspiApp - registry client (SIM transport)
+# =========================================================
+class AtspiApp:
+    name: "str"
+    pid: "i32"
+    connected: "i32"
+    pushed: "i32"
+    last_len: "i32"
+    seq: "i32"
+    def __init__(self, name, pid, connected, pushed, last_len, seq):
+        self.name = name
+        self.pid = pid
+        self.connected = connected
+        self.pushed = pushed
+        self.last_len = last_len
+        self.seq = seq
+    def bus(self) -> "str":
+        return atspi_bus_name(self.name, self.pid)
+    def connect(self, name: "str", pid: "i32") -> "i32":
+        # That: open socket /tmp/at-spi2/socket + Hello + RegisterApplication.
+        self.name = name
+        self.pid = pid
+        self.connected = 1
+        self.seq = 0
+        return 1
+    def disconnect(self) -> "i32":
+        self.connected = 0
+        return 0
+    def socket_path(self) -> "str":
+        return "/tmp/at-spi2/socket"
+    def push_tree(self, tree_json: "str") -> "i32":
+        self.pushed = self.pushed + 1
+        self.last_len = len(tree_json)
+        self.seq = self.seq + 1
+        return self.seq
+    def emit(self, kinds: "list[i32]", payloads: "list[str]", kind: "i32", payload: "str") -> "i32":
+        # Event vao outbox (host forward len bus that).
+        if self.connected == 0:
+            return 0
+        kinds.append(kind)
+        payloads.append(payload)
+        self.seq = self.seq + 1
+        return self.seq
+
+def atspi_make_app() -> "AtspiApp":
+    return AtspiApp("", 0, 0, 0, 0, 0)
+
+def atspi_drain(kinds: "list[i32]", payloads: "list[str]") -> "str":
+    if len(kinds) == 0:
+        return ""
+    out = payloads[0]
+    j = int(0)
+    while j < len(kinds) - 1:
+        kinds[j] = kinds[j + 1]
+        payloads[j] = payloads[j + 1]
+        j = j + 1
+    kinds.pop()
+    payloads.pop()
+    return out
+
+# =========================================================
+# TREE JSON + DUMP (host doc de dang ky cay)
+# =========================================================
+def atspi_node(nid: "i32", role: "i32", parent: "i32", name: "str", x: "f64", y: "f64", w: "f64", h: "f64", states: "str") -> "str":
+    sb = ""
+    sb = sb + "{\"id\":" + str(nid) + ",\"role\":" + ab_q_atspi(atspi_role_name(role)) + ",\"parent\":" + str(parent)
+    sb = sb + ",\"name\":" + ab_q_atspi(name)
+    sb = sb + ",\"extents\":[" + str(x) + "," + str(y) + "," + str(w) + "," + str(h) + "]"
+    sb = sb + ",\"states\":" + ab_q_atspi(states) + "}"
+    return sb
+
+def ab_q_atspi(s: "str") -> "str":
+    out = "\""
+    i = int(0)
+    while i < len(s):
+        ch = s[i]
+        if ch == "\"":
+            out = out + "\\\""
+        else:
+            if ch == "\\":
+                out = out + "\\\\"
+            else:
+                out = out + ch
+        i = i + 1
+    return out + "\""
+
+def atspi_tree_json(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", names: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]") -> "str":
+    n = len(ids)
+    if len(roles) < n:
+        n = len(roles)
+    if len(parents) < n:
+        n = len(parents)
+    if len(names) < n:
+        n = len(names)
+    sb = "["
+    i = int(0)
+    while i < n:
+        if i > 0:
+            sb = sb + ","
+        dis = 1 - enableds[i]
+        st = atspi_state_names(dis, focuseds[i], selecteds[i], checkeds[i], 0, 0)
+        sb = sb + atspi_node(ids[i], roles[i], parents[i], names[i], xs[i], ys[i], ws[i], hs[i], st)
+        i = i + 1
+    sb = sb + "]"
+    return sb
+
+def atspi_dump_file(path: "str", tree_json: "str") -> "i32":
+    atspi_file_write(path, tree_json)
+    return len(tree_json)
+
+# =========================================================
+# SELFTEST (pure logic; khong can Linux/D-Bus)
+# =========================================================
+def atspicheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def atspicheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def atspicheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def atspi_selftest() -> "str":
+    print("== TkvUI.Atspi selftest ==")
+    acc = [int(0), int(0)]
+    atspicheck_s(acc, "role.button", atspi_role_name(3), "push button")
+    atspicheck_s(acc, "role.entry", atspi_role_name(5), "entry")
+    atspicheck_s(acc, "role.frame", atspi_role_name(1), "frame")
+    atspicheck_s(acc, "role.unknown", atspi_role_name(99), "unknown")
+    atspicheck_s(acc, "states", atspi_state_names(0, 1, 1, 0, 0, 0), "enabled;focused;selected;showing;")
+    atspicheck_s(acc, "states.dis", atspi_state_names(1, 0, 0, 0, 0, 0), "disabled;showing;")
+    atspicheck_s(acc, "ev.focus", atspi_event_name(1), "object:state-changed:focused")
+    atspicheck_s(acc, "ev.alert", atspi_event_name(6), "object:announcement")
+    atspicheck_s(acc, "bus", atspi_bus_name("demo", 42), "org.a11y.atspi.Registry.demo.42")
+    atspicheck(acc, "msg.reg", mv_contains_safe5(atspi_msg_register("b", "/p"), "RegisterApplication"))
+    atspicheck(acc, "msg.ev", mv_contains_safe5(atspi_msg_event("s", "/p", "object:state-changed:focused", 1, 0), "state-changed"))
+    atspicheck(acc, "msg.role", mv_contains_safe5(atspi_msg_get_role("/p"), "GetRole"))
+    app = atspi_make_app()
+    atspicheck_i(acc, "app.conn", app.connect("demo", 42), 1)
+    atspicheck_s(acc, "app.socket", app.socket_path(), "/tmp/at-spi2/socket")
+    atspicheck_i(acc, "app.push", app.push_tree("[{}]"), 1)
+    kinds = []
+    pays = []
+    tmp = atspi_make_app()
+    atspicheck_i(acc, "app.emit.closed", tmp.emit(kinds, pays, 1, "x"), 0)
+    app.emit(kinds, pays, 1, "focus:2")
+    atspicheck_s(acc, "drain", atspi_drain(kinds, pays), "focus:2")
+    atspicheck_s(acc, "drain.empty", atspi_drain(kinds, pays), "")
+    atspicheck_i(acc, "app.disc", app.disconnect(), 0)
+    # tree json nho
+    ids = []
+    ids.append(1)
+    ids.append(2)
+    roles = []
+    roles.append(1)
+    roles.append(3)
+    parents = []
+    parents.append(-1)
+    parents.append(1)
+    names = []
+    names.append("Demo")
+    names.append("Save")
+    xs = []
+    xs.append(0.0)
+    xs.append(10.0)
+    ys = []
+    ys.append(0.0)
+    ys.append(10.0)
+    ws = []
+    ws.append(400.0)
+    ws.append(80.0)
+    hs = []
+    hs.append(300.0)
+    hs.append(24.0)
+    ens = []
+    ens.append(1)
+    ens.append(1)
+    fcs = []
+    fcs.append(0)
+    fcs.append(1)
+    sls = []
+    sls.append(0)
+    sls.append(0)
+    cks = []
+    cks.append(0)
+    cks.append(0)
+    tj = atspi_tree_json(ids, roles, parents, names, xs, ys, ws, hs, ens, fcs, sls, cks)
+    atspicheck(acc, "tree.role", mv_contains_safe5(tj, "push button"))
+    atspicheck(acc, "tree.focused", mv_contains_safe5(tj, "focused"))
+    nbytes = atspi_dump_file("build/atspi_selftest.json", tj)
+    okf = 0
+    if nbytes > 100:
+        okf = 1
+    atspicheck(acc, "tree.file", okf)
+    print("atspi: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "ATSPI_OK"
+    return "ATSPI_FAIL"
+
+def mv_contains_safe5(hay: "str", nd: "str") -> "i32":
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0

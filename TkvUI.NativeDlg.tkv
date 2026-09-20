@@ -1,0 +1,692 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.NativeDlg - File/Color/Font dialogs (Phase 8.1, SIM).
+
+API day du tren caller lists (entries, filters, custom colors). Phan goi
+Win32 that (GetOpenFileName/PrintDlg/ChooseColor/ChooseFont) can out-struct
++ marshal bo nho (blocker upstream, giong probe Platform P3) -> stub
+`dlg_native_*` tra 0 + ghi ro signature can thiet. Host co marshal thay stub
+bang 1 ham ma khong doi caller.
+
+Quy uoc path noi bo: "/" (Windows chap nhan o hau het API); doi tai bien
+native neu can. Chuoi ASCII cho filter/pattern de so sanh byte-chinh-xac.
+
+Tien to dlg_*/Dlg* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Theme", "TkvUI.Data"]
+
+# Dialog modes / kinds (tai lieu; code dung literal so)
+DLG_OPEN = 0
+DLG_SAVE = 1
+DLG_DIR = 2
+
+# =========================================================
+# FILTER - "Text (*.txt)|*.txt|All (*.*)|*.*"
+# =========================================================
+def dlg_parse_filter(spec: "str", names: "list[str]", patterns: "list[str]") -> "i32":
+    # Tach theo '|': ten, pattern, ten, pattern... Tra so cap.
+    cur = ""
+    is_name = 1
+    i = int(0)
+    n = len(spec)
+    while i < n:
+        ch = spec[i]
+        if ch == "|":
+            if is_name == 1:
+                names.append(cur)
+            else:
+                patterns.append(cur)
+            cur = ""
+            if is_name == 1:
+                is_name = 0
+            else:
+                is_name = 1
+        else:
+            cur = cur + ch
+        i = i + 1
+    if is_name == 1:
+        names.append(cur)
+    else:
+        patterns.append(cur)
+    m = len(names)
+    if len(patterns) < m:
+        m = len(patterns)
+    return m
+
+def dlg_match_star(pattern: "str", name: "str") -> "i32":
+    # Wildcard don gian: "*", "*.*", "*.ext", "pre*", "*suf", exact.
+    if pattern == "*":
+        return 1
+    if pattern == "*.*":
+        return 1
+    if len(pattern) == 0:
+        return 0
+    if pattern[0] == "*":
+        rest = pattern[1:len(pattern)]
+        if rest == "":
+            return 1
+        if rest[0] == ".":
+            # *.ext: ten ket thuc bang ext
+            if len(name) < len(rest):
+                return 0
+            tail = name[len(name) - len(rest):len(name)]
+            if tail == rest:
+                return 1
+            return 0
+        # *suf chung
+        if len(name) < len(rest):
+            return 0
+        tail = name[len(name) - len(rest):len(name)]
+        if tail == rest:
+            return 1
+        return 0
+    if pattern[len(pattern) - 1] == "*":
+        pre = pattern[0:len(pattern) - 1]
+        if len(name) < len(pre):
+            return 0
+        if name[0:len(pre)] == pre:
+            return 1
+        return 0
+    if name == pattern:
+        return 1
+    return 0
+
+def dlg_match_list(patterns: "list[str]", idx: "i32", name: "str") -> "i32":
+    if idx < 0:
+        return 1
+    if idx >= len(patterns):
+        return 1
+    pat = patterns[idx]
+    # Pattern co the chua ';' (vd "*.png;*.jpg"): tach tay
+    cur = ""
+    i = int(0)
+    n = len(pat)
+    while i <= n:
+        ch = ""
+        if i < n:
+            ch = pat[i]
+        if ch == ";" or i == n:
+            if cur != "":
+                if dlg_match_star(cur, name) == 1:
+                    return 1
+            cur = ""
+        else:
+            cur = cur + ch
+        i = i + 1
+    return 0
+
+# =========================================================
+# PATH helpers (sep "/" noi bo)
+# =========================================================
+def dlg_parent(path: "str") -> "str":
+    # "C:/a/b" -> "C:/a"; root "C:/" -> "C:/"; "" -> "".
+    n = len(path)
+    if n == 0:
+        return ""
+    end = n
+    if path[n - 1] == "/":
+        end = n - 1
+    i = end - 1
+    while i >= 0:
+        if path[i] == "/":
+            if i == 0:
+                return "/"
+            return path[0:i]
+        i = i - 1
+    return path
+
+def dlg_join(path: "str", name: "str") -> "str":
+    if path == "":
+        return name
+    if path[len(path) - 1] == "/":
+        return path + name
+    return path + "/" + name
+
+def dlg_basename(path: "str") -> "str":
+    n = len(path)
+    i = n - 1
+    while i >= 0:
+        if path[i] == "/":
+            return path[i + 1:n]
+        i = i - 1
+    return path
+
+def dlg_ext(name: "str") -> "str":
+    n = len(name)
+    i = n - 1
+    while i >= 0:
+        if name[i] == ".":
+            return name[i:n]
+        i = i - 1
+    return ""
+
+# =========================================================
+# DlgFile - file/dir browser state (entries do caller giu)
+# =========================================================
+class DlgFile:
+    path: "str"
+    filter_idx: "i32"
+    show_hidden: "i32"
+    selected: "i32"
+    scroll: "f64"
+    mode: "i32"
+    filename: "str"
+    accepted: "i32"
+    def __init__(self, path, filter_idx, show_hidden, selected, scroll, mode, filename, accepted):
+        self.path = path
+        self.filter_idx = filter_idx
+        self.show_hidden = show_hidden
+        self.selected = selected
+        self.scroll = scroll
+        self.mode = mode
+        self.filename = filename
+        self.accepted = accepted
+    def set_path(self, p: "str") -> "str":
+        self.path = p
+        self.selected = -1
+        self.scroll = 0.0
+        return p
+    def move_up(self) -> "str":
+        return self.set_path(dlg_parent(self.path))
+    def enter(self, names: "list[str]", isdir: "list[i32]", idx: "i32") -> "str":
+        if idx < 0:
+            return self.path
+        if idx >= len(names):
+            return self.path
+        if idx < len(isdir):
+            if isdir[idx] == 1:
+                return self.set_path(dlg_join(self.path, names[idx]))
+        return self.path
+    def set_filter(self, f: "i32", nfilters: "i32") -> "i32":
+        if f < 0:
+            f = 0
+        if f >= nfilters:
+            f = nfilters - 1
+        self.filter_idx = f
+        self.selected = -1
+        return f
+    def toggle_hidden(self) -> "i32":
+        if self.show_hidden == 1:
+            self.show_hidden = 0
+        else:
+            self.show_hidden = 1
+        return self.show_hidden
+    def visible_count(self, names: "list[str]", isdir: "list[i32]", patterns: "list[str]") -> "i32":
+        c = int(0)
+        i = int(0)
+        while i < len(names):
+            if self.show_hidden == 0:
+                if len(names[i]) > 0:
+                    if names[i][0] == ".":
+                        i = i + 1
+                        continue
+            isd = 0
+            if i < len(isdir):
+                isd = isdir[i]
+            if isd == 1:
+                c = c + 1
+            else:
+                if self.mode == 2:
+                    i = i + 1
+                    continue
+                if dlg_match_list(patterns, self.filter_idx, names[i]) == 1:
+                    c = c + 1
+            i = i + 1
+        return c
+    def visible_at(self, names: "list[str]", isdir: "list[i32]", patterns: "list[str]", nth: "i32") -> "i32":
+        # Map dong hien thu nth -> index that (-1 neu het)
+        seen = int(0)
+        i = int(0)
+        while i < len(names):
+            show = 1
+            if self.show_hidden == 0:
+                if len(names[i]) > 0:
+                    if names[i][0] == ".":
+                        show = 0
+            isd = 0
+            if i < len(isdir):
+                isd = isdir[i]
+            if isd == 0:
+                if self.mode == 2:
+                    show = 0
+                else:
+                    if dlg_match_list(patterns, self.filter_idx, names[i]) == 0:
+                        show = 0
+            if show == 1:
+                if seen == nth:
+                    return i
+                seen = seen + 1
+            i = i + 1
+        return -1
+    def select(self, idx: "i32", n: "i32") -> "i32":
+        if idx < 0:
+            return self.selected
+        if idx >= n:
+            return self.selected
+        self.selected = idx
+        return idx
+    def scroll_by(self, dy: "f64", total_h: "f64", view_h: "f64") -> "f64":
+        self.scroll = os_clamp_scroll(self.scroll + dy, total_h, view_h)
+        return self.scroll
+    def accept(self, names: "list[str]", isdir: "list[i32]") -> "str":
+        # OK: save -> path+filename; open-file -> file dang chon; dir -> path
+        self.accepted = 1
+        if self.mode == 1:
+            if self.filename == "":
+                self.accepted = 0
+                return ""
+            return dlg_join(self.path, self.filename)
+        if self.mode == 2:
+            return self.path
+        if self.selected < 0:
+            self.accepted = 0
+            return ""
+        if self.selected >= len(names):
+            self.accepted = 0
+            return ""
+        if self.selected < len(isdir):
+            if isdir[self.selected] == 1:
+                self.accepted = 0
+                return ""
+        return dlg_join(self.path, names[self.selected])
+    def set_filename(self, name: "str") -> "str":
+        self.filename = name
+        return name
+
+def dlg_make_open(path: "str") -> "DlgFile":
+    return DlgFile(path, 0, 0, -1, 0.0, 0, "", 0)
+
+def dlg_make_save(path: "str") -> "DlgFile":
+    return DlgFile(path, 0, 0, -1, 0.0, 1, "", 0)
+
+def dlg_make_dir(path: "str") -> "DlgFile":
+    return DlgFile(path, 0, 0, -1, 0.0, 2, "", 0)
+
+# =========================================================
+# DlgColor - color picker state
+# =========================================================
+class DlgColor:
+    r: "i64"
+    g: "i64"
+    b: "i64"
+    accepted: "i32"
+    def __init__(self, r, g, b, accepted):
+        self.r = r
+        self.g = g
+        self.b = b
+        self.accepted = accepted
+    def set_rgb(self, r: "i64", g: "i64", b: "i64") -> "i32":
+        if r < 0:
+            r = 0
+        if r > 255:
+            r = 255
+        if g < 0:
+            g = 0
+        if g > 255:
+            g = 255
+        if b < 0:
+            b = 0
+        if b > 255:
+            b = 255
+        self.r = r
+        self.g = g
+        self.b = b
+        return 1
+    def to_hex(self) -> "str":
+        return "#" + dlg_hex2(self.r) + dlg_hex2(self.g) + dlg_hex2(self.b)
+    def from_hex(self, s: "str") -> "i32":
+        # "#rrggbb" (thuong/hoa). Tra 1 neu parse duoc.
+        t = s
+        if len(t) == 7:
+            if t[0] == "#":
+                r = dlg_hexval(t[1]) * 16 + dlg_hexval(t[2])
+                g = dlg_hexval(t[3]) * 16 + dlg_hexval(t[4])
+                b = dlg_hexval(t[5]) * 16 + dlg_hexval(t[6])
+                if r >= 0:
+                    if g >= 0:
+                        if b >= 0:
+                            self.r = r
+                            self.g = g
+                            self.b = b
+                            return 1
+        return 0
+    def accept(self) -> "i32":
+        self.accepted = 1
+        return 1
+    def as_color(self) -> "ColorRgba":
+        return ColorRgba(self.r, self.g, self.b, 255)
+
+def dlg_make_color(r: "i64", g: "i64", b: "i64") -> "DlgColor":
+    return DlgColor(r, g, b, 0)
+
+def dlg_hex_digit(v: "i64") -> "str":
+    if v == 10:
+        return "a"
+    if v == 11:
+        return "b"
+    if v == 12:
+        return "c"
+    if v == 13:
+        return "d"
+    if v == 14:
+        return "e"
+    if v == 15:
+        return "f"
+    return str(v)
+
+def dlg_hex2(v: "i64") -> "str":
+    hi = v // 16
+    lo = v - hi * 16
+    return dlg_hex_digit(hi) + dlg_hex_digit(lo)
+
+def dlg_hexval(ch: "str") -> "i64":
+    if ch == "0":
+        return 0
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    if ch == "6":
+        return 6
+    if ch == "7":
+        return 7
+    if ch == "8":
+        return 8
+    if ch == "9":
+        return 9
+    if ch == "a" or ch == "A":
+        return 10
+    if ch == "b" or ch == "B":
+        return 11
+    if ch == "c" or ch == "C":
+        return 12
+    if ch == "d" or ch == "D":
+        return 13
+    if ch == "e" or ch == "E":
+        return 14
+    if ch == "f" or ch == "F":
+        return 15
+    return -1
+
+def dlg_pack(r: "i64", g: "i64", b: "i64") -> "i64":
+    return r * 65536 + g * 256 + b
+
+def dlg_unpack_r(packed: "i64") -> "i64":
+    return packed // 65536
+
+def dlg_unpack_g(packed: "i64") -> "i64":
+    return (packed // 256) - ((packed // 65536) * 256)
+
+def dlg_unpack_b(packed: "i64") -> "i64":
+    return packed - ((packed // 256) * 256)
+
+def dlg_custom_add(customs: "list[i64]", packed: "i64") -> "i32":
+    if len(customs) >= 16:
+        return len(customs)
+    customs.append(packed)
+    return len(customs)
+
+def dlg_custom_get(customs: "list[i64]", idx: "i32") -> "i64":
+    if idx < 0:
+        return -1
+    if idx >= len(customs):
+        return -1
+    return customs[idx]
+
+# =========================================================
+# DlgFont - font picker state
+# =========================================================
+class DlgFont:
+    family: "str"
+    size: "f64"
+    bold: "i32"
+    italic: "i32"
+    accepted: "i32"
+    def __init__(self, family, size, bold, italic, accepted):
+        self.family = family
+        self.size = size
+        self.bold = bold
+        self.italic = italic
+        self.accepted = accepted
+    def set_size(self, s: "f64") -> "f64":
+        if s < 6.0:
+            s = 6.0
+        if s > 144.0:
+            s = 144.0
+        self.size = s
+        return s
+    def toggle_bold(self) -> "i32":
+        if self.bold == 1:
+            self.bold = 0
+        else:
+            self.bold = 1
+        return self.bold
+    def toggle_italic(self) -> "i32":
+        if self.italic == 1:
+            self.italic = 0
+        else:
+            self.italic = 1
+        return self.italic
+    def describe(self) -> "str":
+        s = self.family + ", " + str(int(self.size)) + "pt"
+        if self.bold == 1:
+            s = s + ", Bold"
+        if self.italic == 1:
+            s = s + ", Italic"
+        return s
+    def accept(self) -> "i32":
+        self.accepted = 1
+        return 1
+
+def dlg_make_font(family: "str", size: "f64") -> "DlgFont":
+    return DlgFont(family, size, 0, 0, 0)
+
+# =========================================================
+# NATIVE STUBS - can out-struct + marshal (upstream)
+# Giao dien day du; host co marshal thay than ham, giu chu ky.
+# =========================================================
+def dlg_native_open(d: "DlgFile") -> "i32":
+    # That: GetOpenFileNameW(OPENFILENAME*) — can struct + buffer out.
+    return 0
+
+def dlg_native_save(d: "DlgFile") -> "i32":
+    # That: GetSaveFileNameW(OPENFILENAME*).
+    return 0
+
+def dlg_native_dir(d: "DlgFile") -> "i32":
+    # That: SHBrowseForFolderW(BROWSEINFOW*).
+    return 0
+
+def dlg_native_color(c: "DlgColor") -> "i32":
+    # That: ChooseColorW(CHOOSECOLORW* + custom[16] out).
+    return 0
+
+def dlg_native_font(f: "DlgFont") -> "i32":
+    # That: ChooseFontW(CHOOSEFONTW* + LOGFONTW out).
+    return 0
+
+def dlg_native_present() -> "i32":
+    # 1 neu host da thay stub bang native that.
+    return 0
+
+# =========================================================
+# BROWSER RENDER - file dialog don gian
+# =========================================================
+def dlg_render_browser(buf: "list[i64]", surf: "PixelSurface", mode: "i32", d: "DlgFile", names: "list[str]", isdir: "list[i32]", patterns: "list[str]", filternames: "list[str]", x: "f64", y: "f64", w: "f64", h: "f64") -> "i32":
+    pal = os_palette_for_mode(mode)
+    r = Rect2D(x, y, w, h)
+    fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 0))
+    stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+    draw_string(buf, surf, d.path, x + 6.0, y + 6.0, 1.0, os_role_color(pal, 1))
+    top = y + 22.0
+    rowh = 20.0
+    view_h = h - 48.0
+    first = os_list_first_visible(d.scroll, rowh)
+    vis = os_list_visible_count(view_h, rowh)
+    shown = int(0)
+    k = int(0)
+    while k < vis:
+        nth = first + k
+        real = d.visible_at(names, isdir, patterns, nth)
+        if real >= 0:
+            ry = top + float(shown) * rowh - d.scroll
+            if ry + rowh > top:
+                if ry < top + view_h:
+                    sel = 0
+                    if real == d.selected:
+                        sel = 1
+                    rr = Rect2D(x + 2.0, ry, w - 4.0, rowh)
+                    fill_round_rect(buf, surf, rr, 0.0, os_row_bg(pal, shown, sel))
+                    label = names[real]
+                    if real < len(isdir):
+                        if isdir[real] == 1:
+                            label = "[" + names[real] + "]"
+                    draw_string(buf, surf, label, x + 8.0, ry + 6.0, 1.0, os_row_fg(pal, sel))
+                    shown = shown + 1
+        k = k + 1
+    fn = "Filter: all"
+    if d.filter_idx < len(filternames):
+        if d.filter_idx >= 0:
+            fn = "Filter: " + filternames[d.filter_idx]
+    draw_string(buf, surf, fn, x + 6.0, y + h - 18.0, 1.0, os_disabled_text(pal))
+    return shown
+
+# =========================================================
+# SELFTEST (pure logic; native stubs chi assert tra 0)
+# =========================================================
+def dlgcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def dlgcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def dlgcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def dlg_seed_names() -> "list[str]":
+    out = []
+    out.append("docs")
+    out.append("a.txt")
+    out.append("b.png")
+    out.append(".hidden")
+    return out
+
+def dlg_seed_dirs() -> "list[i32]":
+    out = []
+    out.append(1)
+    out.append(0)
+    out.append(0)
+    out.append(0)
+    return out
+
+def nativedlg_selftest() -> "str":
+    print("== TkvUI.NativeDlg selftest ==")
+    acc = [int(0), int(0)]
+    # filter
+    fnames = []
+    fpats = []
+    dlgcheck_i(acc, "filter.n", dlg_parse_filter("Text (*.txt)|*.txt|All (*.*)|*.*", fnames, fpats), 2)
+    dlgcheck_s(acc, "filter.name", fnames[0], "Text (*.txt)")
+    dlgcheck_s(acc, "filter.pat", fpats[1], "*.*")
+    dlgcheck_i(acc, "match.ext", dlg_match_star("*.txt", "a.txt"), 1)
+    dlgcheck_i(acc, "match.no", dlg_match_star("*.txt", "b.png"), 0)
+    dlgcheck_i(acc, "match.all", dlg_match_star("*.*", "x"), 1)
+    dlgcheck_i(acc, "match.pre", dlg_match_star("ab*", "abc"), 1)
+    dlgcheck_i(acc, "match.list", dlg_match_list(fpats, 0, "a.txt"), 1)
+    dlgcheck_i(acc, "match.list.no", dlg_match_list(fpats, 0, "b.png"), 0)
+    # path
+    dlgcheck_s(acc, "parent", dlg_parent("C:/a/b"), "C:/a")
+    dlgcheck_s(acc, "parent.root", dlg_parent("C:/"), "C:/")
+    dlgcheck_s(acc, "join", dlg_join("C:/a", "b"), "C:/a/b")
+    dlgcheck_s(acc, "base", dlg_basename("C:/a/b.txt"), "b.txt")
+    dlgcheck_s(acc, "ext", dlg_ext("b.txt"), ".txt")
+    dlgcheck_s(acc, "ext.none", dlg_ext("README"), "")
+    # browser nav
+    d = dlg_make_open("C:/w")
+    names = dlg_seed_names()
+    dirs = dlg_seed_dirs()
+    pats0 = []
+    dlgcheck_i(acc, "vis.all", d.visible_count(names, dirs, pats0), 3)
+    d.set_filter(0, 2)
+    dlgcheck_i(acc, "vis.filtered", d.visible_count(names, dirs, fpats), 2)
+    dlgcheck_i(acc, "vis.at0", d.visible_at(names, dirs, fpats, 0), 0)
+    dlgcheck_i(acc, "vis.at1", d.visible_at(names, dirs, fpats, 1), 1)
+    d.select(1, 4)
+    dlgcheck_s(acc, "accept.file", d.accept(names, dirs), "C:/w/a.txt")
+    d.enter(names, dirs, 0)
+    dlgcheck_s(acc, "enter.dir", d.path, "C:/w/docs")
+    d.move_up()
+    dlgcheck_s(acc, "up", d.path, "C:/w")
+    # save mode
+    s = dlg_make_save("C:/w")
+    s.set_filename("out.txt")
+    dlgcheck_s(acc, "save.accept", s.accept(names, dirs), "C:/w/out.txt")
+    s2 = dlg_make_save("C:/w")
+    dlgcheck_s(acc, "save.empty", s2.accept(names, dirs), "")
+    # color
+    c = dlg_make_color(255, 128, 0)
+    dlgcheck_s(acc, "color.hex", c.to_hex(), "#ff8000")
+    c.from_hex("#00ff00")
+    dlgcheck_i(acc, "color.g", c.g, 255)
+    dlgcheck_i(acc, "color.bad", c.from_hex("xyz"), 0)
+    customs = []
+    dlg_custom_add(customs, dlg_pack(1, 2, 3))
+    dlgcheck_i(acc, "custom.r", dlg_unpack_r(dlg_custom_get(customs, 0)), 1)
+    dlgcheck_i(acc, "custom.b", dlg_unpack_b(dlg_custom_get(customs, 0)), 3)
+    dlgcheck_i(acc, "custom.miss", dlg_custom_get(customs, 5), -1)
+    # font
+    f = dlg_make_font("Consolas", 12.0)
+    f.toggle_bold()
+    dlgcheck_s(acc, "font.desc", f.describe(), "Consolas, 12pt, Bold")
+    f.set_size(200.0)
+    dlgcheck_i(acc, "font.clamp", int(f.size), 144)
+    # native stubs (SIM: expect 0)
+    dlgcheck_i(acc, "stub.open", dlg_native_open(d), 0)
+    dlgcheck_i(acc, "stub.save", dlg_native_save(s), 0)
+    dlgcheck_i(acc, "stub.dir", dlg_native_dir(d), 0)
+    dlgcheck_i(acc, "stub.color", dlg_native_color(c), 0)
+    dlgcheck_i(acc, "stub.font", dlg_native_font(f), 0)
+    dlgcheck_i(acc, "stub.present", dlg_native_present(), 0)
+    # render smoke
+    surf = PixelSurface(300, 200, 300)
+    buf = dlg_alloc(300 * 200)
+    black = ColorRgba(0, 0, 0, 255)
+    surface_clear(buf, surf, black)
+    shown = dlg_render_browser(buf, surf, 0, d, names, dirs, fpats, fnames, 0.0, 0.0, 300.0, 200.0)
+    dlgcheck(acc, "render.shown", shown - 1)
+    print("nativedlg: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "NATIVEDLG_OK"
+    return "NATIVEDLG_FAIL"
+
+def dlg_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+

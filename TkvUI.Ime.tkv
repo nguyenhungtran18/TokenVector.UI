@@ -1,0 +1,755 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Ime - bo go Tieng Viet Telex/VNI + composition state (Phase 8.2).
+
+Engine thuan logic (.tkv, co test): Telex/VNI -> precomposed Viet (khop
+134 glyph Viet module). Dat dau thanh tren NGUYEN AM cuoi co the (MVP trung
+thuc ~80% so voi Unikey full-syllable; document). Hook OS that
+(GetCompositionString/WM_IME_*) can out-buffer (blocker upstream) -> stub
+`ime_os_*` tra 0; host co marshal thay than ham.
+
+Tien to ime_*/Ime* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Viet"]
+
+# Kieu go (tai lieu; code dung literal so)
+IME_TELEX = 0
+IME_VNI = 1
+IME_OFF = 2
+
+# Dau thanh: 0=ngang 1=sac 2=huyen 3=hoi 4=nga 5=nang
+def ime_is_vowel(ch: "str") -> "i32":
+    if ch == "a":
+        return 1
+    if ch == "e":
+        return 1
+    if ch == "i":
+        return 1
+    if ch == "o":
+        return 1
+    if ch == "u":
+        return 1
+    if ch == "y":
+        return 1
+    if ch == "A":
+        return 1
+    if ch == "E":
+        return 1
+    if ch == "I":
+        return 1
+    if ch == "O":
+        return 1
+    if ch == "U":
+        return 1
+    if ch == "Y":
+        return 1
+    return 0
+
+def ime_base_vowel(ch: "str") -> "str":
+    # Goc chu cai (bo dau/mu/riu hien co de danh dau lai)
+    if ch == "â":
+        return "a"
+    if ch == "ê":
+        return "e"
+    if ch == "ô":
+        return "o"
+    if ch == "ă":
+        return "a"
+    if ch == "ơ":
+        return "o"
+    if ch == "ư":
+        return "u"
+    if ch == "Â":
+        return "A"
+    if ch == "Ê":
+        return "E"
+    if ch == "Ô":
+        return "O"
+    if ch == "Ă":
+        return "A"
+    if ch == "Ơ":
+        return "O"
+    if ch == "Ư":
+        return "U"
+    if ch == "đ":
+        return "d"
+    if ch == "Đ":
+        return "D"
+    return ch
+
+def ime_apply_tone(base: "str", tone: "i32") -> "str":
+    # base: nguyen am don (a/e/i/o/u/y, chu thuong). Tra precomposed.
+    if tone == 0:
+        return base
+    if base == "a":
+        if tone == 1:
+            return "á"
+        if tone == 2:
+            return "à"
+        if tone == 3:
+            return "ả"
+        if tone == 4:
+            return "ã"
+        return "ạ"
+    if base == "e":
+        if tone == 1:
+            return "é"
+        if tone == 2:
+            return "è"
+        if tone == 3:
+            return "ẻ"
+        if tone == 4:
+            return "ẽ"
+        return "ẹ"
+    if base == "i":
+        if tone == 1:
+            return "í"
+        if tone == 2:
+            return "ì"
+        if tone == 3:
+            return "ỉ"
+        if tone == 4:
+            return "ĩ"
+        return "ị"
+    if base == "o":
+        if tone == 1:
+            return "ó"
+        if tone == 2:
+            return "ò"
+        if tone == 3:
+            return "ỏ"
+        if tone == 4:
+            return "õ"
+        return "ọ"
+    if base == "u":
+        if tone == 1:
+            return "ú"
+        if tone == 2:
+            return "ù"
+        if tone == 3:
+            return "ủ"
+        if tone == 4:
+            return "ũ"
+        return "ụ"
+    if base == "y":
+        if tone == 1:
+            return "ý"
+        if tone == 2:
+            return "ỳ"
+        if tone == 3:
+            return "ỷ"
+        if tone == 4:
+            return "ỹ"
+        return "ỵ"
+    return base
+
+def ime_apply_hat(base: "str", hat: "i32") -> "str":
+    # hat 1=^ (a/e/o), 2=breve (a), 3=horn (o/u)
+    if hat == 1:
+        if base == "a":
+            return "â"
+        if base == "e":
+            return "ê"
+        if base == "o":
+            return "ô"
+    if hat == 2:
+        if base == "a":
+            return "ă"
+    if hat == 3:
+        if base == "o":
+            return "ơ"
+        if base == "u":
+            return "ư"
+    return base
+
+def ime_telex_tone(ch: "str") -> "i32":
+    if ch == "s":
+        return 1
+    if ch == "f":
+        return 2
+    if ch == "r":
+        return 3
+    if ch == "x":
+        return 4
+    if ch == "j":
+        return 5
+    return 0
+
+def ime_vni_tone(ch: "str") -> "i32":
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    return 0
+
+def ime_apply_tone_up(base: "str", tone: "i32") -> "str":
+    # Ban hoa cua ime_apply_tone (ten, tuoi tac nhu ban thuong).
+    if tone == 0:
+        return base
+    if base == "A":
+        if tone == 1:
+            return "Á"
+        if tone == 2:
+            return "À"
+        if tone == 3:
+            return "Ả"
+        if tone == 4:
+            return "Ã"
+        return "Ạ"
+    if base == "E":
+        if tone == 1:
+            return "É"
+        if tone == 2:
+            return "È"
+        if tone == 3:
+            return "Ẻ"
+        if tone == 4:
+            return "Ẽ"
+        return "Ẹ"
+    if base == "I":
+        if tone == 1:
+            return "Í"
+        if tone == 2:
+            return "Ì"
+        if tone == 3:
+            return "Ỉ"
+        if tone == 4:
+            return "Ĩ"
+        return "Ị"
+    if base == "O":
+        if tone == 1:
+            return "Ó"
+        if tone == 2:
+            return "Ò"
+        if tone == 3:
+            return "Ỏ"
+        if tone == 4:
+            return "Õ"
+        return "Ọ"
+    if base == "U":
+        if tone == 1:
+            return "Ú"
+        if tone == 2:
+            return "Ù"
+        if tone == 3:
+            return "Ủ"
+        if tone == 4:
+            return "Ũ"
+        return "Ụ"
+    if base == "Y":
+        if tone == 1:
+            return "Ý"
+        if tone == 2:
+            return "Ỳ"
+        if tone == 3:
+            return "Ỷ"
+        if tone == 4:
+            return "Ỹ"
+        return "Ỵ"
+    return base
+
+def ime_apply_hat_up(base: "str", hat: "i32") -> "str":
+    if hat == 1:
+        if base == "A":
+            return "Â"
+        if base == "E":
+            return "Ê"
+        if base == "O":
+            return "Ô"
+    if hat == 2:
+        if base == "A":
+            return "Ă"
+    if hat == 3:
+        if base == "O":
+            return "Ơ"
+        if base == "U":
+            return "Ư"
+    return base
+
+def ime_tone_of(base: "str", tone: "i32") -> "str":
+    # Chon ban thuong/hoa theo base (chu cai dau vao).
+    if base == "A" or base == "E" or base == "I" or base == "O" or base == "U" or base == "Y":
+        return ime_apply_tone_up(base, tone)
+    return ime_apply_tone(base, tone)
+
+def ime_hat_of(base: "str", hat: "i32") -> "str":
+    if base == "A" or base == "E" or base == "O" or base == "U":
+        return ime_apply_hat_up(base, hat)
+    return ime_apply_hat(base, hat)
+
+def ime_bare_vowel(ch: "str") -> "i32":
+    # Nguyen am CHUA dau thanh (nhan dau thanh/mu). Bao gom ca hoa.
+    if ch == "a" or ch == "e" or ch == "i" or ch == "o" or ch == "u" or ch == "y":
+        return 1
+    if ch == "A" or ch == "E" or ch == "I" or ch == "O" or ch == "U" or ch == "Y":
+        return 1
+    if ch == "â" or ch == "ê" or ch == "ô" or ch == "ă" or ch == "ơ" or ch == "ư":
+        return 1
+    if ch == "Â" or ch == "Ê" or ch == "Ô" or ch == "Ă" or ch == "Ơ" or ch == "Ư":
+        return 1
+    return 0
+
+def ime_last_start(text: "str") -> "i32":
+    # Vi tri unit bat dau sequence cuoi (de thay/backspace ca sequence).
+    n = len(text)
+    if n == 0:
+        return 0
+    idx = int(0)
+    last = 0
+    while idx < n:
+        last = idx
+        adv = utf8_seq_len(text, idx)
+        if idx + adv > n:
+            adv = n - idx
+        if adv <= 0:
+            adv = 1
+        idx = idx + adv
+    return last
+
+def ime_last_seq(text: "str") -> "str":
+    n = len(text)
+    if n == 0:
+        return ""
+    return text[ime_last_start(text):n]
+
+def ime_drop_last(text: "str") -> "str":
+    return text[0:ime_last_start(text)]
+
+def ime_tone_hat(base: "str", tone: "i32") -> "str":
+    # Dau thanh tren nguyen am DA CO mu (a/e/o/u + ^/breve/horn).
+    # Dung cho composer khi gap phim thanh sau mu (vd "aas" -> "au+mu+thanh").
+    if tone == 0:
+        return base
+    if base == "â":
+        if tone == 1:
+            return "ấ"
+        if tone == 2:
+            return "ầ"
+        if tone == 3:
+            return "ẩ"
+        if tone == 4:
+            return "ẫ"
+        return "ậ"
+    if base == "ê":
+        if tone == 1:
+            return "ế"
+        if tone == 2:
+            return "ề"
+        if tone == 3:
+            return "ể"
+        if tone == 4:
+            return "ễ"
+        return "ệ"
+    if base == "ô":
+        if tone == 1:
+            return "ố"
+        if tone == 2:
+            return "ồ"
+        if tone == 3:
+            return "ổ"
+        if tone == 4:
+            return "ỗ"
+        return "ộ"
+    if base == "ă":
+        if tone == 1:
+            return "ắ"
+        if tone == 2:
+            return "ằ"
+        if tone == 3:
+            return "ẳ"
+        if tone == 4:
+            return "ẵ"
+        return "ặ"
+    if base == "ơ":
+        if tone == 1:
+            return "ớ"
+        if tone == 2:
+            return "ờ"
+        if tone == 3:
+            return "ở"
+        if tone == 4:
+            return "ỡ"
+        return "ợ"
+    if base == "ư":
+        if tone == 1:
+            return "ứ"
+        if tone == 2:
+            return "ừ"
+        if tone == 3:
+            return "ử"
+        if tone == 4:
+            return "ữ"
+        return "ự"
+    if base == "Â":
+        if tone == 1:
+            return "Ấ"
+        if tone == 2:
+            return "Ầ"
+        if tone == 3:
+            return "Ẩ"
+        if tone == 4:
+            return "Ẫ"
+        return "Ậ"
+    if base == "Ê":
+        if tone == 1:
+            return "Ế"
+        if tone == 2:
+            return "Ề"
+        if tone == 3:
+            return "Ể"
+        if tone == 4:
+            return "Ễ"
+        return "Ệ"
+    if base == "Ô":
+        if tone == 1:
+            return "Ố"
+        if tone == 2:
+            return "Ồ"
+        if tone == 3:
+            return "Ổ"
+        if tone == 4:
+            return "Ỗ"
+        return "Ộ"
+    if base == "Ă":
+        if tone == 1:
+            return "Ắ"
+        if tone == 2:
+            return "Ằ"
+        if tone == 3:
+            return "Ẳ"
+        if tone == 4:
+            return "Ẵ"
+        return "Ặ"
+    if base == "Ơ":
+        if tone == 1:
+            return "Ớ"
+        if tone == 2:
+            return "Ờ"
+        if tone == 3:
+            return "Ở"
+        if tone == 4:
+            return "Ỡ"
+        return "Ợ"
+    if base == "Ư":
+        if tone == 1:
+            return "Ứ"
+        if tone == 2:
+            return "Ừ"
+        if tone == 3:
+            return "Ử"
+        if tone == 4:
+            return "Ữ"
+        return "Ự"
+    return ime_tone_of(base, tone)
+
+# =========================================================
+# COMPOSER - go phim (thuan, co test)
+# Chinh sach MVP (document): dau ap len NGUYEN AM CHUA DAU cuoi cung;
+# neu chu cuoi da co dau -> giu phim theo nghia den (can Backspace sua).
+# Mu truoc, thanh sau (aa + s = au + thanh). Khong tu tach am tiet nhu Unikey.
+# =========================================================
+def ime_push_telex(text: "str", ch: "str") -> "str":
+    if len(ch) == 0:
+        return text
+    last = ime_last_seq(text)
+    head = ime_drop_last(text)
+    # dd -> d
+    if ch == "d":
+        if last == "d":
+            return head + "đ"
+        if last == "D":
+            return head + "đ"
+    if ch == "D":
+        if last == "D":
+            return head + "Đ"
+        if last == "d":
+            return head + "Đ"
+    # w -> u/o/a + suong
+    if ch == "w":
+        if last == "u":
+            return head + "ư"
+        if last == "o":
+            return head + "ơ"
+        if last == "a":
+            return head + "ă"
+        if last == "U":
+            return head + "Ư"
+        if last == "O":
+            return head + "Ơ"
+        if last == "A":
+            return head + "Ă"
+        return text + ch
+    if ch == "W":
+        if last == "U":
+            return head + "Ư"
+        if last == "O":
+            return head + "Ơ"
+        if last == "A":
+            return head + "Ă"
+        return text + ch
+    # trung mu: aa->a, ee->e, oo->o (chi khi last DUNG chu do, ascii)
+    if ch == "a":
+        if last == "a":
+            return head + "â"
+        if last == "A":
+            return head + "Â"
+    if ch == "e":
+        if last == "e":
+            return head + "ê"
+        if last == "E":
+            return head + "Ê"
+    if ch == "o":
+        if last == "o":
+            return head + "ô"
+        if last == "O":
+            return head + "Ô"
+    # phim thanh
+    tone = ime_telex_tone(ch)
+    if tone > 0:
+        if ime_bare_vowel(last) == 1:
+            return head + ime_tone_hat(last, tone)
+        return text + ch
+    return text + ch
+
+def ime_push_vni(text: "str", ch: "str") -> "str":
+    if len(ch) == 0:
+        return text
+    last = ime_last_seq(text)
+    head = ime_drop_last(text)
+    # 9: d -> d
+    if ch == "9":
+        if last == "d":
+            return head + "đ"
+        if last == "D":
+            return head + "Đ"
+        return text + ch
+    # 6: mu ^ (a/e/o)
+    if ch == "6":
+        if last == "a" or last == "e" or last == "o":
+            return head + ime_hat_of(last, 1)
+        if last == "A" or last == "E" or last == "O":
+            return head + ime_hat_of(last, 1)
+        return text + ch
+    # 7: suong (o/u)
+    if ch == "7":
+        if last == "o" or last == "u":
+            return head + ime_hat_of(last, 3)
+        if last == "O" or last == "U":
+            return head + ime_hat_of(last, 3)
+        return text + ch
+    # 8: breve (a)
+    if ch == "8":
+        if last == "a":
+            return head + ime_hat_of(last, 2)
+        if last == "A":
+            return head + ime_hat_of(last, 2)
+        return text + ch
+    # 1..5: thanh
+    tone = ime_vni_tone(ch)
+    if tone > 0:
+        if ime_bare_vowel(last) == 1:
+            return head + ime_tone_hat(last, tone)
+        return text + ch
+    return text + ch
+
+def ime_push(text: "str", method: "i32", ch: "str") -> "str":
+    if method == 1:
+        return ime_push_vni(text, ch)
+    if method == 2:
+        return text + ch
+    return ime_push_telex(text, ch)
+
+def ime_backspace(text: "str") -> "str":
+    return ime_drop_last(text)
+
+def ime_type_word(method: "i32", keys: "list[str]") -> "str":
+    out = ""
+    i = int(0)
+    while i < len(keys):
+        out = ime_push(out, method, keys[i])
+        i = i + 1
+    return out
+
+# =========================================================
+# BUFFER + OS HOOK STUBS
+# =========================================================
+class ImeBuffer:
+    text: "str"
+    method: "i32"
+    composing: "i32"
+    def __init__(self, text, method, composing):
+        self.text = text
+        self.method = method
+        self.composing = composing
+    def type_char(self, ch: "str") -> "str":
+        self.text = ime_push(self.text, self.method, ch)
+        self.composing = 1
+        return self.text
+    def backspace(self) -> "str":
+        self.text = ime_backspace(self.text)
+        return self.text
+    def commit(self) -> "str":
+        self.composing = 0
+        return self.text
+    def set_method(self, m: "i32") -> "i32":
+        if m == 1:
+            self.method = 1
+        else:
+            if m == 2:
+                self.method = 2
+            else:
+                self.method = 0
+        return self.method
+
+def ime_make_buffer(method: "i32") -> "ImeBuffer":
+    return ImeBuffer("", method, 0)
+
+def ime_os_get_composition() -> "str":
+    # That: GetCompositionStringW(hIMC, GCS_RESULTSTR) — can out-buffer.
+    return ""
+
+def ime_os_notify() -> "i32":
+    # That: ImmNotifyIME(hIMC, NI_COMPOSITIONSTR, CPS_COMPLETE).
+    return 0
+
+def ime_os_present() -> "i32":
+    # 1 neu host da thay stub bang hook that.
+    return 0
+
+# =========================================================
+# SELFTEST (engine that; OS hook chi assert stub)
+# =========================================================
+def imecheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def imecheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def imecheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def ime_keys2(a: "str", b: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    return out
+
+def ime_keys3(a: "str", b: "str", c: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    return out
+
+def ime_keys5(a: "str", b: "str", c: "str", d: "str", e: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    out.append(d)
+    out.append(e)
+    return out
+
+def ime_keys6(a: "str", b: "str", c: "str", d: "str", e: "str", f: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    out.append(d)
+    out.append(e)
+    out.append(f)
+    return out
+
+def ime_selftest() -> "str":
+    print("== TkvUI.Ime selftest ==")
+    acc = [int(0), int(0)]
+    # tone tables
+    imecheck_s(acc, "tone.a1", ime_apply_tone("a", 1), "á")
+    imecheck_s(acc, "tone.o5", ime_apply_tone("o", 5), "ọ")
+    imecheck_s(acc, "tonehat.au1", ime_tone_hat("â", 1), "ấ")
+    imecheck_s(acc, "tonehat.o3", ime_tone_hat("ơ", 3), "ở")
+    imecheck_s(acc, "toneup.A2", ime_tone_of("A", 2), "À")
+    imecheck_s(acc, "hatup.U", ime_hat_of("U", 3), "Ư")
+    imecheck_s(acc, "hat.aw", ime_hat_of("a", 2), "ă")
+    # telex classic
+    imecheck_s(acc, "tl.as", ime_type_word(0, ime_keys2("a", "s")), "á")
+    imecheck_s(acc, "tl.aa", ime_type_word(0, ime_keys2("a", "a")), "â")
+    imecheck_s(acc, "tl.aas", ime_type_word(0, ime_keys3("a", "a", "s")), "ấ")
+    imecheck_s(acc, "tl.dd", ime_type_word(0, ime_keys2("d", "d")), "đ")
+    imecheck_s(acc, "tl.uw", ime_type_word(0, ime_keys2("u", "w")), "ư")
+    imecheck_s(acc, "tl.ow", ime_type_word(0, ime_keys2("o", "w")), "ơ")
+    imecheck_s(acc, "tl.aw", ime_type_word(0, ime_keys2("a", "w")), "ă")
+    imecheck_s(acc, "tl.tieng", ime_type_word(0, ime_keys6("t", "i", "e", "e", "n", "g")), "tiêng")
+    imecheck_s(acc, "tl.tooif", ime_type_word(0, ime_keys5("t", "o", "o", "i", "f")), "tôì")
+    # vni classic
+    imecheck_s(acc, "vni.a1", ime_type_word(1, ime_keys2("a", "1")), "á")
+    imecheck_s(acc, "vni.a6", ime_type_word(1, ime_keys2("a", "6")), "â")
+    imecheck_s(acc, "vni.a61", ime_type_word(1, ime_keys3("a", "6", "1")), "ấ")
+    imecheck_s(acc, "vni.d9", ime_type_word(1, ime_keys2("d", "9")), "đ")
+    imecheck_s(acc, "vni.o7", ime_type_word(1, ime_keys2("o", "7")), "ơ")
+    imecheck_s(acc, "vni.u7", ime_type_word(1, ime_keys2("u", "7")), "ư")
+    # backspace + off + bare
+    imecheck_s(acc, "bs", ime_backspace("as"), "a")
+    imecheck_s(acc, "off", ime_type_word(2, ime_keys2("a", "s")), "as")
+    imecheck_i(acc, "bare.a", ime_bare_vowel("a"), 1)
+    imecheck_i(acc, "bare.s", ime_bare_vowel("s"), 0)
+    imecheck_i(acc, "bare.hat", ime_bare_vowel("ơ"), 1)
+    imecheck_s(acc, "last", ime_last_seq("ab"), "b")
+    # oracle: produced forms phai render duoc (vi_bits != -1)
+    p1 = ime_type_word(0, ime_keys3("a", "a", "s"))
+    ok1 = 0
+    if vi_bits(p1) != -1:
+        ok1 = 1
+    imecheck(acc, "oracle.au", ok1)
+    p2 = ime_type_word(1, ime_keys3("a", "6", "1"))
+    ok2 = 0
+    if vi_bits(p2) != -1:
+        ok2 = 1
+    imecheck(acc, "oracle.au.vni", ok2)
+    p3 = ime_type_word(0, ime_keys6("t", "i", "e", "e", "n", "g"))
+    t3 = ime_drop_last(ime_drop_last(p3))
+    ok3 = 0
+    if vi_bits(ime_last_seq(t3)) != -1:
+        ok3 = 1
+    imecheck(acc, "oracle.tieng", ok3)
+    # buffer
+    b = ime_make_buffer(0)
+    b.type_char("a")
+    b.type_char("a")
+    imecheck_s(acc, "buf.aa", b.text, "â")
+    b.backspace()
+    imecheck_s(acc, "buf.bs", b.text, "")
+    b.set_method(1)
+    imecheck_i(acc, "buf.method", b.method, 1)
+    # stubs
+    imecheck_s(acc, "stub.comp", ime_os_get_composition(), "")
+    imecheck_i(acc, "stub.notify", ime_os_notify(), 0)
+    imecheck_i(acc, "stub.present", ime_os_present(), 0)
+    print("ime: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "IME_OK"
+    return "IME_FAIL"
+

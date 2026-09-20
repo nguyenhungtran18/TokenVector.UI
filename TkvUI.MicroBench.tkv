@@ -1,0 +1,64 @@
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text"]
+
+def bench_full_ex() -> "str":
+    line = "the quick brown fox jumps over the lazy dog 0123456789"
+    nlines = 400
+    step = 8.0
+    w = int(340)
+    h = int(3200)
+    surf = PixelSurface(w, h, w)
+    buf = []
+    i = int(0)
+    while i < w * h:
+        buf.append(0)
+        i = i + 1
+    atlas = text_atlas_record(1)
+    abuf = text_atlas_baked_buffer(atlas)
+    white = ColorRgba(255, 255, 255, 255)
+    black = ColorRgba(0, 0, 0, 255)
+    
+    # Benchmark full text_atlas_draw_string_ex (with scratch rebuild per line)
+    scratch = []
+    t0 = text_ticks()
+    reps = 5
+    r = int(0)
+    while r < reps:
+        surface_clear(buf, surf, black)
+        li = int(0)
+        while li < nlines:
+            text_atlas_draw_string_ex(abuf, atlas, buf, surf, line, scratch, 0.0, float(li) * step, white)
+            li = li + 1
+        r = r + 1
+    t1 = text_ticks()
+    return "full_ex_ms=" + str(t1 - t0) + " reps=" + str(reps)
+
+def bench_full_no_clear() -> "str":
+    line = "the quick brown fox jumps over the lazy dog 0123456789"
+    nlines = 400
+    step = 8.0
+    w = int(340)
+    h = int(3200)
+    surf = PixelSurface(w, h, w)
+    buf = []
+    i = int(0)
+    while i < w * h:
+        buf.append(0)
+        i = i + 1
+    atlas = text_atlas_record(1)
+    abuf = text_atlas_baked_buffer(atlas)
+    white = ColorRgba(255, 255, 255, 255)
+    black = ColorRgba(0, 0, 0, 255)
+    
+    # Benchmark text_atlas_draw_string_ex without clear
+    scratch = []
+    t0 = text_ticks()
+    reps = 5
+    r = int(0)
+    while r < reps:
+        li = int(0)
+        while li < nlines:
+            text_atlas_draw_string_ex(abuf, atlas, buf, surf, line, scratch, 0.0, float(li) * step, white)
+            li = li + 1
+        r = r + 1
+    t1 = text_ticks()
+    return "no_clear_ms=" + str(t1 - t0) + " reps=" + str(reps)

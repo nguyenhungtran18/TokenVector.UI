@@ -1,0 +1,24 @@
+== TkvUI.FontFallback selftest ==
+  PASS ascii = 0
+  PASS space = 0
+  PASS control = 3
+  PASS fontname = i18n
+  PASS advance = 6
+  PASS oracle = 1
+  PASS fontname = i18n
+  PASS advance = 6
+  PASS reach.viet+i18n
+  PASS runs.n = 4
+  PASS runs.f0 = 0
+  PASS runs.f1 = 1
+  PASS runs.f2 = 2
+  PASS runs.f3 = 0
+  PASS runs.cover = 6
+  PASS missing.0 = 0
+  PASS has.viet
+  PASS measure = 12.0
+  PASS i18n.bake = 10
+  PASS draw.w = 36.0
+  PASS draw.px
+fallback: 21/21
+FALLBACK_OK

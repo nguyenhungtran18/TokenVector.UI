@@ -1,0 +1,27 @@
+# Benchmark regression — số đo thụt lùi so với baseline trong docs/BENCH.md
+name: Benchmark Regression
+description: A measured benchmark got worse than the documented baseline
+title: "[bench] "
+labels: ["benchmark"]
+body:
+  - type: input
+    id: bench
+    attributes:
+      label: Benchmark
+      description: "VD: 6.2 text render, 6.3 widget creation, CRUD throughput"
+    validations:
+      required: true
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers (old → new, same machine, 3 runs)
+      description: "VD: text 21.8ms → 24.1ms/block (PyQt 14.2ms). Ghi rõ máy + số lần chạy."
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Suspected cause
+      description: Commit/PR nào, rasterizer/model path nào đổi
+    validations:
+      required: false

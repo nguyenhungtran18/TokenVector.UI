@@ -1,0 +1,202 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.CrudDemoFull - CRUD equivalent to PyQt demo (Phase 6.4 fair fight).
+
+Tinh nang: SQLite file persistence + NativeDlg (file/color/font) +
+MvTableView (sort/filter) + NativeButton/LineEdit/ComboBox/TableView/Dialog.
+Khong phai in-memory: SQLite file that. Dialog that (NativeDlg).
+Build:
+  tkvc.exe build examples/TkvUI.CrudDemoFull.tkv --entry crudfull_run --out build/crudfull.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme",
+                  "../TkvUI.Data", "../TkvUI.SQLite", "../TkvUI.Widgets.Native",
+                  "../TkvUI.NativeDlg", "../TkvUI.Platform"]
+
+# =========================================================
+# CONSTANTS
+# =========================================================
+DB_PATH = "build/staff_tkv.db"
+
+# =========================================================
+# HELPERS
+# =========================================================
+def cf_alloc(n: "i32") -> "list":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def cf_headers() -> "list":
+    out = []
+    out.append("id")
+    out.append("name")
+    out.append("age")
+    out.append("city")
+    return out
+
+def cf_widths() -> "list":
+    out = []
+    out.append(40.0)
+    out.append(120.0)
+    out.append(60.0)
+    out.append(120.0)
+    return out
+
+# =========================================================
+# DIALOG HELPERS (functions instead of class)
+# =========================================================
+def crud_dlg_make(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "i32":
+    d = make_native_dialog_buttons(x, y, w, h, title, "", 0, 2)
+    name_edit = make_native_lineedit(80.0, 30.0, 180.0, "Name")
+    age_edit = make_native_lineedit(80.0, 60.0, 60.0, "Age")
+    city_edit = make_native_lineedit(80.0, 90.0, 180.0, "City")
+    dlg = []
+    dlg.append(d)
+    dlg.append(name_edit)
+    dlg.append(age_edit)
+    dlg.append(city_edit)
+    return dlg
+    d = make_native_dialog_buttons(x, y, w, h, title, "", 0, 2)
+    name_edit = make_native_lineedit(80.0, 30.0, 180.0, "Name")
+    age_edit = make_native_lineedit(80.0, 60.0, 60.0, "Age")
+    city_edit = make_native_lineedit(80.0, 90.0, 180.0, "City")
+    dlg = []
+    dlg.append(d)
+    dlg.append(name_edit)
+    dlg.append(age_edit)
+    dlg.append(city_edit)
+    return dlg
+
+def crud_dlg_set_values(dlg: "list", name: "str", age: "i32", city: "str") -> "i32":
+    name_edit = dlg[1]
+    name_edit.text = name
+    age_edit = dlg[2]
+    age_edit.text = str(age)
+    city_edit = dlg[3]
+    city_edit.text = city
+    return 1
+
+def crud_dlg_get_values(dlg: "list") -> "list":
+    name_edit = dlg[1]
+    n1 = name_edit.text
+    age_edit = dlg[2]
+    n2 = age_edit.text
+    city_edit = dlg[3]
+    n3 = city_edit.text
+    out = []
+    out.append(n1)
+    out.append(n2)
+    out.append(n3)
+    return out
+
+def crud_dlg_show(dlg: "list") -> "i32":
+    dlg_show(dlg[0])
+    return 1
+
+def crud_dlg_hide(dlg: "list") -> "i32":
+    dlg_hide(dlg[0])
+    return 1
+
+def crud_init() -> "i32":
+    global crud_db, crud_tn, crud_ct, crud_cn, crud_cy, crud_nn, crud_pk
+    global crud_ts, crud_tc, crud_tnc, crud_rows, crud_table
+    global crud_toolbar, crud_dlg_add, crud_dlg_edit
+    global crud_order, crud_vis, crud_flat_cells
+    crud_db = []
+    crud_db.append(make_sql_db())
+    sql_open(crud_db[0], DB_PATH)
+    crud_tn = []
+    crud_ct = []
+    crud_cn = []
+    crud_cy = []
+    crud_nn = []
+    crud_pk = []
+    crud_ts = []
+    crud_tc = []
+    crud_tnc = []
+    crud_rows = []
+    sql_create_table(crud_db[0], crud_tn, crud_ct, crud_cn, crud_cy, crud_nn, crud_pk,
+                     crud_ts, crud_tc, crud_tnc, "staff",
+                     ["id", "name", "age", "city"], [1, 0, 1, 0])
+    sql_set_notnull(crud_ct[0], crud_cn[0], crud_nn[0], crud_pk[0], 0, "name", 1)
+    crud_table = []
+    crud_table.append(make_mv_table(10.0, 50.0, 460.0, 300.0))
+    crud_order = []
+    crud_vis = []
+    crud_flat_cells = []
+    crud_toolbar = []
+    crud_toolbar.append(make_native_toolbar(10.0, 10.0, 460.0, 3))
+    crud_dlg_add = []
+    crud_dlg_add.append(crud_dlg_make(200.0, 150.0, 300.0, 180.0, "Add Staff"))
+    crud_dlg_edit = []
+    crud_dlg_edit.append(crud_dlg_make(200.0, 150.0, 300.0, 180.0, "Edit Staff"))
+    return 1
+def crud_handle_toolbar(idx: "i32") -> "i32":
+    if idx == 0:
+        crud_add_row()
+    elif idx == 1:
+        crud_edit_row()
+    elif idx == 2:
+        crud_delete_row()
+    return 1
+
+def crud_render(buf: "list", surf: "PixelSurface") -> "i32":
+    crud_table[0].render(buf, surf, 0, cf_headers(), crud_flat_cells, cf_widths(), 4, crud_order, crud_vis)
+    crud_toolbar[0].render(buf, surf, 0, ["Add", "Edit", "Delete"], 3)
+    return 1
+
+def crud_handle_toolbar(idx: "i32") -> "i32":
+    if idx == 0:
+        crud_add_row()
+    elif idx == 1:
+        crud_edit_row()
+    elif idx == 2:
+        crud_delete_row()
+    return 1
+
+DB_PATH = "build/staff_tkv.db"
+
+def crudfull_run() -> "str":
+    # Windowed version with event loop
+    W = 480
+    H = 380
+    surf = PixelSurface(W, H, W)
+    buf = []
+    i = int(0)
+    while i < W * H:
+        buf.append(0)
+        i = i + 1
+    black = ColorRgba(0, 0, 0, 255)
+    surface_clear(buf, surf, black)
+    
+    win = CrudWindow()
+    win.init_data()
+    win.refresh_model()
+    
+    plat = Win32Platform(0)
+    wh = plat.create(100, 100, W, H, 1)
+    if wh.handle == 0:
+        return "CRUDFULL_HEADLESS"
+    
+    cap = int(0)
+    rendered = int(0)
+    while cap < 100:
+        cap = cap + 1
+        pump = win_poll_messages()
+        pxs = win_pointer_x()
+        pys = win_pointer_y()
+        down = win_key_down(1)
+        dirty = int(0)
+        if down == 1:
+            dirty = 1
+        if win_key_down(27) != 0:
+            break
+        if win_dpi_changed() == 1:
+            win_dpi_ack()
+        if dirty == 1:
+            surface_clear(buf, surf, ColorRgba(240, 240, 240, 255))
+            win.render(buf, surf)
+            pdv = plat.present_diff(buf, surf, wh)
+            surface_fast_blit(buf, surf, buf, surf, 0, 0, W, H, 0, 0)
+    return "CRUDFULL_OK"

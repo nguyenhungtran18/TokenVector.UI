@@ -1,0 +1,561 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Viet - Vietnamese bitmap text support (pure 100% TokenVector)
+
+Bang pattern 5x7 cho 134 ky tu Viet precomposed (sinh bang script ngoai repo tu
+base ASCII + overlay dau, da QA art + kiem va cham pairwise): moi glyph la
+mot int 35-bit (7 hang x 5 bit), -1 = la.
+Chuoi tkv index theo byte UTF-8 nen ky tu Viet dai 2-3 don vi; so sanh bang
+byte-day-du van dung (da probe): ghep don vi roi so == literal.
+
+Phu thuoc: Core. Khong vong import (Text/Widgets/Media import Viet).
+"""
+
+__tkv_import__ = ["TkvUI.Core"]
+
+def vi_bits(pair: "str") -> "i64":
+    # Bang pattern font Viet precomputed: 7 hang x 5 bit -> int 35-bit.
+    # Sinh tu tools/vi_gen (ngoai repo): base ASCII + overlay dau. -1 = la.
+    if pair == "À":
+        return 18842895998
+    if pair == "Á":
+        return 18842896175
+    if pair == "Â":
+        return 18842896238
+    if pair == "Ã":
+        return 18842896110
+    if pair == "È":
+        return 33840644703
+    if pair == "É":
+        return 33840644895
+    if pair == "Ê":
+        return 33840644959
+    if pair == "Ì":
+        return 15170932958
+    if pair == "Í":
+        return 15170933135
+    if pair == "Ò":
+        return 15621211774
+    if pair == "Ó":
+        return 15621211951
+    if pair == "Ô":
+        return 15621212014
+    if pair == "Õ":
+        return 15621211886
+    if pair == "Ù":
+        return 15621211761
+    if pair == "Ú":
+        return 15621211953
+    if pair == "Ý":
+        return 4433521457
+    if pair == "à":
+        return 16692328578
+    if pair == "á":
+        return 16692328584
+    if pair == "â":
+        return 16692328772
+    if pair == "ã":
+        return 16692328896
+    if pair == "è":
+        return 15601285250
+    if pair == "é":
+        return 15601285256
+    if pair == "ê":
+        return 15601285444
+    if pair == "ì":
+        return 15170941062
+    if pair == "í":
+        return 15170941068
+    if pair == "ò":
+        return 15621208194
+    if pair == "ó":
+        return 15621208200
+    if pair == "ô":
+        return 15621208388
+    if pair == "õ":
+        return 15621208512
+    if pair == "ù":
+        return 16694953090
+    if pair == "ú":
+        return 16694953096
+    if pair == "ý":
+        return 15082243208
+    if pair == "Ă":
+        return 18842896302
+    if pair == "ă":
+        return 16692328832
+    if pair == "Đ":
+        return 32801539646
+    if pair == "đ":
+        return 16695409697
+    if pair == "Ĩ":
+        return 15170932942
+    if pair == "ĩ":
+        return 15170941380
+    if pair == "Ũ":
+        return 15621211889
+    if pair == "ũ":
+        return 16694953408
+    if pair == "Ơ":
+        return 15621211695
+    if pair == "ơ":
+        return 15621209088
+    if pair == "Ư":
+        return 15621211705
+    if pair == "ư":
+        return 16694952961
+    if pair == "Ạ":
+        return 23137863214
+    if pair == "ạ":
+        return 33872197632
+    if pair == "Ả":
+        return 18842896062
+    if pair == "ả":
+        return 16692328484
+    if pair == "Ấ":
+        return 18842896239
+    if pair == "ấ":
+        return 16692328780
+    if pair == "Ầ":
+        return 18842896254
+    if pair == "ầ":
+        return 16692328902
+    if pair == "Ẩ":
+        return 18842896367
+    if pair == "ẩ":
+        return 16692328804
+    if pair == "Ẫ":
+        return 18842896383
+    if pair == "ẫ":
+        return 16692328900
+    if pair == "Ậ":
+        return 23137863534
+    if pair == "ậ":
+        return 33872197956
+    if pair == "Ắ":
+        return 18842896303
+    if pair == "ắ":
+        return 16692328840
+    if pair == "Ằ":
+        return 18842896318
+    if pair == "ằ":
+        return 16692328834
+    if pair == "Ẳ":
+        return 18842896366
+    if pair == "ẳ":
+        return 16692328868
+    if pair == "Ẵ":
+        return 18842896382
+    if pair == "ẵ":
+        return 16692328904
+    if pair == "Ặ":
+        return 23137863598
+    if pair == "ặ":
+        return 33872198016
+    if pair == "Ẹ":
+        return 33974862367
+    if pair == "ẹ":
+        return 32781154304
+    if pair == "Ẻ":
+        return 33840644767
+    if pair == "ẻ":
+        return 15601285156
+    if pair == "Ẽ":
+        return 33840644831
+    if pair == "ẽ":
+        return 15601285568
+    if pair == "Ế":
+        return 33840653151
+    if pair == "ế":
+        return 15601285452
+    if pair == "Ề":
+        return 33840647007
+    if pair == "ề":
+        return 15601285574
+    if pair == "Ể":
+        return 33840649055
+    if pair == "ể":
+        return 15601285476
+    if pair == "Ễ":
+        return 33840655199
+    if pair == "ễ":
+        return 15601285572
+    if pair == "Ệ":
+        return 33974862687
+    if pair == "ệ":
+        return 32781154628
+    if pair == "Ỉ":
+        return 15170932894
+    if pair == "ỉ":
+        return 15170940964
+    if pair == "Ị":
+        return 32350802062
+    if pair == "ị":
+        return 32350810116
+    if pair == "Ọ":
+        return 32801080878
+    if pair == "ọ":
+        return 32801077248
+    if pair == "Ỏ":
+        return 15621211838
+    if pair == "ỏ":
+        return 15621208100
+    if pair == "Ố":
+        return 15621212015
+    if pair == "ố":
+        return 15621208396
+    if pair == "Ồ":
+        return 15621212030
+    if pair == "ồ":
+        return 15621208518
+    if pair == "Ổ":
+        return 15621212158
+    if pair == "ổ":
+        return 15621208420
+    if pair == "Ỗ":
+        return 15621212143
+    if pair == "ỗ":
+        return 15621208516
+    if pair == "Ộ":
+        return 32801081198
+    if pair == "ộ":
+        return 32801077572
+    if pair == "Ớ":
+        return 15621211967
+    if pair == "ớ":
+        return 15621209224
+    if pair == "Ờ":
+        return 15621211759
+    if pair == "ờ":
+        return 15621209218
+    if pair == "Ở":
+        return 15621211823
+    if pair == "ở":
+        return 15621209124
+    if pair == "Ỡ":
+        return 15621212159
+    if pair == "ỡ":
+        return 15621209536
+    if pair == "Ợ":
+        return 32801080879
+    if pair == "ợ":
+        return 32801078272
+    if pair == "Ụ":
+        return 32801080881
+    if pair == "ụ":
+        return 33874822144
+    if pair == "Ủ":
+        return 15621211829
+    if pair == "ủ":
+        return 16694952996
+    if pair == "Ứ":
+        return 15621211965
+    if pair == "ứ":
+        return 16694953097
+    if pair == "Ừ":
+        return 15621211769
+    if pair == "ừ":
+        return 16694953091
+    if pair == "Ử":
+        return 15621211833
+    if pair == "ử":
+        return 16694952997
+    if pair == "Ữ":
+        return 15621212153
+    if pair == "ữ":
+        return 16694953409
+    if pair == "Ự":
+        return 32801080889
+    if pair == "ự":
+        return 33874822145
+    if pair == "Ỳ":
+        return 4433521265
+    if pair == "ỳ":
+        return 15082243202
+    if pair == "Ỵ":
+        return 21613390385
+    if pair == "ỵ":
+        return 32262112256
+    if pair == "Ỷ":
+        return 4433521333
+    if pair == "ỷ":
+        return 15082243108
+    if pair == "Ỹ":
+        return 4433521393
+    if pair == "ỹ":
+        return 15082243520
+    return -1
+
+def vi_all_pairs() -> "list[str]":
+    # Tra ve danh sach tat ca 134 cap Viet de dung cho atlas bake.
+    out = []
+    out.append("À")
+    out.append("Á")
+    out.append("Â")
+    out.append("Ã")
+    out.append("È")
+    out.append("É")
+    out.append("Ê")
+    out.append("Ì")
+    out.append("Í")
+    out.append("Ò")
+    out.append("Ó")
+    out.append("Ô")
+    out.append("Õ")
+    out.append("Ù")
+    out.append("Ú")
+    out.append("Ý")
+    out.append("à")
+    out.append("á")
+    out.append("â")
+    out.append("ã")
+    out.append("è")
+    out.append("é")
+    out.append("ê")
+    out.append("ì")
+    out.append("í")
+    out.append("ò")
+    out.append("ó")
+    out.append("ô")
+    out.append("õ")
+    out.append("ù")
+    out.append("ú")
+    out.append("ý")
+    out.append("Ă")
+    out.append("ă")
+    out.append("Đ")
+    out.append("đ")
+    out.append("Ĩ")
+    out.append("ĩ")
+    out.append("Ũ")
+    out.append("ũ")
+    out.append("Ơ")
+    out.append("ơ")
+    out.append("Ư")
+    out.append("ư")
+    out.append("Ạ")
+    out.append("ạ")
+    out.append("Ả")
+    out.append("ả")
+    out.append("Ấ")
+    out.append("ấ")
+    out.append("Ầ")
+    out.append("ầ")
+    out.append("Ẩ")
+    out.append("ẩ")
+    out.append("Ậ")
+    out.append("ậ")
+    out.append("Ắ")
+    out.append("ắ")
+    out.append("Ằ")
+    out.append("ằ")
+    out.append("Ẳ")
+    out.append("ẳ")
+    out.append("Ẵ")
+    out.append("ẵ")
+    out.append("Ặ")
+    out.append("ặ")
+    out.append("Ẹ")
+    out.append("ẹ")
+    out.append("Ẻ")
+    out.append("ẻ")
+    out.append("Ẽ")
+    out.append("ẽ")
+    out.append("Ế")
+    out.append("ế")
+    out.append("Ề")
+    out.append("ề")
+    out.append("Ể")
+    out.append("ể")
+    out.append("Ễ")
+    out.append("ễ")
+    out.append("Ệ")
+    out.append("ệ")
+    out.append("Ỉ")
+    out.append("ỉ")
+    out.append("Ị")
+    out.append("ị")
+    out.append("Ọ")
+    out.append("ọ")
+    out.append("Ỏ")
+    out.append("ỏ")
+    out.append("Ố")
+    out.append("ố")
+    out.append("Ồ")
+    out.append("ồ")
+    out.append("Ổ")
+    out.append("ổ")
+    out.append("Ỗ")
+    out.append("ỗ")
+    out.append("Ộ")
+    out.append("ộ")
+    out.append("Ớ")
+    out.append("ớ")
+    out.append("Ờ")
+    out.append("ờ")
+    out.append("Ở")
+    out.append("ở")
+    out.append("Ỡ")
+    out.append("ỡ")
+    out.append("Ợ")
+    out.append("ợ")
+    out.append("Ụ")
+    out.append("ụ")
+    out.append("Ủ")
+    out.append("ủ")
+    out.append("Ứ")
+    out.append("ứ")
+    out.append("Ừ")
+    out.append("ừ")
+    out.append("Ử")
+    out.append("ử")
+    out.append("Ữ")
+    out.append("ữ")
+    out.append("Ự")
+    out.append("ự")
+    out.append("Ỳ")
+    out.append("ỳ")
+    out.append("Ỵ")
+    out.append("ỵ")
+    out.append("Ỷ")
+    out.append("ỷ")
+    out.append("Ỹ")
+    out.append("ỹ")
+    return out
+
+def vi_row_of(bits: "i64", row: "i32") -> "i32":
+    # Giai 1 hang 5-bit tu so 35-bit. Dung // va % (cam bitwise).
+    if row == 0:
+        return int(bits % 32)
+    if row == 1:
+        return int((bits // 32) % 32)
+    if row == 2:
+        return int((bits // 1024) % 32)
+    if row == 3:
+        return int((bits // 32768) % 32)
+    if row == 4:
+        return int((bits // 1048576) % 32)
+    if row == 5:
+        return int((bits // 33554432) % 32)
+    return int((bits // 1073741824) % 32)
+
+def vi_is_ascii(u: "str") -> "i32":
+    # 1 don vi nam trong " ".."~" ? (thay char_code de tranh phu thuoc Text)
+    if u < " ":
+        return 0
+    if u > "~":
+        return 0
+    return 1
+
+def vi_seq_len_at(text: "str", p: "i32", n: "i32") -> "i32":
+    # Do dai sequence bat dau tai p: 1 (ASCII), 2/3 (Viet), 1 (la: tien 1).
+    u = text[p]
+    if vi_is_ascii(u) == 1:
+        return 1
+    if p + 1 < n:
+        p2 = u + text[p + 1]
+        if vi_bits(p2) >= 0:
+            return 2
+    if p + 2 < n:
+        p3 = u + text[p + 1] + text[p + 2]
+        if vi_bits(p3) >= 0:
+            return 3
+    return 1
+
+def vi_strlen(s: "str") -> "i32":
+    # Dem so ky tu (sequence), khong phai so don vi byte.
+    n = len(s)
+    idx = 0
+    cols = 0
+    while idx < n:
+        cols = cols + 1
+        idx = idx + vi_seq_len_at(s, idx, n)
+    return cols
+
+def vi_truncate(s: "str", maxcols: "i32") -> "str":
+    # Cat chuoi theo so cot, khong che doi sequence (thay s[0:k] don vi).
+    if maxcols <= 0:
+        return ""
+    out = ""
+    n = len(s)
+    idx = 0
+    cols = 0
+    while idx < n:
+        if cols >= maxcols:
+            break
+        adv2 = vi_seq_len_at(s, idx, n)
+        out = out + s[idx:idx + adv2]
+        cols = cols + 1
+        idx = idx + adv2
+    return out
+
+def vi_draw_bits(buf: "list[i64]", surf: "PixelSurface", bits: "i64", cx: "i32", cy: "i32", sc: "i32", color: "ColorRgba") -> "i32":
+    # Ve 1 glyph tu so 35-bit (giong vong decode cua draw_string).
+    row = int(0)
+    while row < 7:
+        mask = vi_row_of(bits, row)
+        col = int(0)
+        while col < 5:
+            p = 16
+            if col == 1:
+                p = 8
+            if col == 2:
+                p = 4
+            if col == 3:
+                p = 2
+            if col == 4:
+                p = 1
+            on = 0
+            if mask >= p:
+                tmp = mask
+                if tmp >= 16:
+                    if p == 16:
+                        on = 1
+                    tmp = tmp - 16
+                if tmp >= 8:
+                    if p == 8:
+                        on = 1
+                    tmp = tmp - 8
+                if tmp >= 4:
+                    if p == 4:
+                        on = 1
+                    tmp = tmp - 4
+                if tmp >= 2:
+                    if p == 2:
+                        on = 1
+                    tmp = tmp - 2
+                if tmp >= 1:
+                    if p == 1:
+                        on = 1
+                    tmp = tmp - 1
+                if on == 1:
+                    sy = int(0)
+                    while sy < sc:
+                        sx = int(0)
+                        while sx < sc:
+                            surface_blend_pixel(buf, surf, cx + col * sc + sx, cy + row * sc + sy, color)
+                            sx = sx + 1
+                        sy = sy + 1
+            col = col + 1
+        row = row + 1
+    return 1
+
+def utf8_seq_len(text: "str", p: "i32") -> "i32":
+    # Do dai sequence UTF-8 bat dau tai p (byte->codepoint buoc 1: tach).
+    # Chi dung so sanh 1-don-vi (1v1) + == vi so sanh nhieu-don-vi co F0
+    # bi sai (bang chung probe: "F0F0" >= "F09F.." = 0). Pivot F0/E0 lay
+    # bang ref[0] (index tren bien). ASCII -> 1; F0.. -> 4; E0..EF -> 3;
+    # con lai (C2..DF + byte le) -> 2. Khong bao gio tra 0.
+    u = text[p]
+    if vi_is_ascii(u) == 1:
+        return 1
+    ref4 = "🌍"
+    f0 = ref4[0]
+    ref3 = "ก"
+    e0 = ref3[0]
+    if u == f0:
+        return 4
+    if u >= f0:
+        return 4
+    if u >= e0:
+        return 3
+    return 2

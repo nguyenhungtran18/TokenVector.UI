@@ -1,0 +1,106 @@
+=== TkvUI.Widgets selftest (P7) ===
+  PASS 14 widget ve truoc dialog (painted) (165274)
+  PASS dialog + backdrop doi pixel (171674)
+  PASS spring rest sau 120 frame = 1
+  PASS spring display ~ 72 (int) (72)
+  PASS tween done = 1
+  PASS tween value ~ 100 (100)
+  PASS switch toggle on = 1
+  PASS switch anim ve 1 (x100) (100)
+  PASS slider value ~ 0.5 (x100) (50)
+  PASS textfield len sau 2 ky tu = 2
+  PASS textfield len sau backspace = 1
+  PASS textfield len sau ky tu Viet 3dv = 4
+  PASS textfield strlen Viet = 2
+  PASS textfield backspace xoa ca sequence = 1
+  PASS textfield text sau backspace Viet
+  PASS listview first_visible ban dau = 0
+  listview scroll=900.0 first=50 visible=7/5000
+  PASS virtualization first_visible > 0 (50)
+  PASS virtualization: 5000 - visible_count (4993)
+  PASS tabs hit giua -> tab 1 = 1
+  PASS tabs active sau select = 1
+  PASS navbar hit item 2 = 2
+  PASS dialog hit OK = 0
+  PASS dialog hit Cancel = 1
+  PASS split pane_a.w + pane_b.w = bw = 480
+  PASS invalidate dau tien -> 1 region = 1
+  PASS nam trong vung cu -> van 1 region = 1
+  PASS roi ra ngoai -> 2 region = 2
+  PASS dirty rect bao trum 2 vung (w) (220)
+  PASS ack -> khong con pending = 0
+  scheduler: drawn=14/60 @5ms step, dropped=46, budget=16.666666666666668ms
+  PASS scheduler 300ms @60fps -> 14 frame = 14
+  PASS render loop idle -> 0 CPU (idle hits) (39)
+  PASS focus ban dau o widget 0 = 0
+  PASS widget dau da focused = 1
+  PASS Tab chuyen sang widget 1 = 1
+  PASS widget 0 mat focus = 0
+  PASS widget 1 co focus = 1
+  PASS Shift-Tab quay lai widget 0 = 0
+  PASS Tab x2 den widget cuoi = 2
+  PASS Tab o cuoi wrap ve dau = 0
+  PASS Shift-Tab o dau wrap ve cuoi = 2
+  PASS click (30,250) focus widget 2 = 2
+  PASS hit-test doi focused flag = 1
+  PASS click ngoai -> khong doi focus = -1
+  PASS go vao widget co focus -> text=ab = 2
+  PASS widget khac khong nhan text = 1
+  PASS backspace vao focus -> text=a = 1
+  PASS khong focus -> khong widget nao nhan text = 1
+  PASS ant tag close = 1
+  PASS ant tag closed = 1
+  PASS ant tag body click = 2
+  PASS ant badge label 5 = 1
+  PASS ant badge visible = 1
+  PASS ant badge overflow label 99+
+  PASS ant badge dot visible = 1
+  PASS ant badge zero hidden = 0
+  PASS ant badge zero shown = 1
+  PASS ant avatar render = 1
+  PASS ant alert close = 1
+  PASS ant alert closed = 1
+  PASS ant alert render closed = 0
+  PASS ant alert render open = 1
+  PASS ant pagination total pages = 10
+  PASS ant pagination next = 2
+  PASS ant pagination prev = 1
+  PASS ant pagination clamp high = 10
+  PASS ant pagination clamp low = 1
+  PASS ant pagination prev target = 4
+  PASS ant pagination page target = 5
+  PASS ant pagination render = 1
+  PASS ant steps titles = 3
+  PASS ant steps descs = 3
+  PASS ant steps state finish = 1
+  PASS ant steps state process = 2
+  PASS ant steps state wait = 0
+  PASS ant steps state error = 3
+  PASS ant steps hit middle = 1
+  PASS ant steps set current = 2
+  PASS ant steps render = 1
+  PASS ant table headers = 2
+  PASS ant table cells = 4
+  PASS ant table widths (180)
+  PASS ant table select = 1
+  PASS ant table activate = 1
+  PASS ant table miss = -1
+  PASS ant table render = 1
+  PASS ant select options = 3
+  PASS ant select toggle open = -2
+  PASS ant select open = 1
+  PASS ant select pick banana = 1
+  PASS ant select selected = 1
+  PASS ant select render = 1
+  PASS ant rate hit star 3 = 3
+  PASS ant rate click star 3 = 3
+  PASS ant rate clamp high = 5
+  PASS ant rate clamp low = 0
+  PASS ant rate render = 1
+  PASS ant spin angle (180)
+  PASS ant spin render = 1
+  PASS ant widgets painted (57955)
+  PASS pump 1 frame due = 1
+  PASS pump het due = 0
+--- widgets selftest: 101/101 PASS ---
+WIDGETS_OK

@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.A11yDemo - demo Phase 4: screen reader doc tree model.
+
+Headless: dung UI (button/edit/list), build cay bridge, di focus walk,
+raise events, dump JSON ra file. Build:
+  tkvc.exe build examples/TkvUI.A11yDemo.tkv --entry abdemo_run --out build/abdemo.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Text", "../TkvUI.Platform", "../TkvUI.A11y", "../TkvUI.Widgets.Native", "../TkvUI.A11yBridge"]
+
+def abdemo_items() -> "list[str]":
+    out = []
+    out.append("An")
+    out.append("Binh")
+    out.append("Chi")
+    return out
+
+def abdemo_new_lists(ids: "list[i32]") -> "i32":
+    return len(ids)
+
+def abdemo_run() -> "str":
+    print("== A11yDemo: screen-reader tree walk ==")
+    br = ab_make_bridge()
+    be = ab_pick_backend()
+    br.connect(be)
+    rd = ab_detect_reader()
+    br.set_reader(rd, ab_reader_confidence(rd))
+    print("backend=" + ab_backend_name(be) + " reader=" + ab_reader_name(rd))
+    # --- dung UI ---
+    b = make_native_button(10.0, 10.0, 90.0, 24.0, "Save")
+    e = make_native_lineedit(110.0, 10.0, 150.0, "Name")
+    e.type_char("A")
+    lv = make_native_listview(10.0, 40.0, 150.0, 80.0, 3)
+    # --- build cay ---
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    ens = []
+    fcs = []
+    sls = []
+    cks = []
+    root = ab_add_window(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, "Demo", 400.0, 300.0)
+    nb = ab_add_button(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, b, root)
+    ne = ab_add_lineedit(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, e, root)
+    ab_add_listview(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, lv, abdemo_items(), 3, root)
+    n = abdemo_new_lists(ids)
+    print("nodes=" + str(n))
+    # --- focus walk + events ---
+    masks = []
+    i = int(0)
+    while i < n:
+        masks.append(ab_state_mask(1 - ens[i], fcs[i], sls[i], cks[i], 0, 0, 0))
+        i = i + 1
+    fids = []
+    ab_focusables(ids, masks, fids)
+    cur = ab_focus_next(fids, -1)
+    kinds = []
+    targets = []
+    datas = []
+    br.raise_focus(kinds, targets, datas, cur)
+    cur = ab_focus_next(fids, cur)
+    br.raise_focus(kinds, targets, datas, cur)
+    br.raise_value(kinds, targets, datas, ne, "A")
+    ab_announce_text(datas, "Form loaded")
+    # --- providers day cay ---
+    uia = ab_make_uia()
+    tree = ab_tree_json_safe(ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, be)
+    uia.push_tree(tree)
+    at = ab_make_atspi()
+    at.connect("abdemo")
+    at.push_tree(tree)
+    # --- dump ---
+    path = "build/abdemo_tree.json"
+    nbytes = ab_dump_tree(path, ids, roles, parents, labels, values, xs, ys, ws, hs, ens, fcs, sls, cks, be)
+    exists = tkv_has_file(path)
+    print("events=" + str(len(kinds)) + " bytes=" + str(nbytes) + " exists=" + str(exists))
+    ok = 1
+    if n != 7:
+        ok = 0
+    if len(kinds) != 3:
+        ok = 0
+    if exists != 1:
+        ok = 0
+    if uia.pushed != 1:
+        ok = 0
+    if at.pushed != 1:
+        ok = 0
+    if ok == 1:
+        print("ABDEMO_OK")
+        return "ABDEMO_OK"
+    print("ABDEMO_FAIL")
+    return "ABDEMO_FAIL"
+
+def ab_announce_text(datas: "list[str]", text: "str") -> "i32":
+    # Ghi nhan live-region (xen vao data log de demo don gian)
+    datas.append(text)
+    return len(datas)

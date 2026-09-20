@@ -1,0 +1,1126 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Printing - in/phat hanh PDF + PrintDialog stub + PrintPreview (Phase 3).
+
+Phu thuoc: Core, Graphics, Text, Theme, Data. DAG: Printing <- Data.
+PDF writer thuan .tkv (ASCII-only, font Base14 Helvetica — khong embed TTF
+o MVP vi can binary stream; xem pdf_font_embed stub). Ghi file qua extern
+System.IO.File.WriteAllText (ten moi pdf_file_write, merge-safe).
+
+Quy uoc: du lieu (pages, ops) do CALLER giu trong list; record chi field
+phang; nhan ASCII; sanitize text ve ASCII de xref offset chinh xac byte.
+
+Tien to pdf_*/Pdf* va print_*/Print* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Theme", "TkvUI.Data"]
+__tkv_extern_method__ = [{"name": "pdf_file_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"}, {"name": "pdf_file_read", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"}]
+
+# Paper kind (tai lieu; than method dung literal so)
+PDF_PAPER_A4 = 0
+PDF_PAPER_A5 = 1
+PDF_PAPER_LETTER = 2
+PDF_PAPER_LEGAL = 3
+PDF_PAPER_A3 = 4
+PDF_PAPER_CUSTOM = 5
+
+# Orientation
+PDF_PORTRAIT = 0
+PDF_LANDSCAPE = 1
+
+# Font ids (Base14)
+PDF_FONT_HELVETICA = 0
+PDF_FONT_HELVETICA_BOLD = 1
+PDF_FONT_TIMES = 2
+PDF_FONT_TIMES_BOLD = 3
+PDF_FONT_COURIER = 4
+
+# =========================================================
+# PdfPaper - kich thuoc diem (1/72 inch)
+# =========================================================
+class PdfPaper:
+    w: "f64"
+    h: "f64"
+    kind: "i32"
+    def __init__(self, w, h, kind):
+        self.w = w
+        self.h = h
+        self.kind = kind
+    def landscape(self) -> "PdfPaper":
+        return PdfPaper(self.h, self.w, self.kind)
+    def oriented(self, orient: "i32") -> "PdfPaper":
+        if orient == 1:
+            if self.w < self.h:
+                return PdfPaper(self.h, self.w, self.kind)
+            return PdfPaper(self.w, self.h, self.kind)
+        if self.w > self.h:
+            return PdfPaper(self.h, self.w, self.kind)
+        return PdfPaper(self.w, self.h, self.kind)
+
+def pdf_paper_a4() -> "PdfPaper":
+    return PdfPaper(595.0, 842.0, 0)
+
+def pdf_paper_a5() -> "PdfPaper":
+    return PdfPaper(420.0, 595.0, 1)
+
+def pdf_paper_letter() -> "PdfPaper":
+    return PdfPaper(612.0, 792.0, 2)
+
+def pdf_paper_legal() -> "PdfPaper":
+    return PdfPaper(612.0, 1008.0, 3)
+
+def pdf_paper_a3() -> "PdfPaper":
+    return PdfPaper(842.0, 1191.0, 4)
+
+def pdf_paper_custom(w: "f64", h: "f64") -> "PdfPaper":
+    return PdfPaper(w, h, 5)
+
+def pdf_paper_for_kind(kind: "i32") -> "PdfPaper":
+    if kind == 1:
+        return pdf_paper_a5()
+    if kind == 2:
+        return pdf_paper_letter()
+    if kind == 3:
+        return pdf_paper_legal()
+    if kind == 4:
+        return pdf_paper_a3()
+    return pdf_paper_a4()
+
+# =========================================================
+# PdfMargins - le trang (diem)
+# =========================================================
+class PdfMargins:
+    left: "f64"
+    top: "f64"
+    right: "f64"
+    bottom: "f64"
+    def __init__(self, left, top, right, bottom):
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+    def printable_w(self, paper: "PdfPaper") -> "f64":
+        return paper.w - self.left - self.right
+    def printable_h(self, paper: "PdfPaper") -> "f64":
+        return paper.h - self.top - self.bottom
+
+def pdf_margins_normal() -> "PdfMargins":
+    return PdfMargins(72.0, 72.0, 72.0, 72.0)
+
+def pdf_margins_narrow() -> "PdfMargins":
+    return PdfMargins(36.0, 36.0, 36.0, 36.0)
+
+def pdf_margins_wide() -> "PdfMargins":
+    return PdfMargins(108.0, 108.0, 108.0, 108.0)
+
+# =========================================================
+# PdfPrinter - QPrinter equivalent
+# =========================================================
+class PdfPrinter:
+    paper_kind: "i32"
+    orient: "i32"
+    mleft: "f64"
+    mtop: "f64"
+    mright: "f64"
+    mbottom: "f64"
+    copies: "i32"
+    color_mode: "i32"
+    dpi: "i32"
+    custom_w: "f64"
+    custom_h: "f64"
+    def __init__(self, paper_kind, orient, mleft, mtop, mright, mbottom, copies, color_mode, dpi, custom_w, custom_h):
+        self.paper_kind = paper_kind
+        self.orient = orient
+        self.mleft = mleft
+        self.mtop = mtop
+        self.mright = mright
+        self.mbottom = mbottom
+        self.copies = copies
+        self.color_mode = color_mode
+        self.dpi = dpi
+        self.custom_w = custom_w
+        self.custom_h = custom_h
+    def paper(self) -> "PdfPaper":
+        if self.paper_kind == 5:
+            p = pdf_paper_custom(self.custom_w, self.custom_h)
+            return p.oriented(self.orient)
+        p = pdf_paper_for_kind(self.paper_kind)
+        return p.oriented(self.orient)
+    def set_orientation(self, o: "i32") -> "i32":
+        if o == 1:
+            self.orient = 1
+        else:
+            self.orient = 0
+        return self.orient
+    def set_copies(self, c: "i32") -> "i32":
+        if c < 1:
+            c = 1
+        if c > 99:
+            c = 99
+        self.copies = c
+        return self.copies
+    def printable_w(self) -> "f64":
+        p = self.paper()
+        return p.w - self.mleft - self.mright
+    def printable_h(self) -> "f64":
+        p = self.paper()
+        return p.h - self.mtop - self.mbottom
+    def origin_x(self) -> "f64":
+        return self.mleft
+    def origin_y(self) -> "f64":
+        return self.mtop
+    def rows_per_page(self, row_h: "f64", header_h: "f64") -> "i32":
+        avail = self.printable_h() - header_h
+        if row_h <= 0.0:
+            return 1
+        n = int(avail / row_h)
+        if n < 1:
+            n = 1
+        return n
+    def page_count(self, nrows: "i32", row_h: "f64", header_h: "f64") -> "i32":
+        per = self.rows_per_page(row_h, header_h)
+        if per <= 0:
+            return 1
+        n = (nrows + per - 1) // per
+        if n < 1:
+            n = 1
+        return n
+
+def pdf_make_printer() -> "PdfPrinter":
+    return PdfPrinter(0, 0, 72.0, 72.0, 72.0, 72.0, 1, 1, 300, 595.0, 842.0)
+
+def pdf_mm_to_pt(mm: "f64") -> "f64":
+    return mm * 72.0 / 25.4
+
+def pdf_pt_to_mm(pt: "f64") -> "f64":
+    return pt * 25.4 / 72.0
+
+def pdf_inch_to_pt(x: "f64") -> "f64":
+    return x * 72.0
+
+# =========================================================
+# PdfFont - Base14 (+ stub embed TTF)
+# =========================================================
+class PdfFont:
+    face: "i32"
+    size: "f64"
+    res: "str"
+    def __init__(self, face, size, res):
+        self.face = face
+        self.size = size
+        self.res = res
+    def base_name(self) -> "str":
+        if self.face == 1:
+            return "Helvetica-Bold"
+        if self.face == 2:
+            return "Times-Roman"
+        if self.face == 3:
+            return "Times-Bold"
+        if self.face == 4:
+            return "Courier"
+        return "Helvetica"
+    def with_size(self, s: "f64") -> "PdfFont":
+        if s < 4.0:
+            s = 4.0
+        if s > 144.0:
+            s = 144.0
+        return PdfFont(self.face, s, self.res)
+
+def pdf_font_helvetica(size: "f64") -> "PdfFont":
+    return PdfFont(0, size, "F1")
+
+def pdf_font_bold(size: "f64") -> "PdfFont":
+    return PdfFont(1, size, "F2")
+
+def pdf_font_times(size: "f64") -> "PdfFont":
+    return PdfFont(2, size, "F1")
+
+def pdf_font_courier(size: "f64") -> "PdfFont":
+    return PdfFont(4, size, "F1")
+
+def pdf_text_width(text: "str", size: "f64") -> "f64":
+    # Xap xi Helvetica ~0.55em moi don vi (du layout cot/trang)
+    return float(len(text)) * size * 0.55
+
+def pdf_text_width_mono(text: "str", size: "f64") -> "f64":
+    return float(len(text)) * size * 0.6
+
+def pdf_font_embed(face: "i32") -> "i32":
+    # Stub: embed TTF can binary stream + subset (cho tkvc ho tro byte array).
+    # MVP dung Base14 nen khong can embed. Tra 0 = chua embed.
+    if face == 0:
+        return 0
+    return 0
+
+def pdf_line_height(size: "f64") -> "f64":
+    return size * 1.2
+
+# =========================================================
+# TEXT SANITIZE/ESCAPE - ASCII-only cho xref offset chinh xac
+# =========================================================
+def pdf_sanitize(text: "str") -> "str":
+    # Giua lai 32..126, con lai -> "?" (dam bao len == bytes UTF-8)
+    out = ""
+    i = int(0)
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch < " ":
+            out = out + "?"
+        else:
+            if ch > "~":
+                out = out + "?"
+            else:
+                out = out + ch
+        i = i + 1
+    return out
+
+def pdf_escape(text: "str") -> "str":
+    s = pdf_sanitize(text)
+    out = ""
+    i = int(0)
+    while i < len(s):
+        ch = s[i]
+        if ch == "(":
+            out = out + "\\("
+        else:
+            if ch == ")":
+                out = out + "\\)"
+            else:
+                if ch == "\\":
+                    out = out + "\\\\"
+                else:
+                    out = out + ch
+        i = i + 1
+    return out
+
+def pdf_num(x: "f64") -> "str":
+    return str(x)
+
+# =========================================================
+# PdfPainter - content stream ops (caller giu list ops)
+# =========================================================
+class PdfPainter:
+    size: "f64"
+    res: "str"
+    r: "f64"
+    g: "f64"
+    b: "f64"
+    line_w: "f64"
+    page_h: "f64"
+    def __init__(self, size, res, r, g, b, line_w, page_h):
+        self.size = size
+        self.res = res
+        self.r = r
+        self.g = g
+        self.b = b
+        self.line_w = line_w
+        self.page_h = page_h
+    def set_font(self, f: "PdfFont") -> "i32":
+        self.size = f.size
+        self.res = f.res
+        return 1
+    def set_rgb(self, r: "f64", g: "f64", b: "f64") -> "i32":
+        self.r = r
+        self.g = g
+        self.b = b
+        return 1
+    def set_gray(self, v: "f64") -> "i32":
+        self.r = v
+        self.g = v
+        self.b = v
+        return 1
+    def set_line_w(self, w: "f64") -> "i32":
+        self.line_w = w
+        return self.line_w
+    def flip_y(self, y: "f64") -> "f64":
+        # Doi top-left (UI) -> bottom-left (PDF)
+        return self.page_h - y
+
+def pdf_make_painter(page_h: "f64") -> "PdfPainter":
+    return PdfPainter(12.0, "F1", 0.0, 0.0, 0.0, 1.0, page_h)
+
+def pdf_op_save(ops: "list[str]") -> "i32":
+    ops.append("q")
+    return len(ops)
+
+def pdf_op_restore(ops: "list[str]") -> "i32":
+    ops.append("Q")
+    return len(ops)
+
+def pdf_op_stroke_rgb(ops: "list[str]", r: "f64", g: "f64", b: "f64") -> "i32":
+    ops.append(pdf_num(r) + " " + pdf_num(g) + " " + pdf_num(b) + " RG")
+    return len(ops)
+
+def pdf_op_fill_rgb(ops: "list[str]", r: "f64", g: "f64", b: "f64") -> "i32":
+    ops.append(pdf_num(r) + " " + pdf_num(g) + " " + pdf_num(b) + " rg")
+    return len(ops)
+
+def pdf_op_line_w(ops: "list[str]", w: "f64") -> "i32":
+    ops.append(pdf_num(w) + " w")
+    return len(ops)
+
+def pdf_op_line(ops: "list[str]", p: "PdfPainter", x0: "f64", y0: "f64", x1: "f64", y1: "f64") -> "i32":
+    pdf_op_stroke_rgb(ops, p.r, p.g, p.b)
+    pdf_op_line_w(ops, p.line_w)
+    ops.append(pdf_num(x0) + " " + pdf_num(p.flip_y(y0)) + " m")
+    ops.append(pdf_num(x1) + " " + pdf_num(p.flip_y(y1)) + " l")
+    ops.append("S")
+    return len(ops)
+
+def pdf_op_rect(ops: "list[str]", p: "PdfPainter", x: "f64", y: "f64", w: "f64", h: "f64", fill: "i32") -> "i32":
+    # y = top-left; fill 1 = fill, 0 = stroke, 2 = fill+stroke
+    yb = p.flip_y(y + h)
+    if fill == 1:
+        pdf_op_fill_rgb(ops, p.r, p.g, p.b)
+        ops.append(pdf_num(x) + " " + pdf_num(yb) + " " + pdf_num(w) + " " + pdf_num(h) + " re")
+        ops.append("f")
+    else:
+        if fill == 2:
+            pdf_op_fill_rgb(ops, p.r, p.g, p.b)
+            pdf_op_stroke_rgb(ops, p.r, p.g, p.b)
+            pdf_op_line_w(ops, p.line_w)
+            ops.append(pdf_num(x) + " " + pdf_num(yb) + " " + pdf_num(w) + " " + pdf_num(h) + " re")
+            ops.append("B")
+        else:
+            pdf_op_stroke_rgb(ops, p.r, p.g, p.b)
+            pdf_op_line_w(ops, p.line_w)
+            ops.append(pdf_num(x) + " " + pdf_num(yb) + " " + pdf_num(w) + " " + pdf_num(h) + " re")
+            ops.append("S")
+    return len(ops)
+
+def pdf_op_text(ops: "list[str]", p: "PdfPainter", x: "f64", y: "f64", text: "str") -> "i32":
+    ops.append("BT")
+    ops.append("/" + p.res + " " + pdf_num(p.size) + " Tf")
+    ops.append(pdf_num(p.r) + " " + pdf_num(p.g) + " " + pdf_num(p.b) + " rg")
+    ops.append(pdf_num(x) + " " + pdf_num(p.flip_y(y)) + " Td")
+    ops.append("(" + pdf_escape(text) + ") Tj")
+    ops.append("ET")
+    return len(ops)
+
+def pdf_op_text_center(ops: "list[str]", p: "PdfPainter", cx: "f64", y: "f64", text: "str") -> "i32":
+    w = pdf_text_width(pdf_sanitize(text), p.size)
+    return pdf_op_text(ops, p, cx - w / 2.0, y, text)
+
+def pdf_op_text_right(ops: "list[str]", p: "PdfPainter", rx: "f64", y: "f64", text: "str") -> "i32":
+    w = pdf_text_width(pdf_sanitize(text), p.size)
+    return pdf_op_text(ops, p, rx - w, y, text)
+
+def pdf_op_placeholder(ops: "list[str]", p: "PdfPainter", x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "i32":
+    # Khung anh (raster embed can binary — MVP ve placeholder + nhan)
+    pdf_op_rect(ops, p, x, y, w, h, 0)
+    pdf_op_line(ops, p, x, y, x + w, y + h)
+    pdf_op_line(ops, p, x + w, y, x, y + h)
+    pdf_op_text(ops, p, x + 4.0, y + h / 2.0, label)
+    return len(ops)
+
+def pdf_ops_join(ops: "list[str]") -> "str":
+    out = ""
+    i = int(0)
+    while i < len(ops):
+        out = out + ops[i] + "\n"
+        i = i + 1
+    return out
+
+# =========================================================
+# PdfDocument - lap rap objects + xref + trailer
+# =========================================================
+class PdfDocument:
+    title: "str"
+    author: "str"
+    npages: "i32"
+    next_id: "i32"
+    def __init__(self, title, author, npages, next_id):
+        self.title = title
+        self.author = author
+        self.npages = npages
+        self.next_id = next_id
+    def alloc_id(self) -> "i32":
+        cur = self.next_id
+        self.next_id = self.next_id + 1
+        return cur
+
+def pdf_make_doc(title: "str", author: "str") -> "PdfDocument":
+    return PdfDocument(title, author, 0, 1)
+
+def pdf_add_page(doc: "PdfDocument", pages: "list[str]", content: "str") -> "i32":
+    pages.append(content)
+    doc.npages = doc.npages + 1
+    return doc.npages - 1
+
+def pdf_pad10(n: "i32") -> "str":
+    s = str(n)
+    while len(s) < 10:
+        s = "0" + s
+    return s
+
+def pdf_font_obj(face: "i32") -> "str":
+    name = "Helvetica"
+    if face == 1:
+        name = "Helvetica-Bold"
+    if face == 2:
+        name = "Times-Roman"
+    if face == 3:
+        name = "Times-Bold"
+    if face == 4:
+        name = "Courier"
+    return "<< /Type /Font /Subtype /Type1 /BaseFont /" + name + " >>"
+
+def pdf_build(doc: "PdfDocument", pages: "list[str]", paper: "PdfPaper") -> "str":
+    # IDs: 1 catalog, 2 pages, 3 info, 4 F1, 5 F2, sau do page/content xen ke
+    f1 = 4
+    f2 = 5
+    # Cat page objects + content objects
+    page_ids = []
+    cont_ids = []
+    nxt = 6
+    i = int(0)
+    while i < doc.npages:
+        page_ids.append(nxt)
+        cont_ids.append(nxt + 1)
+        nxt = nxt + 2
+        i = i + 1
+    kids = ""
+    i = int(0)
+    while i < doc.npages:
+        kids = kids + str(page_ids[i]) + " 0 R "
+        i = i + 1
+    out = "%PDF-1.4\n"
+    offs = []
+    offs.append(0)
+    # 1 catalog
+    offs.append(len(out))
+    out = out + "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    # 2 pages
+    offs.append(len(out))
+    out = out + "2 0 obj\n<< /Type /Pages /Kids [" + kids + "] /Count " + str(doc.npages) + " >>\nendobj\n"
+    # 3 info
+    offs.append(len(out))
+    out = out + "3 0 obj\n<< /Title (" + pdf_escape(doc.title) + ") /Author (" + pdf_escape(doc.author) + ") /Producer (TokenVector.UI) >>\nendobj\n"
+    # 4/5 fonts
+    offs.append(len(out))
+    out = out + "4 0 obj\n" + pdf_font_obj(0) + "\nendobj\n"
+    offs.append(len(out))
+    out = out + "5 0 obj\n" + pdf_font_obj(1) + "\nendobj\n"
+    # pages + contents
+    i = int(0)
+    while i < doc.npages:
+        body = pages[i] + "\n"
+        offs.append(len(out))
+        out = out + str(page_ids[i]) + " 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + pdf_num(paper.w) + " " + pdf_num(paper.h) + "] /Contents " + str(cont_ids[i]) + " 0 R /Resources << /Font << /F1 " + str(f1) + " 0 R /F2 " + str(f2) + " 0 R >> >> >>\nendobj\n"
+        offs.append(len(out))
+        out = out + str(cont_ids[i]) + " 0 obj\n<< /Length " + str(len(body)) + " >>\nstream\n" + body + "endstream\nendobj\n"
+        i = i + 1
+    total = nxt - 1
+    xref_pos = len(out)
+    out = out + "xref\n0 " + str(total + 1) + "\n"
+    out = out + "0000000000 65535 f \n"
+    k = int(1)
+    while k <= total:
+        out = out + pdf_pad10(offs[k]) + " 00000 n \n"
+        k = k + 1
+    out = out + "trailer\n<< /Size " + str(total + 1) + " /Root 1 0 R /Info 3 0 R >>\n"
+    out = out + "startxref\n" + str(xref_pos) + "\n%%EOF\n"
+    return out
+
+def pdf_save(doc: "PdfDocument", pages: "list[str]", paper: "PdfPaper", path: "str") -> "i32":
+    data = pdf_build(doc, pages, paper)
+    pdf_file_write(path, data)
+    return len(data)
+
+def pdf_load_head(path: "str", n: "i32") -> "str":
+    data = pdf_file_read(path)
+    if len(data) < n:
+        return data
+    return data[0:n]
+
+# =========================================================
+# TABLE EXPORT - TableView/Data -> phan trang PDF
+# =========================================================
+def pdf_export_table(printer: "PdfPrinter", doc: "PdfDocument", pages: "list[str]", title: "str", headers: "list[str]", cells: "list[str]", widths: "list[f64]", ncols: "i32") -> "i32":
+    paper = printer.paper()
+    pw = printer.printable_w()
+    ox = printer.origin_x()
+    oy = printer.origin_y()
+    nrows = mv_row_count(cells, ncols)
+    header_h = 18.0
+    row_h = 15.0
+    per = printer.rows_per_page(row_h, header_h + 30.0)
+    npages = printer.page_count(nrows, row_h, header_h + 30.0)
+    # Cot rong: scale widths vua printable_w, thieu -> chia deu
+    cw = []
+    tot = 0.0
+    i = int(0)
+    while i < ncols:
+        w = pw / float(ncols)
+        if i < len(widths):
+            if widths[i] > 0.0:
+                w = widths[i]
+        cw.append(w)
+        tot = tot + w
+        i = i + 1
+    if tot > 0.0:
+        i = int(0)
+        while i < ncols:
+            cw[i] = cw[i] * pw / tot
+            i = i + 1
+    pg = int(0)
+    while pg < npages:
+        ops = []
+        p = pdf_make_painter(paper.h)
+        f_title = pdf_font_bold(14.0)
+        p.set_font(f_title)
+        p.set_rgb(0.0, 0.0, 0.0)
+        pdf_op_text(ops, p, ox, oy, title)
+        pdf_op_text_right(ops, p, ox + pw, oy, "Page " + str(pg + 1) + "/" + str(npages))
+        y = oy + 24.0
+        # Header row
+        f_head = pdf_font_bold(10.0)
+        p.set_font(f_head)
+        x = ox
+        j = int(0)
+        while j < ncols:
+            p.set_gray(0.88)
+            pdf_op_rect(ops, p, x, y, cw[j], header_h, 1)
+            p.set_rgb(0.0, 0.0, 0.0)
+            pdf_op_rect(ops, p, x, y, cw[j], header_h, 0)
+            if j < len(headers):
+                pdf_op_text(ops, p, x + 3.0, y + 4.0, headers[j])
+            x = x + cw[j]
+            j = j + 1
+        y = y + header_h
+        # Rows
+        f_body = PdfFont(0, 9.0, "F1")
+        p.set_font(f_body)
+        r0 = pg * per
+        r = int(0)
+        while r < per:
+            row = r0 + r
+            if row < nrows:
+                if (row - (row // 2) * 2) == 1:
+                    p.set_gray(0.95)
+                    pdf_op_rect(ops, p, ox, y, pw, row_h, 1)
+                p.set_rgb(0.0, 0.0, 0.0)
+                x = ox
+                j = int(0)
+                while j < ncols:
+                    pdf_op_rect(ops, p, x, y, cw[j], row_h, 0)
+                    pdf_op_text(ops, p, x + 3.0, y + 3.0, mv_cell_get(cells, ncols, row, j))
+                    x = x + cw[j]
+                    j = j + 1
+                y = y + row_h
+            r = r + 1
+        # Footer line + so trang
+        p.set_gray(0.5)
+        pdf_op_line(ops, p, ox, paper.h - printer.mbottom + 12.0, ox + pw, paper.h - printer.mbottom + 12.0)
+        pdf_add_page(doc, pages, pdf_ops_join(ops))
+        pg = pg + 1
+    return npages
+
+# =========================================================
+# PrintDialog - stub (Win32 PrintDlg can struct/out-buffer)
+# =========================================================
+class PrintDialog:
+    copies: "i32"
+    page_from: "i32"
+    page_to: "i32"
+    collate: "i32"
+    accepted: "i32"
+    color_mode: "i32"
+    def __init__(self, copies, page_from, page_to, collate, accepted, color_mode):
+        self.copies = copies
+        self.page_from = page_from
+        self.page_to = page_to
+        self.collate = collate
+        self.accepted = accepted
+        self.color_mode = color_mode
+    def set_range(self, lo: "i32", hi: "i32") -> "i32":
+        if lo < 1:
+            lo = 1
+        if hi < lo:
+            hi = lo
+        self.page_from = lo
+        self.page_to = hi
+        return hi - lo + 1
+    def exec_stub(self, accept: "i32") -> "i32":
+        # MVP: host/Win32 dialog that (PrintDlgW can out-struct). accept=1 mo phong OK.
+        if accept == 1:
+            self.accepted = 1
+        else:
+            self.accepted = 0
+        return self.accepted
+    def apply(self, printer: "PdfPrinter") -> "i32":
+        if self.accepted == 0:
+            return 0
+        printer.set_copies(self.copies)
+        return 1
+
+def print_make_dialog() -> "PrintDialog":
+    return PrintDialog(1, 1, 1, 1, 0, 1)
+
+def print_dialog_native() -> "i32":
+    # Tra 0 = chua co native (can upstream: struct TH AT + out-buffer).
+    return 0
+
+# =========================================================
+# PrintPreview - widget xem truoc cac trang
+# =========================================================
+class PrintPreview:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    page: "i32"
+    npages: "i32"
+    zoom: "f64"
+    scroll: "f64"
+    def __init__(self, bx, by, bw, bh, page, npages, zoom, scroll):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.page = page
+        self.npages = npages
+        self.zoom = zoom
+        self.scroll = scroll
+    def set_pages(self, n: "i32") -> "i32":
+        if n < 1:
+            n = 1
+        self.npages = n
+        if self.page >= n:
+            self.page = n - 1
+        return self.npages
+    def next_page(self) -> "i32":
+        if self.page + 1 < self.npages:
+            self.page = self.page + 1
+        return self.page
+    def prev_page(self) -> "i32":
+        if self.page > 0:
+            self.page = self.page - 1
+        return self.page
+    def goto(self, pg: "i32") -> "i32":
+        if pg < 0:
+            pg = 0
+        if pg >= self.npages:
+            pg = self.npages - 1
+        self.page = pg
+        return self.page
+    def zoom_in(self) -> "f64":
+        self.zoom = self.zoom + 0.25
+        if self.zoom > 3.0:
+            self.zoom = 3.0
+        return self.zoom
+    def zoom_out(self) -> "f64":
+        self.zoom = self.zoom - 0.25
+        if self.zoom < 0.25:
+            self.zoom = 0.25
+        return self.zoom
+    def page_rect(self, paper: "PdfPaper") -> "Rect2D":
+        # Ti le vua khung preview (giu aspect A4)
+        s = self.bw / paper.w
+        sh = (self.bh - 30.0) / paper.h
+        if sh < s:
+            s = sh
+        s = s * self.zoom
+        w = paper.w * s
+        h = paper.h * s
+        x = self.bx + (self.bw - w) / 2.0
+        return Rect2D(x, self.by + 24.0 - self.scroll, w, h)
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", paper: "PdfPaper", title: "str") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_state_color(pal, 7, 0))
+        bar = "Page " + str(self.page + 1) + "/" + str(self.npages)
+        draw_string(buf, surf, bar, self.bx + 8.0, self.by + 8.0, 1.0, os_role_color(pal, 1))
+        pr = self.page_rect(paper)
+        fill_round_rect(buf, surf, pr, 0.0, ColorRgba(255, 255, 255, 255))
+        stroke_round_rect(buf, surf, pr, 0.0, 1.0, os_separator_color(pal))
+        draw_string(buf, surf, title, pr.x + 8.0, pr.y + 10.0, 1.0, ColorRgba(0, 0, 0, 255))
+        # Mini text lines mo phong noi dung
+        y = pr.y + 26.0
+        ln = int(0)
+        while ln < 8:
+            yy = y + float(ln) * 8.0
+            if yy < pr.y + pr.h - 8.0:
+                draw_line(buf, surf, pr.x + 8.0, yy, pr.x + pr.w - 8.0, yy, 1.0, ColorRgba(170, 170, 170, 255))
+            ln = ln + 1
+        return 1
+
+def print_make_preview(x: "f64", y: "f64", w: "f64", h: "f64") -> "PrintPreview":
+    return PrintPreview(x, y, w, h, 0, 1, 1.0, 0.0)
+
+# =========================================================
+# PAINTER PATHS - polyline / circle / clip
+# =========================================================
+def pdf_op_poly(ops: "list[str]", p: "PdfPainter", xs: "list[f64]", ys: "list[f64]", n: "i32", closed: "i32", fill: "i32") -> "i32":
+    if n < 2:
+        return len(ops)
+    if len(xs) < n:
+        return len(ops)
+    if len(ys) < n:
+        return len(ops)
+    pdf_op_stroke_rgb(ops, p.r, p.g, p.b)
+    pdf_op_fill_rgb(ops, p.r, p.g, p.b)
+    pdf_op_line_w(ops, p.line_w)
+    ops.append(pdf_num(xs[0]) + " " + pdf_num(p.flip_y(ys[0])) + " m")
+    i = int(1)
+    while i < n:
+        ops.append(pdf_num(xs[i]) + " " + pdf_num(p.flip_y(ys[i])) + " l")
+        i = i + 1
+    if closed == 1:
+        ops.append("h")
+    if fill == 1:
+        ops.append("f")
+    else:
+        if fill == 2:
+            ops.append("B")
+        else:
+            ops.append("S")
+    return len(ops)
+
+def pdf_op_circle(ops: "list[str]", p: "PdfPainter", cx: "f64", cy: "f64", rad: "f64", fill: "i32") -> "i32":
+    # Tron bang 4 cung Bezier (k = 0.5523)
+    k = rad * 0.5523
+    yb = p.flip_y(cy)
+    pdf_op_stroke_rgb(ops, p.r, p.g, p.b)
+    pdf_op_fill_rgb(ops, p.r, p.g, p.b)
+    pdf_op_line_w(ops, p.line_w)
+    ops.append(pdf_num(cx + rad) + " " + pdf_num(yb) + " m")
+    ops.append(pdf_num(cx + rad) + " " + pdf_num(yb + k) + " " + pdf_num(cx + k) + " " + pdf_num(yb + rad) + " " + pdf_num(cx) + " " + pdf_num(yb + rad) + " c")
+    ops.append(pdf_num(cx - k) + " " + pdf_num(yb + rad) + " " + pdf_num(cx - rad) + " " + pdf_num(yb + k) + " " + pdf_num(cx - rad) + " " + pdf_num(yb) + " c")
+    ops.append(pdf_num(cx - rad) + " " + pdf_num(yb - k) + " " + pdf_num(cx - k) + " " + pdf_num(yb - rad) + " " + pdf_num(cx) + " " + pdf_num(yb - rad) + " c")
+    ops.append(pdf_num(cx + k) + " " + pdf_num(yb - rad) + " " + pdf_num(cx + rad) + " " + pdf_num(yb - k) + " " + pdf_num(cx + rad) + " " + pdf_num(yb) + " c")
+    if fill == 1:
+        ops.append("f")
+    else:
+        if fill == 2:
+            ops.append("B")
+        else:
+            ops.append("S")
+    return len(ops)
+
+def pdf_op_clip_rect(ops: "list[str]", p: "PdfPainter", x: "f64", y: "f64", w: "f64", h: "f64") -> "i32":
+    yb = p.flip_y(y + h)
+    ops.append(pdf_num(x) + " " + pdf_num(yb) + " " + pdf_num(w) + " " + pdf_num(h) + " re")
+    ops.append("W")
+    ops.append("n")
+    return len(ops)
+
+# =========================================================
+# FONT METRICS - ascent/descent/width factor theo face
+# =========================================================
+def pdf_face_factor(face: "i32") -> "f64":
+    if face == 4:
+        return 0.6
+    if face == 2:
+        return 0.52
+    if face == 3:
+        return 0.55
+    if face == 1:
+        return 0.58
+    return 0.55
+
+def pdf_face_ascent(face: "i32") -> "f64":
+    if face == 4:
+        return 0.62
+    return 0.72
+
+def pdf_face_descent(face: "i32") -> "f64":
+    return 0.21
+
+def pdf_text_width_face(text: "str", size: "f64", face: "i32") -> "f64":
+    return float(len(pdf_sanitize(text))) * size * pdf_face_factor(face)
+
+def pdf_font_box(f: "PdfFont", text: "str") -> "f64":
+    # Chieu cao hop text (ascent+descent) theo size
+    h = f.size * (pdf_face_ascent(f.face) + pdf_face_descent(f.face))
+    return h
+
+def pdf_fit_size(text: "str", face: "i32", max_w: "f64", start: "f64") -> "f64":
+    # Giam co chu den khi vua max_w (buoc 0.5pt)
+    s = start
+    while s > 4.0:
+        if pdf_text_width_face(text, s, face) <= max_w:
+            break
+        s = s - 0.5
+    return s
+
+# =========================================================
+# TABLE AUTO-WIDTH - do cot theo noi dung
+# =========================================================
+def pdf_col_autowidth(headers: "list[str]", cells: "list[str]", ncols: "i32", size: "f64", max_total: "f64", out_w: "list[f64]") -> "f64":
+    nrows = mv_row_count(cells, ncols)
+    tot = 0.0
+    j = int(0)
+    while j < ncols:
+        best = 0.0
+        if j < len(headers):
+            best = pdf_text_width(headers[j], size) + 8.0
+        r = int(0)
+        while r < nrows:
+            w = pdf_text_width(mv_cell_get(cells, ncols, r, j), size) + 8.0
+            if w > best:
+                best = w
+            r = r + 1
+        out_w.append(best)
+        tot = tot + best
+        j = j + 1
+    if tot > max_total:
+        if tot > 0.0:
+            j = int(0)
+            while j < ncols:
+                out_w[j] = out_w[j] * max_total / tot
+                j = j + 1
+            tot = max_total
+    return tot
+
+# =========================================================
+# PRINTER EXTRAS - duplex / summary
+# =========================================================
+def pdf_printer_summary(printer: "PdfPrinter") -> "str":
+    p = printer.paper()
+    ori = "portrait"
+    if printer.orient == 1:
+        ori = "landscape"
+    return "paper=" + str(int(p.w)) + "x" + str(int(p.h)) + " " + ori + " copies=" + str(printer.copies) + " dpi=" + str(printer.dpi)
+
+def pdf_page_order(npages: "i32", reverse: "i32", out_seq: "list[i32]") -> "i32":
+    i = int(0)
+    while i < npages:
+        if reverse == 1:
+            out_seq.append(npages - 1 - i)
+        else:
+            out_seq.append(i)
+        i = i + 1
+    return len(out_seq)
+
+# =========================================================
+# PREVIEW OVERVIEW - luoi thumbnail + margin overlay
+# =========================================================
+def pdf_preview_cols(npages: "i32", max_cols: "i32") -> "i32":
+    if npages < max_cols:
+        return npages
+    return max_cols
+
+def pdf_preview_rows(npages: "i32", cols: "i32") -> "i32":
+    if cols <= 0:
+        return 1
+    return (npages + cols - 1) // cols
+
+def print_preview_thumb(pv: "PrintPreview", idx: "i32", cols: "i32", tw: "f64", th: "f64", gap: "f64") -> "Rect2D":
+    col = idx - (idx // cols) * cols
+    row = idx // cols
+    x = pv.bx + 8.0 + float(col) * (tw + gap)
+    y = pv.by + 30.0 + float(row) * (th + gap) - pv.scroll
+    return Rect2D(x, y, tw, th)
+
+def print_preview_overview(buf: "list[i64]", surf: "PixelSurface", mode: "i32", pv: "PrintPreview", paper: "PdfPaper", cols: "i32") -> "i32":
+    pal = os_palette_for_mode(mode)
+    r = Rect2D(pv.bx, pv.by, pv.bw, pv.bh)
+    fill_round_rect(buf, surf, r, 2.0, os_state_color(pal, 7, 0))
+    s = 60.0 / paper.w
+    tw = paper.w * s
+    th = paper.h * s
+    gap = 10.0
+    i = int(0)
+    while i < pv.npages:
+        tr = print_preview_thumb(pv, i, cols, tw, th, gap)
+        if tr.y + th > pv.by + 24.0:
+            if tr.y < pv.by + pv.bh:
+                fill_round_rect(buf, surf, tr, 0.0, ColorRgba(255, 255, 255, 255))
+                if i == pv.page:
+                    stroke_round_rect(buf, surf, tr, 0.0, 2.0, os_role_color(pal, 11))
+                else:
+                    stroke_round_rect(buf, surf, tr, 0.0, 1.0, os_separator_color(pal))
+                draw_string(buf, surf, str(i + 1), tr.x + 4.0, tr.y + 4.0, 1.0, ColorRgba(0, 0, 0, 255))
+        i = i + 1
+    return pv.npages
+
+def print_preview_margins(buf: "list[i64]", surf: "PixelSurface", page: "Rect2D", paper: "PdfPaper", printer: "PdfPrinter") -> "i32":
+    # Ve khung printable area len thumbnail trang
+    sx = page.w / paper.w
+    mr = Rect2D(page.x + printer.mleft * sx, page.y + printer.mtop * sx, printer.printable_w() * sx, printer.printable_h() * sx)
+    stroke_round_rect(buf, surf, mr, 0.0, 1.0, ColorRgba(0, 102, 204, 255))
+    return 1
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def pdfcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def pdfcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def pdfcheck_f(acc: "list[i32]", name: "str", got: "f64", want: "f64", tol: "f64") -> "i32":
+    d = got - want
+    if d < 0.0:
+        d = 0.0 - d
+    acc[1] = acc[1] + 1
+    if d <= tol:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def pdfcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def pdf_seed_cells(n: "i32") -> "list[str]":
+    out = []
+    i = int(0)
+    while i < n:
+        out.append("Row" + str(i))
+        out.append(str(20 + i))
+        i = i + 1
+    return out
+
+def printing_selftest() -> "str":
+    print("== TkvUI.Printing selftest ==")
+    acc = [int(0), int(0)]
+    # paper
+    a4 = pdf_paper_a4()
+    pdfcheck_f(acc, "a4.w", a4.w, 595.0, 0.001)
+    pdfcheck_f(acc, "a4.h", a4.h, 842.0, 0.001)
+    land = a4.oriented(1)
+    pdfcheck_f(acc, "landscape", land.w, 842.0, 0.001)
+    pdfcheck_f(acc, "mm2pt", pdf_mm_to_pt(25.4), 72.0, 0.001)
+    # printer
+    pr = pdf_make_printer()
+    pdfcheck_f(acc, "printable.w", pr.printable_w(), 451.0, 0.001)
+    pdfcheck_f(acc, "printable.h", pr.printable_h(), 698.0, 0.001)
+    pdfcheck_i(acc, "rows.per.page", pr.rows_per_page(15.0, 48.0), 43)
+    pdfcheck_i(acc, "page.count", pr.page_count(100, 15.0, 48.0), 3)
+    pr.set_orientation(1)
+    pdfcheck_f(acc, "orient.w", pr.printable_w(), 698.0, 0.001)
+    pr.set_orientation(0)
+    # font
+    fb = pdf_font_bold(12.0)
+    pdfcheck_s(acc, "font.name", fb.base_name(), "Helvetica-Bold")
+    pdfcheck_f(acc, "font.width", pdf_text_width("Hello", 10.0), 27.5, 0.001)
+    pdfcheck_i(acc, "font.embed", pdf_font_embed(0), 0)
+    # sanitize/escape
+    pdfcheck_s(acc, "sanitize", pdf_sanitize("a(b)c\\d"), "a(b)c\\d")
+    pdfcheck_s(acc, "escape", pdf_escape("a(b)"), "a\\(b\\)")
+    # painter ops
+    ops = []
+    p = pdf_make_painter(842.0)
+    pdf_op_text(ops, p, 72.0, 72.0, "Hi")
+    pdfcheck_i(acc, "ops.n", len(ops), 6)
+    pdfcheck_s(acc, "ops.tj", ops[4], "(Hi) Tj")
+    pdf_op_rect(ops, p, 10.0, 10.0, 50.0, 20.0, 1)
+    pdfcheck_s(acc, "ops.fill", ops[len(ops) - 1], "f")
+    # document build
+    doc = pdf_make_doc("Report", "TkvUI")
+    pages = []
+    c1 = pdf_ops_join(ops)
+    pdf_add_page(doc, pages, c1)
+    pdf_add_page(doc, pages, c1)
+    pdfcheck_i(acc, "doc.pages", doc.npages, 2)
+    data = pdf_build(doc, pages, a4)
+    pdfcheck_s(acc, "pdf.header", data[0:8], "%PDF-1.4")
+    tail = data[len(data) - 6:len(data)]
+    pdfcheck_s(acc, "pdf.eof", tail, "%%EOF\n")
+    pdfcheck(acc, "pdf.xref", mv_contains(data, "xref"))
+    pdfcheck(acc, "pdf.startxref", mv_contains(data, "startxref"))
+    pdfcheck_i(acc, "pdf.pad10", len(pdf_pad10(42)), 10)
+    # table export 55 rows -> 2 pages (43 per page)
+    doc2 = pdf_make_doc("Staff", "TkvUI")
+    pages2 = []
+    heads = []
+    heads.append("Name")
+    heads.append("Age")
+    widths = []
+    widths.append(200.0)
+    widths.append(100.0)
+    npg = pdf_export_table(pr, doc2, pages2, "Staff list", heads, pdf_seed_cells(55), widths, 2)
+    pdfcheck_i(acc, "export.pages", npg, 2)
+    pdfcheck_i(acc, "export.stored", len(pages2), 2)
+    # dialog stub
+    dlg = print_make_dialog()
+    dlg.set_range(1, 3)
+    pdfcheck_i(acc, "dlg.exec", dlg.exec_stub(1), 1)
+    pdfcheck_i(acc, "dlg.apply", dlg.apply(pr), 1)
+    pdfcheck_i(acc, "dlg.native", print_dialog_native(), 0)
+    # preview
+    pv = print_make_preview(0.0, 0.0, 300.0, 400.0)
+    pv.set_pages(npg)
+    pv.next_page()
+    pdfcheck_i(acc, "preview.page", pv.page, 1)
+    pv.next_page()
+    pdfcheck_i(acc, "preview.clamp", pv.page, 1)
+    pv.zoom_in()
+    pdfcheck_f(acc, "preview.zoom", pv.zoom, 1.25, 0.001)
+    r = pv.page_rect(a4)
+    ok_rect = 0
+    if r.w > 10.0:
+        ok_rect = 1
+    pdfcheck(acc, "preview.rect", ok_rect)
+    # file roundtrip
+    path = "build/tkvui_print_selftest.pdf"
+    nbytes = pdf_save(doc2, pages2, a4, path)
+    ok_size = 0
+    if nbytes > 2000:
+        ok_size = 1
+    pdfcheck(acc, "file.size", ok_size)
+    head = pdf_load_head(path, 8)
+    pdfcheck_s(acc, "file.header", head, "%PDF-1.4")
+    # paths
+    ops2 = []
+    p2 = pdf_make_painter(842.0)
+    xs = []
+    xs.append(0.0)
+    xs.append(50.0)
+    xs.append(50.0)
+    ys = []
+    ys.append(0.0)
+    ys.append(0.0)
+    ys.append(50.0)
+    pdf_op_poly(ops2, p2, xs, ys, 3, 1, 0)
+    pdfcheck_s(acc, "poly.close", ops2[len(ops2) - 2], "h")
+    pdfcheck_s(acc, "poly.stroke", ops2[len(ops2) - 1], "S")
+    pdf_op_circle(ops2, p2, 100.0, 100.0, 20.0, 1)
+    pdfcheck_s(acc, "circle.fill", ops2[len(ops2) - 1], "f")
+    pdf_op_clip_rect(ops2, p2, 0.0, 0.0, 200.0, 200.0)
+    pdfcheck_s(acc, "clip", ops2[len(ops2) - 2], "W")
+    # font metrics
+    pdfcheck_f(acc, "face.factor", pdf_face_factor(4), 0.6, 0.001)
+    pdfcheck_f(acc, "face.box", pdf_font_box(fb, "Hi"), 12.0 * 0.93, 0.01)
+    pdfcheck_f(acc, "fit.size", pdf_fit_size("Hello world text", 0, 40.0, 12.0), 4.5, 0.6)
+    # autowidth
+    aw = []
+    totw = pdf_col_autowidth(heads, pdf_seed_cells(55), 2, 9.0, 451.0, aw)
+    pdfcheck_i(acc, "autowidth.n", len(aw), 2)
+    ok_tot = 0
+    if totw > 0.0:
+        if totw <= 451.0:
+            ok_tot = 1
+    pdfcheck(acc, "autowidth.tot", ok_tot)
+    # printer extras + overview
+    pdfcheck_s(acc, "summary", pdf_printer_summary(pr), "paper=595x842 portrait copies=1 dpi=300")
+    seq = []
+    pdf_page_order(3, 1, seq)
+    pdfcheck_i(acc, "order.rev", seq[0], 2)
+    pdfcheck_i(acc, "ov.cols", pdf_preview_cols(7, 4), 4)
+    pdfcheck_i(acc, "ov.rows", pdf_preview_rows(7, 4), 2)
+    print("printing: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "PRINTING_OK"
+    return "PRINTING_FAIL"

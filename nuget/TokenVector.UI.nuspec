@@ -10,11 +10,11 @@
     <license type="expression">MIT</license>
     <projectUrl>https://github.com/nguyenhungtran18/TokenVector</projectUrl>
     <readme>README.md</readme>
-    <description>TokenVector.UI (TkvUI) - Thu vien UI da nen tang 100% TokenVector (.tkv), zero dependency: software rasterizer, bitmap font, effects (Kawase blur/glass), flex/grid layout, 15 widget + Spring animation, cua so native Win32 (UpdateLayeredWindow). Danh cho tkvc.exe (TokenVector compiler).</description>
-    <summary>UI library for the TokenVector compiler: rasterizer, layout, widgets, native windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
-    <releaseNotes>2.2.0: glyph atlas cho tat ca 9 module (271 check), detect_platform() probe runtime that, iOS/Android gate theo platform (het crash DllNotFoundException), sua bug ghi de bo nho IOSPlatform.present, umbrella co main() chay ca suite, them tools/package.sh + docs/INTEGRATION.md.</releaseNotes>
+    <description>TokenVector.UI (TkvUI) - Thu vien UI da nen tang 100% TokenVector (.tkv), zero dependency: software rasterizer, bitmap font + TTF parser (verified), effects (Kawase blur/glass), flex/grid layout, 28 widget + 10 media-player widget + Spring animation, cua so native Win32 (UpdateLayeredWindow), WinForms interop. Danh cho tkvc.exe (TokenVector compiler).</description>
+    <summary>UI library for the TokenVector compiler: rasterizer, layout, widgets, media-player UI, native windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
+    <releaseNotes>2.3.1: module media-player TkvUI.Media (10 widget, 80 check), TTF parser/rasterizer verified (110 check text, sua 4 bug), WinForms interop that window/app-level (34 check platform), Ant-inspired widgets (95 check widgets), bilinear half-res upsample. Suite: 444 check PASS.</releaseNotes>
     <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
-    <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform</tags>
+    <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform media-player ttf winforms</tags>
     <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
   </metadata>
   <files>
@@ -33,6 +33,8 @@
     <file src="TkvUI.Input.tkv" target="tkv\TkvUI.Input.tkv" />
     <file src="TkvUI.Layout.tkv" target="tkv\TkvUI.Layout.tkv" />
     <file src="TkvUI.Widgets.tkv" target="tkv\TkvUI.Widgets.tkv" />
+    <file src="TkvUI.Media.tkv" target="tkv\TkvUI.Media.tkv" />
+    <file src="TkvUI.Font.tkv" target="tkv\TkvUI.Font.tkv" />
     <!-- Tools + docs + examples -->
     <file src="build\nupkgstage\TokenVector.UI.dll" target="runtimes\any\native\TokenVector.UI.dll" />
     <file src="tools\verify.sh" target="tools\verify.sh" />

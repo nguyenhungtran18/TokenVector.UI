@@ -1,0 +1,21 @@
+# Purity check — Rule #0 (CONTRIBUTING.md): library paths are pure .tkv only.
+name: Purity Check
+description: A pure-TokenVector violation in library paths
+title: "[purity] "
+labels: ["purity"]
+body:
+  - type: textarea
+    id: violation
+    attributes:
+      label: Violation
+      description: File + line violating Rule #0 (non-.tkv code in TkvUI.*.tkv, examples/*.tkv, or unguarded native call)
+      placeholder: "examples/TkvUI.Foo.tkv:123 imports ctypes (non-tkv)"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Build log, verify output, or probe result proving the violation
+    validations:
+      required: true

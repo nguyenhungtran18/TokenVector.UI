@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.BrowserDemo - render scene ra base64 RGBA cho <canvas> (Phase 7.3).
+
+Scene 160x90: nen + button + progress theo frame + thanh truot + title.
+`browser_frame(frame)` tra base64 RGBA (ImageData-ready); host Blazor goi qua
+JS interop moi animation frame. `browser_run` selftest noi bo.
+Build:
+  tkvc.exe build examples/TkvUI.BrowserDemo.tkv --entry browser_run --out build/browserdemo.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Widgets.Native"]
+
+def browser_w() -> "i32":
+    return 160
+
+def browser_h() -> "i32":
+    return 90
+
+def browser_info() -> "str":
+    return "160x90 rgba32 base64"
+
+def b64_char(v: "i32") -> "str":
+    tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    if v < 0:
+        return "A"
+    if v > 63:
+        return "A"
+    return tbl[v]
+
+def b64_enc3(b0: "i32", b1: "i32", b2: "i32") -> "str":
+    return b64_char(b0 // 4) + b64_char((b0 - (b0 // 4) * 4) * 16 + b1 // 16) + b64_char((b1 - (b1 // 16) * 16) * 4 + b2 // 64) + b64_char(b2 - (b2 // 64) * 64)
+
+def b64_enc2(b0: "i32", b1: "i32") -> "str":
+    return b64_char(b0 // 4) + b64_char((b0 - (b0 // 4) * 4) * 16 + b1 // 16) + b64_char((b1 - (b1 // 16) * 16) * 4) + "="
+
+def b64_enc1(b0: "i32") -> "str":
+    return b64_char(b0 // 4) + b64_char((b0 - (b0 // 4) * 4) * 16) + "=="
+
+def browser_bytes(buf: "list[i64]", n: "i32", out: "list[i32]") -> "i32":
+    # Pixel ARGB packed -> bytes RGBA (canvas ImageData order)
+    i = int(0)
+    while i < n:
+        px = buf[i]
+        out.append((px // 65536) - ((px // 16777216) * 256))
+        out.append((px // 256) - ((px // 65536) * 256))
+        out.append(px - ((px // 256) * 256))
+        out.append((px // 16777216) - ((px // 4294967296) * 256))
+        i = i + 1
+    return len(out)
+
+def browser_b64(raw: "list[i32]") -> "str":
+    out = ""
+    i = int(0)
+    n = len(raw)
+    while i + 3 <= n:
+        out = out + b64_enc3(raw[i], raw[i + 1], raw[i + 2])
+        i = i + 3
+    rem = n - i
+    if rem == 1:
+        out = out + b64_enc1(raw[i])
+    else:
+        if rem == 2:
+            out = out + b64_enc2(raw[i], raw[i + 1])
+    return out
+
+def browser_paint(buf: "list[i64]", surf: "PixelSurface", frame: "i32") -> "i32":
+    bg = ColorRgba(30, 30, 38, 255)
+    surface_clear(buf, surf, bg)
+    pal = os_palette_for_mode(0)
+    bar = Rect2D(0.0, 0.0, 160.0, 22.0)
+    fill_round_rect(buf, surf, bar, 0.0, os_role_color(pal, 7))
+    draw_string(buf, surf, "TkvUI browser", 6.0, 7.0, 1.0, os_role_color(pal, 1))
+    b = make_native_button(8.0, 30.0, 70.0, 20.0, "Go")
+    b.set_hover((frame // 30) - ((frame // 30) // 2) * 2)
+    b.render(buf, surf, 0)
+    pr = make_native_progress(8.0, 56.0, 144.0)
+    pr.set_value(float((frame * 7) - ((frame * 7) // 100) * 100))
+    pr.render(buf, surf, 0)
+    mx = float((frame * 5) - ((frame * 5) // 120) * 120)
+    mr = Rect2D(8.0 + mx, 76.0, 32.0, 8.0)
+    fill_round_rect(buf, surf, mr, 2.0, os_role_color(pal, 11))
+    return frame
+
+def browser_frame(frame: "i32") -> "str":
+    w = browser_w()
+    h = browser_h()
+    surf = PixelSurface(w, h, w)
+    buf = []
+    i = int(0)
+    n = w * h
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    browser_paint(buf, surf, frame)
+    raw = []
+    browser_bytes(buf, n, raw)
+    return browser_b64(raw)
+
+def browser_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def browser_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def browser_check_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def browser_run() -> "str":
+    print("== TkvUI.BrowserDemo selftest ==")
+    acc = [int(0), int(0)]
+    browser_check_s(acc, "info", browser_info(), "160x90 rgba32 base64")
+    browser_check_s(acc, "enc3", b64_enc3(30, 30, 38), "Hh4m")
+    browser_check_s(acc, "enc2", b64_enc2(255, 255), "//8=")
+    browser_check_s(acc, "enc1", b64_enc1(0), "AA==")
+    f0 = browser_frame(0)
+    browser_check_i(acc, "len", len(f0), 76800)
+    browser_check_s(acc, "first", f0[0:1], "5")
+    f1 = browser_frame(1)
+    diff = 0
+    if f0 != f1:
+        diff = 1
+    browser_check(acc, "anim.diff", diff)
+    f60 = browser_frame(60)
+    diff2 = 0
+    if f0 != f60:
+        diff2 = 1
+    browser_check(acc, "anim.diff60", diff2)
+    print("browser: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "BROWSER_OK"
+    return "BROWSER_FAIL"

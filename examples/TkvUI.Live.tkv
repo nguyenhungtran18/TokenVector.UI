@@ -435,6 +435,14 @@ def run_live() -> "str":
     msg_frames = int(0)
     while cap < 600:
         cap = cap + 1
+        # P8.3: WM_DPICHANGED watch (TRUOC pump - pump drain dai 523..32767).
+        # Phat hien + log + ack; rescale scene la follow-up (can layout pass).
+        dchg = win_dpi_changed()
+        if dchg == 1:
+            dscale = win_window_dpi_scale(wh.handle)
+            print("[live] WM_DPICHANGED scale=" + str(dscale))
+            had_input = 1
+            dack = win_dpi_ack()
         pump = win_poll_messages()
         if pump > 0:
             msg_frames = msg_frames + 1

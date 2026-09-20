@@ -1,0 +1,62 @@
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text"]
+
+def micro_bench() -> "str":
+    line = "the quick brown fox jumps over the lazy dog 0123456789"
+    nlines = 400
+    step = 8.0
+    w = int(340)
+    h = int(3200)
+    surf = PixelSurface(w, h, w)
+    buf = []
+    i = int(0)
+    while i < w * h:
+        buf.append(0)
+        i = i + 1
+    atlas = text_atlas_record(1)
+    abuf = text_atlas_baked_buffer(atlas)
+    white = ColorRgba(255, 255, 255, 255)
+    black = ColorRgba(0, 0, 0, 255)
+    
+    # Benchmark ONLY the blit (no surface_clear)
+    scratch = []
+    t0 = text_ticks()
+    r = int(0)
+    reps = 5
+    while r < reps:
+        li = int(0)
+        while li < nlines:
+            text_atlas_draw_string_ex(abuf, atlas, buf, surf, line, scratch, 0.0, float(li) * step, white)
+            li = li + 1
+        r = r + 1
+    t1 = text_ticks()
+    blit_ms = t1 - t0
+    
+    # Benchmark surface_clear
+    t0 = text_ticks()
+    r = int(0)
+    while r < reps:
+        surface_clear(buf, surf, black)
+        r = r + 1
+    t1 = text_ticks()
+    clear_ms = t1 - t0
+    
+    return "blit_ms=" + str(blit_ms) + " clear_ms=" + str(clear_ms) + " lines=" + str(nlines * reps)
+
+def bench_clear_only() -> "str":
+    w = int(340)
+    h = int(3200)
+    surf = PixelSurface(w, h, w)
+    buf = []
+    i = int(0)
+    while i < w * h:
+        buf.append(0)
+        i = i + 1
+    black = ColorRgba(0, 0, 0, 255)
+    t0 = text_ticks()
+    r = int(0)
+    reps = 100
+    while r < reps:
+        surface_clear(buf, surf, black)
+        r = r + 1
+    t1 = text_ticks()
+    return "clear_100x=" + str(t1 - t0) + "ms"

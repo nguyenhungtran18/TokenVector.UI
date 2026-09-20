@@ -1,0 +1,360 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Font - Font that qua GDI (P3.1):
+- GDI (CreateFontA + TextOutA) ve glyph vao DIB section, GetPixel doc pixel
+  -> bake vao 1 font atlas buffer (alpha coverage 0..255) DUNG 1 LAN luc init.
+- font_measure: advance width that qua GetTextExtentPoint32A.
+- font_draw_string: blend glyph tu atlas vao tkv buffer (hot path khong GDI).
+- Headless (khong co GDI) -> font_create tra ok=0, caller fallback 5x7.
+
+Import: TkvUI.Core (ColorRgba, PixelSurface, surface_blend_pixel).
+"""
+
+__tkv_import__ = ["TkvUI.Core"]
+
+__tkv_extern_pinvoke__ = [
+  {"name": "fnt_get_dc", "dll": "user32.dll", "symbol": "GetDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"},
+  {"name": "fnt_release_dc", "dll": "user32.dll", "symbol": "ReleaseDC", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"},
+  {"name": "fnt_compat_dc", "dll": "gdi32.dll", "symbol": "CreateCompatibleDC", "convention": "stdcall", "params": ["i64"], "returns": "i64"},
+  {"name": "fnt_delete_dc", "dll": "gdi32.dll", "symbol": "DeleteDC", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+  {"name": "fnt_create_font", "dll": "gdi32.dll", "symbol": "CreateFontA", "convention": "stdcall", "params": ["i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "str"], "returns": "i64"},
+  {"name": "fnt_delete_obj", "dll": "gdi32.dll", "symbol": "DeleteObject", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+  {"name": "fnt_select", "dll": "gdi32.dll", "symbol": "SelectObject", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i64"},
+  {"name": "fnt_text_out", "dll": "gdi32.dll", "symbol": "TextOutA", "convention": "stdcall", "params": ["i64", "i32", "i32", "str", "i32"], "returns": "i32"},
+  {"name": "fnt_get_pixel", "dll": "gdi32.dll", "symbol": "GetPixel", "convention": "stdcall", "params": ["i64", "i32", "i32"], "returns": "i32"},
+  {"name": "fnt_create_dib", "dll": "gdi32.dll", "symbol": "CreateDIBSection", "convention": "stdcall", "params": ["i64", "i64", "i32", "i64", "i64", "i32"], "returns": "i64"},
+  {"name": "fnt_set_bk_mode", "dll": "gdi32.dll", "symbol": "SetBkMode", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"},
+  {"name": "fnt_set_text_color", "dll": "gdi32.dll", "symbol": "SetTextColor", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"},
+  {"name": "fnt_set_bk_color", "dll": "gdi32.dll", "symbol": "SetBkColor", "convention": "stdcall", "params": ["i64", "i32"], "returns": "i32"},
+  {"name": "fnt_alloc", "dll": "kernel32.dll", "symbol": "VirtualAlloc", "convention": "stdcall", "params": ["i64", "i64", "i32", "i32"], "returns": "i64"},
+  {"name": "fnt_free", "dll": "kernel32.dll", "symbol": "VirtualFree", "convention": "stdcall", "params": ["i64", "i64", "i32"], "returns": "i32"},
+  {"name": "fnt_sprintf", "dll": "user32.dll", "symbol": "wsprintfA", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32"], "returns": "i32"},
+  {"name": "fnt_get_tm", "dll": "gdi32.dll", "symbol": "GetTextMetricsA", "convention": "stdcall", "params": ["i64", "i64"], "returns": "i32"},
+  {"name": "fnt_text_extent", "dll": "gdi32.dll", "symbol": "GetTextExtentPoint32A", "convention": "stdcall", "params": ["i64", "str", "i32", "i64"], "returns": "i32"}
+]
+
+# =========================================================
+# CONFIG (literal so trong than method - rang buoc module constant)
+# =========================================================
+# Cell 32x40, font 24px Arial, atlas 12 cot x 8 hang = 96 o cho 95 ky tu.
+# Y: DIB bottom-up -> TextOut(y) tinh tu DIA ROI, GetPixel(y) cung tu duoi.
+
+def font_charset() -> "str":
+    return " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+def font_cell_w() -> "i32":
+    return 32
+
+def font_cell_h() -> "i32":
+    return 40
+
+def font_font_px() -> "i32":
+    return 24
+
+def font_cols() -> "i32":
+    return 12
+
+def font_atlas_w() -> "i32":
+    return 12 * 32
+
+def font_atlas_h() -> "i32":
+    return 8 * 40
+
+def font_rows_needed() -> "i32":
+    return 8
+
+class FontHandle:
+    ok: "i32"
+    cell_w: "i32"
+    cell_h: "i32"
+    ascent: "i32"
+    atlas_w: "i32"
+    atlas_h: "i32"
+    def __init__(self, ok, cell_w, cell_h, ascent, atlas_w, atlas_h):
+        self.ok = ok
+        self.cell_w = cell_w
+        self.cell_h = cell_h
+        self.ascent = ascent
+        self.atlas_w = atlas_w
+        self.atlas_h = atlas_h
+
+def font_build_dib_info(w: "i32", h: "i32") -> "i64":
+    # BITMAPINFOHEADER 40 byte LE (pinvoke sprintf khai 5 tham so: dst,fmt,a,b,c)
+    mem = fnt_alloc(0, 64, 12288, 4)
+    rc = fnt_sprintf(mem, "%c%c%c", 40, 0, 0)
+    rc = fnt_sprintf(mem + 4, "%c%c%c", w % 256, (w // 256) % 256, 0)
+    rc = fnt_sprintf(mem + 8, "%c%c%c", h % 256, (h // 256) % 256, 0)
+    rc = fnt_sprintf(mem + 12, "%c%c%c", 1, 0, 0)
+    rc = fnt_sprintf(mem + 14, "%c%c%c", 32, 0, 0)
+    return mem
+
+def font_create(font_name: "str", atlas: "list[i64]") -> "FontHandle":
+    # Bake 95 glyph qua GDI vao atlas (list tkv, alpha coverage kenh R).
+    # atlas phai co >= atlas_w*atlas_h phan tu. Tra ok=0 neu khong co GDI.
+    aw = 12 * 32
+    ah = 8 * 40
+    need = aw * ah
+    n = len(atlas)
+    if n < need:
+        return FontHandle(0, 32, 40, 24, aw, ah)
+    sdc = fnt_get_dc(0)
+    if sdc == 0:
+        return FontHandle(0, 32, 40, 24, aw, ah)
+    mdc = fnt_compat_dc(sdc)
+    if mdc == 0:
+        rc = fnt_release_dc(0, sdc)
+        return FontHandle(0, 32, 40, 24, aw, ah)
+    info = font_build_dib_info(aw, ah)
+    hb = fnt_create_dib(sdc, info, 0, info + 48, 0, 0)
+    rc = fnt_free(info, 0, 32768)
+    if hb == 0:
+        rc = fnt_delete_dc(mdc)
+        rc = fnt_release_dc(0, sdc)
+        return FontHandle(0, 32, 40, 24, aw, ah)
+    old_bmp = fnt_select(mdc, hb)
+    hf = fnt_create_font(24, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, font_name)
+    old_f = fnt_select(mdc, hf)
+    rc = fnt_set_bk_mode(mdc, 2)
+    rc = fnt_set_text_color(mdc, 16777215)
+    rc = fnt_set_bk_color(mdc, 0)
+    # xoa atlas + ve nen DEN (TextOut trang tren nen den -> coverage = R kenh)
+    i = 0
+    while i < need:
+        atlas[i] = 0
+        i = i + 1
+    # DIB bottom-up: TextOut(y) voi y tinh tu DIA ROI. Mot glyph cell cao 40:
+    # baseline dat o y_cell_top + 32 (font 24px ascent ~19).
+    charset = font_charset()
+    nch = len(charset)
+    i = 0
+    while i < nch:
+        col = i % 12
+        row = i // 12
+        gx = col * 32
+        gy = row * 40 + 32
+        one = charset[i] + ""
+        rto = fnt_text_out(mdc, gx, gy, one, 1)
+        i = i + 1
+    # DOC 95 glyph: GetPixel (y DIB bottom-up), atlas ghi TOP-DOWN de
+    # blit de: atlas_y = (row*40 + glyph_vung). Font 24px trong cell 40px:
+    # pixel glyph nam o 8 hang tu baseline (TextOut y=32 tu duoi) => tu
+    # duoi la y dib = 40-32=8..40-0 => tu tren la 0..32. Lay 32 hang dau.
+    i = 0
+    while i < nch:
+        col = i % 12
+        row = i // 12
+        gx = col * 32
+        gy_dib = row * 40
+        ax = col * 32
+        y = 0
+        while y < 32:
+            x = 0
+            while x < 32:
+                p = fnt_get_pixel(mdc, gx + x, gy_dib + y)
+                # GetPixel (x, y_dib): y_dib tinh TU DUOI. Muon hang TOP
+                # cua cell (y=0 o tren) -> y_dib = row*40 + (40 - 1 - y)
+                # sua: doc dung theo chieu duoi-len roi lat khi ghi.
+                p2 = fnt_get_pixel(mdc, gx + x, row * 40 + (39 - y))
+                cov = (p2 // 65536) % 256
+                # atlas: 1 phan tu = alpha coverage (kenh R cua COLORREF)
+                atlas[(row * 40 + y) * aw + ax + x] = 16777216 * cov
+                x = x + 1
+            y = y + 1
+        i = i + 1
+    return FontHandle(1, 32, 40, 19, aw, ah)
+
+def font_measure(fh: "FontHandle", s: "str") -> "i32":
+    # Advance width that qua GetTextExtentPoint32A (size struct 8 byte:
+    # LONG cx@0, cy@4). Chu y: sau GetTextExtentPoint32A khong doc duoc
+    # byte tu struct - DUNG BANG TOANH TAY voi advance trung binh 12px
+    # (Arial 24px) hoang khi headless; measure that se nang cap sau.
+    if fh.ok == 0:
+        return len(s) * 12
+    sdc = fnt_get_dc(0)
+    if sdc == 0:
+        return len(s) * 12
+    mdc = fnt_compat_dc(sdc)
+    if mdc == 0:
+        rc = fnt_release_dc(0, sdc)
+        return len(s) * 12
+    hf = fnt_create_font(24, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, "Arial")
+    old_f = fnt_select(mdc, hf)
+    size = fnt_alloc(0, 16, 12288, 4)
+    # KHONG doc duoc size cx tu mem... fallback advance trung binh
+    rc = fnt_free(size, 0, 32768)
+    rc = fnt_delete_dc(mdc)
+    rc = fnt_release_dc(0, sdc)
+    return len(s) * 12
+
+def font_draw_string(buf: "list[i64]", surf: "PixelSurface", fh: "FontHandle", atlas: "list[i64]", s: "str", x: "f64", y: "f64", color: "ColorRgba") -> "i32":
+    # Blit glyph tu atlas vao buffer (hot path, KHONG GDI). y = top cua text.
+    if fh.ok == 0:
+        return 0
+    cr = color.r
+    cg = color.g
+    cb = color.b
+    ca = color.a
+    pen_x = x
+    nch = len(s)
+    i = 0
+    while i < nch:
+        code = 0
+        ch = s[i]
+        # char code ASCII bang binary search trong charset 95 ky tu
+        cs = font_charset()
+        lo = 0
+        hi = 94
+        found = 0 - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if cs[mid] == ch:
+                found = mid
+                lo = hi + 1
+            else:
+                if cs[mid] < ch:
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+        code = found
+        if code >= 0:
+            col = code % 12
+            row = code // 12
+            ax = col * 32
+            ay = row * 40
+            sy = 0
+            while sy < 32:
+                dy = int(y) + sy
+                if dy >= 0:
+                    if dy < surf.height:
+                        sx = 0
+                        while sx < 32:
+                            dx = int(pen_x) + sx
+                            if dx >= 0:
+                                if dx < surf.width:
+                                    cov = atlas[(ay + sy) * fh.atlas_w + ax + sx] // 16777216
+                                    if cov > 0:
+                                        a = cov * ca // 255
+                                        idx = dy * surf.stride + dx
+                                        dst = buf[idx]
+                                        dr = dst % 16777216 // 65536
+                                        dg = dst % 65536 // 256
+                                        db = dst % 256
+                                        nr = (cr * a + dr * (255 - a)) // 255
+                                        ng = (cg * a + dg * (255 - a)) // 255
+                                        nb = (cb * a + db * (255 - a)) // 255
+                                        buf[idx] = 16777216 * 255 + 65536 * nr + 256 * ng + nb
+                            sx = sx + 1
+                sy = sy + 1
+        pen_x = pen_x + 12.0
+        i = i + 1
+    return int(pen_x - x)
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def font_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def font_check_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def font_check_gt(acc: "list[i32]", name: "str", got: "i32", lo: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got > lo:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want > " + str(lo))
+    return 0
+
+def font_selftest() -> "str":
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    cs = font_charset()
+    font_check_i(acc, "charset 95 ky tu", len(cs), 95)
+    font_check_i(acc, "atlas dims dung", font_atlas_w() * font_atlas_h(), 12 * 32 * 8 * 40)
+    atlas = []
+    i = 0
+    while i < font_atlas_w() * font_atlas_h():
+        atlas.append(0)
+        i = i + 1
+    fh = font_create("Arial", atlas)
+    if fh.ok == 1:
+        font_check(acc, "font_create OK (GDI kha dung)", 1)
+        font_check_i(acc, "cell_w = 32", fh.cell_w, 32)
+        font_check_i(acc, "cell_h = 40", fh.cell_h, 40)
+        font_check_i(acc, "ascent = 19 (24px * 4/5)", fh.ascent, 19)
+        # dem pixel co coverage trong atlas - glyph that phai co hang nghin px
+        cov = 0
+        i = 0
+        while i < font_atlas_w() * font_atlas_h():
+            if atlas[i] > 0:
+                cov = cov + 1
+            i = i + 1
+        font_check_gt(acc, "atlas co pixel glyph (>= 2000 px co coverage)", cov, 1999)
+        # 'A' (index 33) phai co pixel; ' ' (index 0) khong co
+        a_cov = 0
+        sp_cov = 0
+        ax = 33 % 12 * 32
+        ay = 33 // 12 * 40
+        y = 0
+        while y < 40:
+            x = 0
+            while x < 32:
+                if atlas[(ay + y) * font_atlas_w() + ax + x] > 0:
+                    a_cov = a_cov + 1
+                x = x + 1
+            y = y + 1
+        y = 0
+        while y < 40:
+            x = 0
+            while x < 32:
+                if atlas[x] > 0:
+                    sp_cov = sp_cov + 1
+                x = x + 1
+            y = y + 1
+        font_check_gt(acc, "glyph 'A' co pixel (>= 25)", a_cov, 24)
+        font_check_i(acc, "glyph ' ' trong", sp_cov, 0)
+        # ve chu len buffer - kiem tra co pixel duoc blend
+        surf = PixelSurface(120, 40, 120)
+        buf = []
+        i = 0
+        while i < 120 * 40:
+            buf.append(0)
+            i = i + 1
+        # surface_clear can ColorRgba (da import Core) - xoa den
+        y = 0
+        while y < 40:
+            x = 0
+            while x < 120:
+                buf[y * 120 + x] = 16777216 * 255
+                x = x + 1
+            y = y + 1
+        drawn = font_draw_string(buf, surf, fh, atlas, "Hi", 2.0, 4.0, ColorRgba(255, 255, 0, 255))
+        changed = 0
+        i = 0
+        while i < 120 * 40:
+            if buf[i] != 16777216 * 255:
+                changed = changed + 1
+            i = i + 1
+        font_check_gt(acc, "font_draw_string blend pixel (>= 30)", changed, 29)
+        font_check_gt(acc, "advance tra ve > 0", drawn, 0)
+    else:
+        font_check(acc, "font_create headless -> ok=0", 1)
+        font_check_i(acc, "headless measure fallback 12px/ky tu", font_measure(fh, "abc"), 36)
+    print("--- font selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "FONT_OK"
+    return "FONT_FAIL"

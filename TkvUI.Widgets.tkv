@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""TkvUI.Widgets - widget catalog (15), animation, invalidation, frame scheduler (P7)
+"""TkvUI.Widgets - widget catalog (28), animation, invalidation, frame scheduler (P7)
 
 Phu thuoc: Core, Graphics, Text, Effects, Platform, Events, Input, Layout.
 P7: demo `run()`/`demo_build_surface()` da CHUYEN ra `examples/` (Roadmap 2.8).
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout"]
 
 # Variant codes (documentation - than method dung literal so)
 TKV_VARIANT_FILLED = 0
@@ -324,6 +324,9 @@ class ButtonWidget:
         self.hover = hovered
         self.press = pressed
         return 1
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        return r.contains(Point2D(px, py))
     def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
         th = theme_dark()
         fg = th.on_surface
@@ -349,6 +352,107 @@ def make_button(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "Button
 
 def make_button_outline(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "ButtonWidget":
     return ButtonWidget(x, y, w, h, label, 1, 0, 0, 120, 180, 255, 255)
+
+# =========================================================
+# 1b) TEXT INPUT (Vietnamese sequence-aware)
+# =========================================================
+class TextInputWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    text: "str"
+    placeholder: "str"
+    focused: "i32"
+    caret: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    # IME state
+    ime_composing: "i32"
+    ime_composition: "str"
+    def __init__(self, bx, by, bw, bh, text, placeholder, focused, caret, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.text = text
+        self.placeholder = placeholder
+        self.focused = focused
+        self.caret = caret
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+        self.ime_composing = 0
+        self.ime_composition = ""
+    def type_char(self, ch: "str") -> "str":
+        self.text = self.text + ch
+        self.caret = len(self.text)
+        return self.text
+    def backspace(self) -> "str":
+        n = len(self.text)
+        if n > 0:
+            pos = 0
+            last = 0
+            while pos < n:
+                last = pos
+                pos = pos + vi_seq_len_at(self.text, pos, n)
+            self.text = self.text[0:last]
+            self.caret = last
+        return self.text
+    def ime_start(self) -> "i32":
+        self.ime_composing = 1
+        self.ime_composition = ""
+        return 1
+    def ime_composition(self, text: "str") -> "i32":
+        if self.ime_composing == 1:
+            self.ime_composition = text
+        return 1
+    def ime_end(self) -> "i32":
+        self.ime_composing = 0
+        self.ime_composition = ""
+        return 1
+    def ime_result(self, text: "str") -> "i32":
+        self.ime_composing = 0
+        if len(text) > 0:
+            self.text = self.text + text
+            self.caret = len(self.text)
+        self.ime_composition = ""
+        return 1
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        return r.contains(Point2D(px, py))
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, ColorRgba(26, 26, 32, 255))
+        if self.focused == 1:
+            stroke_round_rect(buf, surf, r, 8.0, 1.5, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        else:
+            stroke_round_rect(buf, surf, r, 8.0, 1.0, ColorRgba(60, 60, 70, 255))
+        ty = self.by + (self.bh - 7.0) / 2.0
+        display = self.text
+        if self.ime_composing == 1:
+            display = display + self.ime_composition
+        if len(display) > 0:
+            draw_string(buf, surf, display, self.bx + 10.0, ty, 1.0, ColorRgba(235, 235, 240, 255))
+        else:
+            draw_string(buf, surf, self.placeholder, self.bx + 10.0, ty, 1.0, ColorRgba(120, 120, 130, 255))
+        if self.focused == 1:
+            cc = self.caret
+            if cc > len(self.text):
+                cc = len(self.text)
+            if cc < 0:
+                cc = 0
+            cx = self.bx + 10.0 + float(vi_strlen(display[0:cc]) * 6)
+            if cx > self.bx + self.bw - 12.0:
+                cx = self.bx + self.bw - 12.0
+            draw_line(buf, surf, cx, self.by + 5.0, cx, self.by + self.bh - 5.0, 1.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        return 1
+
+def make_textinput(x: "f64", y: "f64", w: "f64", h: "f64", placeholder: "str") -> "TextInputWidget":
+    return TextInputWidget(x, y, w, h, "", placeholder, 0, 0, 80, 160, 255, 255, 0, "")
 
 # =========================================================
 # 2) CARD (pill notch)
@@ -664,10 +768,16 @@ class TextFieldWidget:
         self.caret = len(self.text)
         return self.text
     def backspace(self) -> "str":
+        # Xoa ca SEQUENCE cuoi (ky tu Viet dai 2-3 don vi), caret = bien don vi.
         n = len(self.text)
         if n > 0:
-            self.text = self.text[0:n - 1]
-            self.caret = n - 1
+            pos = 0
+            last = 0
+            while pos < n:
+                last = pos
+                pos = pos + vi_seq_len_at(self.text, pos, n)
+            self.text = self.text[0:last]
+            self.caret = last
         return self.text
     def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
         r = Rect2D(self.bx, self.by, self.bw, self.bh)
@@ -682,7 +792,12 @@ class TextFieldWidget:
         else:
             draw_string(buf, surf, self.placeholder, self.bx + 10.0, ty, 1.0, ColorRgba(120, 120, 130, 255))
         if self.focused == 1:
-            cx = self.bx + 10.0 + float(self.caret * 6)
+            cc = self.caret
+            if cc > len(self.text):
+                cc = len(self.text)
+            if cc < 0:
+                cc = 0
+            cx = self.bx + 10.0 + float(vi_strlen(self.text[0:cc]) * 6)
             if cx > self.bx + self.bw - 12.0:
                 cx = self.bx + self.bw - 12.0
             draw_line(buf, surf, cx, self.by + 5.0, cx, self.by + self.bh - 5.0, 1.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
@@ -1243,6 +1358,1460 @@ def make_split_view(x: "f64", y: "f64", w: "f64", h: "f64", ratio: "f64", dir: "
     return SplitViewWidget(x, y, w, h, ratio, dir, 0.2, 0, ratio, spring_new(220.0, 22.0, 1.0, ratio), 80, 160, 255, 255)
 
 # =========================================================
+# 16) DIRECTIONAL PAD (D-Pad) - dieu khien 4 chieu + center
+# =========================================================
+class DirectionalPadWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    btn_size: "f64"
+    gap: "f64"
+    pressed: "i32"      # 0=none, 1=up, 2=down, 3=left, 4=right, 5=center
+    on_change: "i64"    # callback pointer (host dam nhiem)
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    bg_normal: "i64"
+    bg_pressed: "i64"
+    def __init__(self, bx, by, bw, bh, btn_size, gap, pressed, on_change, cr, cg, cb, ca, bg_normal, bg_pressed):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.btn_size = btn_size
+        self.gap = gap
+        self.pressed = pressed
+        self.on_change = on_change
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+        self.bg_normal = bg_normal
+        self.bg_pressed = bg_pressed
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        s = self.btn_size
+        g = self.gap
+        # Center
+        if px >= cx - s/2.0:
+            if px <= cx + s/2.0:
+                if py >= cy - s/2.0:
+                    if py <= cy + s/2.0:
+                        return 5
+        # Up
+        uy = cy - s - g
+        if px >= cx - s/2.0:
+            if px <= cx + s/2.0:
+                if py >= uy - s/2.0:
+                    if py <= uy + s/2.0:
+                        return 1
+        # Down
+        dy = cy + s + g
+        if px >= cx - s/2.0:
+            if px <= cx + s/2.0:
+                if py >= dy - s/2.0:
+                    if py <= dy + s/2.0:
+                        return 2
+        # Left
+        lx = cx - s - g
+        if px >= lx - s/2.0:
+            if px <= lx + s/2.0:
+                if py >= cy - s/2.0:
+                    if py <= cy + s/2.0:
+                        return 3
+        # Right
+        rx = cx + s + g
+        if px >= rx - s/2.0:
+            if px <= rx + s/2.0:
+                if py >= cy - s/2.0:
+                    if py <= cy + s/2.0:
+                        return 4
+        return 0
+    def set_pressed(self, btn: "i32") -> "i32":
+        self.pressed = btn
+        if self.on_change != 0:
+            return 1
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        s = self.btn_size
+        g = self.gap
+        # Ve 5 nut: Up, Down, Left, Right, Center
+        # Up
+        x = cx
+        y = cy - s - g
+        is_pr = 0
+        if self.pressed == 1:
+            is_pr = 1
+        bg = self.bg_normal
+        if is_pr == 1:
+            bg = self.bg_pressed
+        else:
+            bg = self.bg_normal
+        r = Rect2D(x - s/2.0, y - s/2.0, s, s)
+        fill_round_rect(buf, surf, r, s/4.0, bg)
+        col = ColorRgba(230, 230, 238, 255)
+        draw_line(buf, surf, x, y - s/3.0, x - s/4.0, y + s/6.0, 2.0, col)
+        draw_line(buf, surf, x, y - s/3.0, x + s/4.0, y + s/6.0, 2.0, col)
+        # Down
+        x = cx
+        y = cy + s + g
+        is_pr = 0
+        if self.pressed == 2:
+            is_pr = 1
+        bg = self.bg_normal
+        if is_pr == 1:
+            bg = self.bg_pressed
+        else:
+            bg = self.bg_normal
+        r = Rect2D(x - s/2.0, y - s/2.0, s, s)
+        fill_round_rect(buf, surf, r, s/4.0, bg)
+        draw_line(buf, surf, x, y + s/3.0, x - s/4.0, y - s/6.0, 2.0, col)
+        draw_line(buf, surf, x, y + s/3.0, x + s/4.0, y - s/6.0, 2.0, col)
+        # Left
+        x = cx - s - g
+        y = cy
+        is_pr = 0
+        if self.pressed == 3:
+            is_pr = 1
+        bg = self.bg_normal
+        if is_pr == 1:
+            bg = self.bg_pressed
+        else:
+            bg = self.bg_normal
+        r = Rect2D(x - s/2.0, y - s/2.0, s, s)
+        fill_round_rect(buf, surf, r, s/4.0, bg)
+        draw_line(buf, surf, x - s/3.0, y, x + s/6.0, y - s/4.0, 2.0, col)
+        draw_line(buf, surf, x - s/3.0, y, x + s/6.0, y + s/4.0, 2.0, col)
+        # Right
+        x = cx + s + g
+        y = cy
+        is_pr = 0
+        if self.pressed == 4:
+            is_pr = 1
+        bg = self.bg_normal
+        if is_pr == 1:
+            bg = self.bg_pressed
+        else:
+            bg = self.bg_normal
+        r = Rect2D(x - s/2.0, y - s/2.0, s, s)
+        fill_round_rect(buf, surf, r, s/4.0, bg)
+        draw_line(buf, surf, x + s/3.0, y, x - s/6.0, y - s/4.0, 2.0, col)
+        draw_line(buf, surf, x + s/3.0, y, x - s/6.0, y + s/4.0, 2.0, col)
+        # Center
+        x = cx
+        y = cy
+        is_pr = 0
+        if self.pressed == 5:
+            is_pr = 1
+        bg = self.bg_normal
+        if is_pr == 1:
+            bg = self.bg_pressed
+        else:
+            bg = self.bg_normal
+        r = Rect2D(x - s/2.0, y - s/2.0, s, s)
+        fill_round_rect(buf, surf, r, s/4.0, bg)
+        draw_arc(buf, surf, x, y, s/5.0, s/5.0, 0.0, 360.0, col)
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        btn = self.hit_test(e.px, e.py)
+        if e.is_down == 1:
+            if btn != 0:
+                self.set_pressed(btn)
+        else:
+            if btn != 0:
+                if self.pressed == btn:
+                    self.set_pressed(0)
+                    if self.on_change != 0:
+                        i = 0
+        return btn
+
+def make_dpad(x: "f64", y: "f64", size: "f64", btn_size: "f64" = 48.0, gap: "f64" = 8.0) -> "DirectionalPadWidget":
+    bg_norm = ColorRgba(48, 48, 56, 255)
+    bg_pressed = ColorRgba(80, 160, 255, 255)
+    return DirectionalPadWidget(x, y, size, size, btn_size, gap, 0, 0, 80, 160, 255, 255, bg_norm.to_uint32(), bg_pressed.to_uint32())
+
+# =========================================================
+# 17) CONTROL BUTTON - nut bam don le (up/down/left/right/action)
+# =========================================================
+class ControlButtonWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    kind: "i32"       # 1=up, 2=down, 3=left, 4=right, 5=action A, 6=action B
+    pressed: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, kind, pressed, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.kind = kind
+        self.pressed = pressed
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_pressed(self, p: "i32") -> "i32":
+        self.pressed = p
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        bg = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        if self.pressed == 1:
+            bg = color_lerp(bg, ColorRgba(255, 255, 255, 255), 0.3)
+        fill_round_rect(buf, surf, r, 8.0, bg)
+        stroke_round_rect(buf, surf, r, 8.0, 1.5, ColorRgba(255, 255, 255, 60))
+        # Icon theo kind
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        s = self.bw / 2.5
+        col = ColorRgba(230, 230, 238, 255)
+        if self.kind == 1:
+            draw_line(buf, surf, cx, cy - s/2.0, cx - s/2.0, cy + s/3.0, 2.5, col)
+            draw_line(buf, surf, cx, cy - s/2.0, cx + s/2.0, cy + s/3.0, 2.5, col)
+        else:
+            if self.kind == 2:
+                draw_line(buf, surf, cx, cy + s/2.0, cx - s/2.0, cy - s/3.0, 2.5, col)
+                draw_line(buf, surf, cx, cy + s/2.0, cx + s/2.0, cy - s/3.0, 2.5, col)
+            else:
+                if self.kind == 3:
+                    draw_line(buf, surf, cx - s/2.0, cy, cx + s/3.0, cy - s/2.0, 2.5, col)
+                    draw_line(buf, surf, cx - s/2.0, cy, cx + s/3.0, cy + s/2.0, 2.5, col)
+                else:
+                    if self.kind == 4:
+                        draw_line(buf, surf, cx + s/2.0, cy, cx - s/3.0, cy - s/2.0, 2.5, col)
+                        draw_line(buf, surf, cx + s/2.0, cy, cx - s/3.0, cy + s/2.0, 2.5, col)
+                    else:
+                        if self.kind == 5:
+                            draw_string(buf, surf, "A", cx - 3.0, cy - 3.5, 1.0, col)
+                        else:
+                            if self.kind == 6:
+                                draw_string(buf, surf, "B", cx - 3.0, cy - 3.5, 1.0, col)
+        return 1
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px <= self.bx + self.bw:
+                if py >= self.by:
+                    if py <= self.by + self.bh:
+                        return 1
+        return 0
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if self.hit_test(e.px, e.py) == 1:
+            if e.is_down == 1:
+                self.pressed = 1
+            else:
+                if self.pressed == 1:
+                    self.pressed = 0
+                    return 1
+        return 0
+
+def make_control_btn(x: "f64", y: "f64", w: "f64", h: "f64", kind: "i32") -> "ControlButtonWidget":
+    return ControlButtonWidget(x, y, w, h, kind, 0, 80, 160, 255, 255)
+
+# =========================================================
+# 18) VIRTUAL JOYSTICK - dieu khien analog cho touch
+# =========================================================
+class VirtualJoystickWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    base_radius: "f64"
+    stick_radius: "f64"
+    active: "i32"
+    stick_id: "i32"
+    stick_x: "f64"
+    stick_y: "f64"
+    deadzone: "f64"
+    on_change: "i64"
+    def __init__(self, bx, by, bw, bh, base_radius, stick_radius, active, stick_id, stick_x, stick_y, deadzone, on_change):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.base_radius = base_radius
+        self.stick_radius = stick_radius
+        self.active = active
+        self.stick_id = stick_id
+        self.stick_x = stick_x
+        self.stick_y = stick_y
+        self.deadzone = deadzone
+        self.on_change = on_change
+    def get_center_x(self) -> "f64":
+        return self.bx + self.bw / 2.0
+    def get_center_y(self) -> "f64":
+        return self.by + self.bh / 2.0
+    def hit_test(self, px: "f64", py: "f64") -> "i32":
+        cx = self.get_center_x()
+        cy = self.get_center_y()
+        dx = px - cx
+        dy = py - cy
+        if dx * dx + dy * dy <= self.base_radius * self.base_radius:
+            return 1
+        return 0
+    def handle_touch(self, e: "TouchEventArgs") -> "i32":
+        if e.pressure == 0.0:
+            return 0
+        if self.active == 0:
+            if self.hit_test(e.px, e.py) == 1:
+                self.active = 1
+                self.stick_id = e.touch_id
+                self.update_stick(e.px, e.py)
+                return 1
+            return 0
+        if e.touch_id != self.stick_id:
+            return 0
+        if e.pressure > 0.0:
+            self.update_stick(e.px, e.py)
+        else:
+            self.active = 0
+            self.stick_id = -1
+            self.stick_x = 0.0
+            self.stick_y = 0.0
+        return 1
+    def update_stick(self, px: "f64", py: "f64") -> "i32":
+        cx = self.get_center_x()
+        cy = self.get_center_y()
+        dx = px - cx
+        dy = py - cy
+        dist = dx * dx + dy * dy
+        max_d = self.base_radius - self.stick_radius
+        if max_d < 0.0:
+            max_d = 0.0
+        if dist > max_d * max_d:
+            dist = max_d * max_d
+            if dist > 0.0:
+                scale = max_d / (dist ** 0.5)
+                dx = dx * scale
+                dy = dy * scale
+            self.stick_x = dx
+            self.stick_y = dy
+        if self.deadzone > 0.0:
+            if self.stick_x * self.stick_x + self.stick_y * self.stick_y < self.deadzone * self.deadzone:
+                self.stick_x = 0.0
+                self.stick_y = 0.0
+        return 1
+    def get_vector(self) -> "Point2D":
+        max_d = self.base_radius - self.stick_radius
+        if max_d <= 0.0:
+            return Point2D(0.0, 0.0)
+        return Point2D(self.stick_x / max_d, self.stick_y / max_d)
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.get_center_x()
+        cy = self.get_center_y()
+        draw_arc(buf, surf, cx, cy, self.base_radius, 3.0, 0.0, 360.0, ColorRgba(48, 48, 56, 200))
+        base_bg = Rect2D(cx - self.base_radius, cy - self.base_radius, self.base_radius * 2.0, self.base_radius * 2.0)
+        fill_round_rect(buf, surf, base_bg, self.base_radius, ColorRgba(32, 32, 40, 180))
+        sx = cx + self.stick_x
+        sy = cy + self.stick_y
+        draw_arc(buf, surf, sx, sy, self.stick_radius, self.stick_radius * 2.0, 0.0, 360.0, ColorRgba(80, 160, 255, 255))
+        return 1
+
+def make_joystick(x: "f64", y: "f64", size: "f64", base_r: "f64" = 60.0, stick_r: "f64" = 24.0) -> "VirtualJoystickWidget":
+    return VirtualJoystickWidget(x, y, size, size, base_r, stick_r, 0, -1, 0.0, 0.0, 8.0, 0)
+
+# =========================================================
+# 19-28) ANT DESIGN-INSPIRED WIDGETS (rewritten in TokenVector)
+# Quy uoc: record chi giu scalar; list truyen qua tham so method.
+# =========================================================
+def ant_str_count(items: "list[str]") -> "i32":
+    return len(items)
+
+def ant_tag_color(idx: "i32") -> "ColorRgba":
+    if idx == 1:
+        return ColorRgba(82, 196, 26, 255)
+    elif idx == 2:
+        return ColorRgba(255, 77, 79, 255)
+    elif idx == 3:
+        return ColorRgba(250, 173, 20, 255)
+    elif idx == 4:
+        return ColorRgba(114, 46, 209, 255)
+    elif idx == 5:
+        return ColorRgba(89, 89, 89, 255)
+    else:
+        return ColorRgba(24, 144, 255, 255)
+
+class AntTagWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    text: "str"
+    kind: "i32"
+    color_idx: "i32"
+    closable: "i32"
+    closed: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, text, kind, color_idx, closable, closed, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.text = text
+        self.kind = kind
+        self.color_idx = color_idx
+        self.closable = closable
+        self.closed = closed
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def hit_close(self, px: "f64", py: "f64") -> "i32":
+        if self.closable == 0:
+            return 0
+        if px >= self.bx + self.bw - 14.0:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def hit_body(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def close_tag(self) -> "i32":
+        self.closed = 1
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if self.closed == 1:
+            return 0
+        if e.is_down == 1:
+            if self.hit_body(e.px, e.py) == 1:
+                self.hover = 1
+            else:
+                self.hover = 0
+            return 0
+        if self.closable == 1:
+            if self.hit_close(e.px, e.py) == 1:
+                self.closed = 1
+                self.hover = 0
+                return 1
+        self.hover = 0
+        if self.hit_body(e.px, e.py) == 1:
+            return 2
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        if self.closed == 1:
+            return 0
+        base = ant_tag_color(self.color_idx)
+        white = ColorRgba(255, 255, 255, 255)
+        black = ColorRgba(0, 0, 0, 255)
+        bg = color_lerp(base, white, 0.88)
+        border = color_lerp(base, white, 0.55)
+        textcol = color_lerp(base, black, 0.35)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 4.0, bg)
+        stroke_round_rect(buf, surf, r, 4.0, 1.0, border)
+        tm = measure_string(self.text, 1.0)
+        tx = self.bx + 8.0
+        if self.closable == 1:
+            tx = self.bx + 8.0
+        ty = self.by + (self.bh - tm.h) / 2.0
+        draw_string(buf, surf, self.text, tx, ty, 1.0, textcol)
+        if self.closable == 1:
+            draw_string(buf, surf, "x", self.bx + self.bw - 11.0, ty, 1.0, textcol)
+        return 1
+
+def make_ant_tag(x: "f64", y: "f64", text: "str", color_idx: "i32", closable: "i32") -> "AntTagWidget":
+    w = float(len(text) * 6) + 16.0
+    if closable == 1:
+        w = w + 14.0
+    return AntTagWidget(x, y, w, 22.0, text, 0, color_idx, closable, 0, 0, 22, 119, 255, 255)
+
+class AntBadgeWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    count: "i32"
+    overflow: "i32"
+    dot: "i32"
+    show_zero: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, count, overflow, dot, show_zero, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.count = count
+        self.overflow = overflow
+        self.dot = dot
+        self.show_zero = show_zero
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def label(self) -> "str":
+        if self.dot == 1:
+            return ""
+        if self.count > self.overflow:
+            return str(self.overflow) + "+"
+        return str(self.count)
+    def is_visible(self) -> "i32":
+        if self.dot == 1:
+            return 1
+        if self.count == 0:
+            if self.show_zero == 0:
+                return 0
+        return 1
+    def set_count(self, v: "i32") -> "i32":
+        if v < 0:
+            v = 0
+        self.count = v
+        return v
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        if self.is_visible() == 0:
+            return 0
+        red = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        if self.dot == 1:
+            dx = self.bx + self.bw - 3.0
+            dy = self.by + 3.0
+            draw_arc(buf, surf, dx, dy, 5.0, 10.0, 0.0, 360.0, red)
+            return 1
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, self.bh / 2.0, red)
+        txt = self.label()
+        tm = measure_string(txt, 1.0)
+        tx = self.bx + (self.bw - tm.w) / 2.0
+        ty = self.by + (self.bh - tm.h) / 2.0
+        draw_string(buf, surf, txt, tx, ty, 1.0, ColorRgba(255, 255, 255, 255))
+        return 1
+
+def make_ant_badge(x: "f64", y: "f64", count: "i32", overflow: "i32" = 99, dot: "i32" = 0, show_zero: "i32" = 0) -> "AntBadgeWidget":
+    if dot == 1:
+        return AntBadgeWidget(x, y, 14.0, 14.0, count, overflow, dot, show_zero, 245, 34, 45, 255)
+    t = str(count)
+    if count > overflow:
+        t = str(overflow) + "+"
+    w = float(len(t) * 6) + 16.0
+    return AntBadgeWidget(x, y, w, 20.0, count, overflow, dot, show_zero, 245, 34, 45, 255)
+
+def make_ant_dot(x: "f64", y: "f64") -> "AntBadgeWidget":
+    return AntBadgeWidget(x, y, 14.0, 14.0, 0, 99, 1, 0, 245, 34, 45, 255)
+
+class AntAvatarWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    size: "f64"
+    form: "i32"
+    text: "str"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    fg_r: "i64"
+    fg_g: "i64"
+    fg_b: "i64"
+    fg_a: "i64"
+    def __init__(self, bx, by, bw, bh, size, form, text, cr, cg, cb, ca, fg_r, fg_g, fg_b, fg_a):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.size = size
+        self.form = form
+        self.text = text
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+        self.fg_r = fg_r
+        self.fg_g = fg_g
+        self.fg_b = fg_b
+        self.fg_a = fg_a
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        bg = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        fg = ColorRgba(self.fg_r, self.fg_g, self.fg_b, self.fg_a)
+        if self.form == 0:
+            rad = self.size / 2.0
+            draw_arc(buf, surf, cx, cy, rad, rad * 2.0, 0.0, 360.0, bg)
+        else:
+            r = Rect2D(self.bx, self.by, self.bw, self.bh)
+            fill_round_rect(buf, surf, r, self.size / 4.0, bg)
+        tm = measure_string(self.text, 1.0)
+        tx = cx - tm.w / 2.0
+        ty = cy - tm.h / 2.0
+        draw_string(buf, surf, self.text, tx, ty, 1.0, fg)
+        return 1
+
+def make_ant_avatar(x: "f64", y: "f64", text: "str", form: "i32" = 0, size: "f64" = 32.0) -> "AntAvatarWidget":
+    return AntAvatarWidget(x, y, size, size, size, form, text, 22, 119, 255, 255, 255, 255, 255, 255)
+
+def ant_alert_color(atype: "i32") -> "ColorRgba":
+    if atype == 1:
+        return ColorRgba(82, 196, 26, 255)
+    elif atype == 2:
+        return ColorRgba(250, 173, 20, 255)
+    elif atype == 3:
+        return ColorRgba(255, 77, 79, 255)
+    else:
+        return ColorRgba(22, 119, 255, 255)
+
+class AntAlertWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    atype: "i32"
+    closable: "i32"
+    closed: "i32"
+    show_icon: "i32"
+    title: "str"
+    desc: "str"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, atype, closable, closed, show_icon, title, desc, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.atype = atype
+        self.closable = closable
+        self.closed = closed
+        self.show_icon = show_icon
+        self.title = title
+        self.desc = desc
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def hit_close(self, px: "f64", py: "f64") -> "i32":
+        if self.closable == 0:
+            return 0
+        if px >= self.bx + self.bw - 24.0:
+            if px < self.bx + self.bw - 8.0:
+                if py >= self.by + 8.0:
+                    if py < self.by + 28.0:
+                        return 1
+        return 0
+    def hit_body(self, px: "f64", py: "f64") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return 1
+        return 0
+    def close_alert(self) -> "i32":
+        self.closed = 1
+        return 1
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if self.closed == 1:
+            return 0
+        if e.is_down == 1:
+            return 0
+        if self.closable == 1:
+            if self.hit_close(e.px, e.py) == 1:
+                self.closed = 1
+                return 1
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        if self.closed == 1:
+            return 0
+        base = ant_alert_color(self.atype)
+        white = ColorRgba(255, 255, 255, 255)
+        black = ColorRgba(0, 0, 0, 255)
+        bg = color_lerp(base, white, 0.9)
+        border = color_lerp(base, white, 0.6)
+        titlecol = color_lerp(base, black, 0.45)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 8.0, bg)
+        stroke_round_rect(buf, surf, r, 8.0, 1.0, border)
+        stripe = Rect2D(self.bx, self.by, 4.0, self.bh)
+        fill_round_rect(buf, surf, stripe, 2.0, base)
+        if self.show_icon == 1:
+            ix = self.bx + 22.0
+            iy = self.by + 22.0
+            if self.atype == 1:
+                draw_line(buf, surf, ix - 5.0, iy, ix - 1.0, iy + 4.0, 2.0, base)
+                draw_line(buf, surf, ix - 1.0, iy + 4.0, ix + 6.0, iy - 5.0, 2.0, base)
+            elif self.atype == 2:
+                draw_string(buf, surf, "!", ix - 3.0, iy - 4.0, 1.0, base)
+            elif self.atype == 3:
+                draw_line(buf, surf, ix - 4.0, iy - 4.0, ix + 4.0, iy + 4.0, 2.0, base)
+                draw_line(buf, surf, ix - 4.0, iy + 4.0, ix + 4.0, iy - 4.0, 2.0, base)
+            else:
+                draw_string(buf, surf, "i", ix - 3.0, iy - 4.0, 1.0, base)
+        tx = self.bx + 40.0
+        draw_string(buf, surf, self.title, tx, self.by + 8.0, 1.0, titlecol)
+        if len(self.desc) > 0:
+            draw_string(buf, surf, self.desc, tx, self.by + 32.0, 1.0, ColorRgba(90, 90, 90, 255))
+        if self.closable == 1:
+            draw_string(buf, surf, "x", self.bx + self.bw - 18.0, self.by + 8.0, 1.0, ColorRgba(120, 120, 120, 255))
+        return 1
+
+def make_ant_alert(x: "f64", y: "f64", w: "f64", title: "str", desc: "str", atype: "i32", closable: "i32") -> "AntAlertWidget":
+    h = 44.0
+    if len(desc) > 0:
+        h = 68.0
+    return AntAlertWidget(x, y, w, h, atype, closable, 0, 1, title, desc, 22, 119, 255, 255)
+
+class AntPaginationWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    page: "i32"
+    page_size: "i32"
+    total: "i32"
+    show_total: "i32"
+    show_jumper: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, page, page_size, total, show_total, show_jumper, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.page = page
+        self.page_size = page_size
+        self.total = total
+        self.show_total = show_total
+        self.show_jumper = show_jumper
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def total_pages(self) -> "i32":
+        if self.page_size <= 0:
+            return 1
+        if self.total <= 0:
+            return 1
+        tp = (self.total + self.page_size - 1) // self.page_size
+        if tp < 1:
+            tp = 1
+        return tp
+    def set_page(self, p: "i32") -> "i32":
+        tp = self.total_pages()
+        if p < 1:
+            p = 1
+        if p > tp:
+            p = tp
+        self.page = p
+        return p
+    def next_page(self) -> "i32":
+        return self.set_page(self.page + 1)
+    def prev_page(self) -> "i32":
+        return self.set_page(self.page - 1)
+    def buttons_x(self) -> "f64":
+        if self.show_total == 1:
+            txt = "Total " + str(self.total)
+            tw = float(len(txt) * 6)
+            return self.bx + tw + 12.0
+        return self.bx
+    def slot_total(self) -> "i32":
+        tp = self.total_pages()
+        if tp <= 7:
+            return tp + 2
+        return 9
+    def slot_kind(self, k: "i32") -> "i32":
+        n = self.slot_total()
+        if k == 0:
+            return 0
+        if k == n - 1:
+            return 3
+        tp = self.total_pages()
+        if tp <= 7:
+            return 1
+        j = k - 1
+        if j == 0:
+            return 1
+        if j == 1:
+            return 2
+        if j == 5:
+            return 2
+        if j == 6:
+            return 1
+        return 1
+    def slot_page(self, k: "i32") -> "i32":
+        kind = self.slot_kind(k)
+        if kind != 1:
+            return 0
+        tp = self.total_pages()
+        p = self.page
+        if tp <= 7:
+            return k
+        j = k - 1
+        if j == 0:
+            return 1
+        if j == 6:
+            return tp
+        if p <= 3:
+            if j == 2:
+                return 2
+            if j == 3:
+                return 3
+            return 4
+        if p >= tp - 2:
+            base = tp - 4
+            if j == 2:
+                return base
+            if j == 3:
+                return base + 1
+            return base + 2
+        if j == 2:
+            return p - 1
+        if j == 3:
+            return p
+        return p + 1
+    def slot_x(self, k: "i32") -> "f64":
+        return self.buttons_x() + float(k) * 38.0
+    def hit(self, px: "f64", py: "f64") -> "i32":
+        if py < self.by:
+            return 0
+        if py >= self.by + 28.0:
+            return 0
+        tp = self.total_pages()
+        n = self.slot_total()
+        k = int(0)
+        while k < n:
+            x = self.slot_x(k)
+            if px >= x:
+                if px < x + 32.0:
+                    kind = self.slot_kind(k)
+                    if kind == 0:
+                        if self.page > 1:
+                            return self.page - 1
+                        return 0
+                    if kind == 3:
+                        if self.page < tp:
+                            return self.page + 1
+                        return 0
+                    if kind == 2:
+                        return 0
+                    return self.slot_page(k)
+            k = k + 1
+        return 0
+    def activate(self, px: "f64", py: "f64") -> "i32":
+        h = self.hit(px, py)
+        if h <= 0:
+            return 0
+        self.set_page(h)
+        return h
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        tp = self.total_pages()
+        if self.show_total == 1:
+            txt = "Total " + str(self.total)
+            draw_string(buf, surf, txt, self.bx, self.by + 6.0, 1.0, ColorRgba(120, 120, 120, 255))
+        n = self.slot_total()
+        k = int(0)
+        while k < n:
+            x = self.slot_x(k)
+            y = self.by
+            kind = self.slot_kind(k)
+            pg = self.slot_page(k)
+            label = ""
+            if kind == 0:
+                label = "<"
+            elif kind == 3:
+                label = ">"
+            elif kind == 2:
+                label = "..."
+            else:
+                label = str(pg)
+            active = 0
+            if kind == 1:
+                if pg == self.page:
+                    active = 1
+            disabled = 0
+            if kind == 0:
+                if self.page <= 1:
+                    disabled = 1
+            if kind == 3:
+                if self.page >= tp:
+                    disabled = 1
+            if kind == 2:
+                disabled = 1
+            r = Rect2D(x, y, 32.0, 28.0)
+            if active == 1:
+                fill_round_rect(buf, surf, r, 6.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                stroke_round_rect(buf, surf, r, 6.0, 1.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                tm = measure_string(label, 1.0)
+                draw_string(buf, surf, label, x + (32.0 - tm.w) / 2.0, y + (28.0 - tm.h) / 2.0, 1.0, ColorRgba(255, 255, 255, 255))
+            else:
+                if disabled == 1:
+                    tm = measure_string(label, 1.0)
+                    draw_string(buf, surf, label, x + (32.0 - tm.w) / 2.0, y + (28.0 - tm.h) / 2.0, 1.0, ColorRgba(180, 180, 180, 255))
+                else:
+                    fill_round_rect(buf, surf, r, 6.0, ColorRgba(255, 255, 255, 255))
+                    stroke_round_rect(buf, surf, r, 6.0, 1.0, ColorRgba(217, 217, 217, 255))
+                    tm = measure_string(label, 1.0)
+                    draw_string(buf, surf, label, x + (32.0 - tm.w) / 2.0, y + (28.0 - tm.h) / 2.0, 1.0, ColorRgba(60, 60, 60, 255))
+            k = k + 1
+        return 1
+
+def make_ant_pagination(x: "f64", y: "f64", w: "f64", page: "i32", page_size: "i32", total: "i32") -> "AntPaginationWidget":
+    if page < 1:
+        page = 1
+    return AntPaginationWidget(x, y, w, 28.0, page, page_size, total, 1, 0, -1, 22, 119, 255, 255)
+
+class AntStepsWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    current: "i32"
+    error_index: "i32"
+    status: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, current, error_index, status, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.current = current
+        self.error_index = error_index
+        self.status = status
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def item_state(self, idx: "i32") -> "i32":
+        if self.error_index == idx:
+            return 3
+        if idx < self.current:
+            return 1
+        if idx == self.current:
+            return 2
+        return 0
+    def set_current(self, i: "i32", n: "i32") -> "i32":
+        if n <= 0:
+            return self.current
+        if i < 0:
+            i = 0
+        if i >= n:
+            i = n - 1
+        self.current = i
+        return i
+    def set_error(self, idx: "i32") -> "i32":
+        self.error_index = idx
+        return idx
+    def clear_error(self) -> "i32":
+        self.error_index = -1
+        return 1
+    def step_x(self, i: "i32", n: "i32") -> "f64":
+        if n <= 1:
+            return self.bx + 12.0
+        sw = (self.bw - 24.0) / float(n - 1)
+        return self.bx + 12.0 + float(i) * sw
+    def hit(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        cy = self.by + 14.0
+        i = int(0)
+        while i < n:
+            x = self.step_x(i, n)
+            dx = px - x
+            if dx < 0.0:
+                dx = 0.0 - dx
+            dy = py - cy
+            if dy < 0.0:
+                dy = 0.0 - dy
+            if dx <= 16.0:
+                if dy <= 16.0:
+                    return i
+            i = i + 1
+        return -1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", titles: "list[str]", descs: "list[str]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        if len(titles) < n:
+            return 0
+        if len(descs) < n:
+            return 0
+        cy = self.by + 14.0
+        sw = self.bw - 24.0
+        if n > 1:
+            sw = (self.bw - 24.0) / float(n - 1)
+        i = int(0)
+        while i + 1 < n:
+            x0 = self.step_x(i, n) + 12.0
+            x1 = self.step_x(i + 1, n) - 12.0
+            col = ColorRgba(220, 220, 220, 255)
+            if i < self.current:
+                col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+            draw_line(buf, surf, x0, cy, x1, cy, 2.0, col)
+            i = i + 1
+        i = int(0)
+        while i < n:
+            x = self.step_x(i, n)
+            st = self.item_state(i)
+            if st == 1:
+                draw_arc(buf, surf, x, cy, 11.0, 22.0, 0.0, 360.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                draw_line(buf, surf, x - 4.0, cy, x - 1.0, cy + 3.0, 2.0, ColorRgba(255, 255, 255, 255))
+                draw_line(buf, surf, x - 1.0, cy + 3.0, x + 5.0, cy - 4.0, 2.0, ColorRgba(255, 255, 255, 255))
+            elif st == 2:
+                draw_arc(buf, surf, x, cy, 11.0, 22.0, 0.0, 360.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+                txt = str(i + 1)
+                tm = measure_string(txt, 1.0)
+                draw_string(buf, surf, txt, x - tm.w / 2.0, cy - tm.h / 2.0, 1.0, ColorRgba(255, 255, 255, 255))
+            elif st == 3:
+                draw_arc(buf, surf, x, cy, 11.0, 22.0, 0.0, 360.0, ColorRgba(255, 77, 79, 255))
+                draw_string(buf, surf, "!", x - 3.0, cy - 4.0, 1.0, ColorRgba(255, 255, 255, 255))
+            else:
+                draw_arc(buf, surf, x, cy, 11.0, 2.0, 0.0, 360.0, ColorRgba(200, 200, 200, 255))
+                txt = str(i + 1)
+                tm = measure_string(txt, 1.0)
+                draw_string(buf, surf, txt, x - tm.w / 2.0, cy - tm.h / 2.0, 1.0, ColorRgba(160, 160, 160, 255))
+            tcol = ColorRgba(60, 60, 60, 255)
+            if st == 0:
+                tcol = ColorRgba(160, 160, 160, 255)
+            t = titles[i]
+            maxc = int((sw - 4.0) / 6.0)
+            if maxc < 1:
+                maxc = 1
+            seg = vi_truncate(t, maxc)
+            tm = measure_string(seg, 1.0)
+            draw_string(buf, surf, seg, x - tm.w / 2.0, cy + 20.0, 1.0, tcol)
+            d = descs[i]
+            if len(d) > 0:
+                dseg = vi_truncate(d, maxc)
+                draw_string(buf, surf, dseg, x - tm.w / 2.0, cy + 30.0, 1.0, ColorRgba(150, 150, 150, 255))
+            i = i + 1
+        return 1
+
+def make_ant_steps(x: "f64", y: "f64", w: "f64", current: "i32") -> "AntStepsWidget":
+    if current < 0:
+        current = 0
+    return AntStepsWidget(x, y, w, 64.0, current, -1, 0, 22, 119, 255, 255)
+
+class AntTableWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    header_h: "f64"
+    row_h: "f64"
+    selected: "i32"
+    hover: "i32"
+    bordered: "i32"
+    striped: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, header_h, row_h, selected, hover, bordered, striped, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.header_h = header_h
+        self.row_h = row_h
+        self.selected = selected
+        self.hover = hover
+        self.bordered = bordered
+        self.striped = striped
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def select_row(self, idx: "i32", nrows: "i32") -> "i32":
+        if idx < 0:
+            self.selected = -1
+            return -1
+        if idx >= nrows:
+            idx = nrows - 1
+        self.selected = idx
+        return idx
+    def activate(self, px: "f64", py: "f64", nrows: "i32") -> "i32":
+        if px < self.bx:
+            return -1
+        if px >= self.bx + self.bw:
+            return -1
+        y0 = self.by + self.header_h
+        if py < y0:
+            return -1
+        if py >= y0 + float(nrows) * self.row_h:
+            return -1
+        idx = int((py - y0) / self.row_h)
+        if idx < 0:
+            return -1
+        if idx >= nrows:
+            return -1
+        self.hover = idx
+        self.selected = idx
+        return idx
+    def render(self, buf: "list[i64]", surf: "PixelSurface", headers: "list[str]", cells: "list[str]", col_ws: "list[f64]", cols: "i32", rows: "i32") -> "i32":
+        if cols <= 0:
+            return 0
+        if rows <= 0:
+            return 0
+        if len(headers) < cols:
+            return 0
+        if len(col_ws) < cols:
+            return 0
+        if len(cells) < cols * rows:
+            return 0
+        head = Rect2D(self.bx, self.by, self.bw, self.header_h)
+        fill_round_rect(buf, surf, head, 0.0, ColorRgba(250, 250, 250, 255))
+        x = self.bx
+        j = int(0)
+        while j < cols:
+            w = col_ws[j]
+            t = headers[j]
+            maxc = int((w - 12.0) / 6.0)
+            if maxc > 0:
+                seg = vi_truncate(t, maxc)
+                draw_string(buf, surf, seg, x + 8.0, self.by + (self.header_h - 7.0) / 2.0, 1.0, ColorRgba(60, 60, 60, 255))
+            x = x + w
+            j = j + 1
+        i = int(0)
+        while i < rows:
+            y = self.by + self.header_h + float(i) * self.row_h
+            row = Rect2D(self.bx, y, self.bw, self.row_h)
+            if self.striped == 1:
+                if i % 2 == 1:
+                    fill_round_rect(buf, surf, row, 0.0, ColorRgba(250, 250, 250, 255))
+            if i == self.selected:
+                fill_round_rect(buf, surf, row, 0.0, ColorRgba(self.cr, self.cg, self.cb, 60))
+            else:
+                if i == self.hover:
+                    fill_round_rect(buf, surf, row, 0.0, ColorRgba(0, 0, 0, 12))
+            x = self.bx
+            j = int(0)
+            while j < cols:
+                w = col_ws[j]
+                c = cells[i * cols + j]
+                maxc = int((w - 12.0) / 6.0)
+                if maxc > 0:
+                    seg = vi_truncate(c, maxc)
+                    draw_string(buf, surf, seg, x + 8.0, y + (self.row_h - 7.0) / 2.0, 1.0, ColorRgba(40, 40, 40, 255))
+                x = x + w
+                j = j + 1
+            i = i + 1
+        if self.bordered == 1:
+            grid = ColorRgba(230, 230, 230, 255)
+            draw_line(buf, surf, self.bx, self.by + self.header_h, self.bx + self.bw, self.by + self.header_h, 1.0, grid)
+            i = int(0)
+            while i <= rows:
+                y = self.by + self.header_h + float(i) * self.row_h
+                draw_line(buf, surf, self.bx, y, self.bx + self.bw, y, 1.0, grid)
+                i = i + 1
+            x = self.bx
+            j = int(0)
+            while j <= cols:
+                draw_line(buf, surf, x, self.by, x, self.by + self.header_h + float(rows) * self.row_h, 1.0, grid)
+                if j < cols:
+                    x = x + col_ws[j]
+                j = j + 1
+            outer = Rect2D(self.bx, self.by, self.bw, self.header_h + float(rows) * self.row_h)
+            stroke_round_rect(buf, surf, outer, 0.0, 1.0, grid)
+        return 1
+
+def make_ant_table(x: "f64", y: "f64", w: "f64") -> "AntTableWidget":
+    return AntTableWidget(x, y, w, 0.0, 28.0, 24.0, -1, -1, 1, 1, 22, 119, 255, 255)
+
+class AntSelectWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    selected: "i32"
+    open: "i32"
+    hover: "i32"
+    item_h: "f64"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    placeholder: "str"
+    def __init__(self, bx, by, bw, bh, selected, open, hover, item_h, cr, cg, cb, ca, placeholder):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.selected = selected
+        self.open = open
+        self.hover = hover
+        self.item_h = item_h
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+        self.placeholder = placeholder
+    def toggle(self) -> "i32":
+        if self.open == 1:
+            self.open = 0
+        else:
+            self.open = 1
+        return self.open
+    def set_open(self, v: "i32") -> "i32":
+        self.open = v
+        return v
+    def select(self, idx: "i32", n: "i32") -> "i32":
+        if n <= 0:
+            self.selected = -1
+            return -1
+        if idx < 0:
+            idx = 0
+        if idx >= n:
+            idx = n - 1
+        self.selected = idx
+        return idx
+    def hit(self, px: "f64", py: "f64", options: "list[str]", n: "i32") -> "i32":
+        if px >= self.bx:
+            if px < self.bx + self.bw:
+                if py >= self.by:
+                    if py < self.by + self.bh:
+                        return -2
+        if self.open == 1:
+            y0 = self.by + self.bh + 4.0
+            i = int(0)
+            while i < n:
+                ry = y0 + 4.0 + float(i) * self.item_h
+                if px >= self.bx:
+                    if px < self.bx + self.bw:
+                        if py >= ry:
+                            if py < ry + self.item_h:
+                                return i
+                i = i + 1
+        return -1
+    def handle_pointer(self, e: "PointerEventArgs", options: "list[str]", n: "i32") -> "i32":
+        if e.is_down == 1:
+            return 0
+        h = self.hit(e.px, e.py, options, n)
+        if h == -2:
+            self.toggle()
+            return -2
+        if h >= 0:
+            self.select(h, n)
+            self.set_open(0)
+            return h
+        if self.open == 1:
+            self.set_open(0)
+            return -1
+        return -1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", options: "list[str]", n: "i32") -> "i32":
+        if n < 0:
+            return 0
+        if len(options) < n:
+            return 0
+        box = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, box, 6.0, ColorRgba(255, 255, 255, 255))
+        bcol = ColorRgba(217, 217, 217, 255)
+        if self.open == 1:
+            bcol = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+        stroke_round_rect(buf, surf, box, 6.0, 1.0, bcol)
+        txt = self.placeholder
+        tcol = ColorRgba(170, 170, 170, 255)
+        if self.selected >= 0:
+            if self.selected < n:
+                txt = options[self.selected]
+                tcol = ColorRgba(40, 40, 40, 255)
+        maxc = int((self.bw - 40.0) / 6.0)
+        if maxc > 0:
+            seg = vi_truncate(txt, maxc)
+            draw_string(buf, surf, seg, self.bx + 10.0, self.by + (self.bh - 7.0) / 2.0, 1.0, tcol)
+        ax = self.bx + self.bw - 16.0
+        ay = self.by + self.bh / 2.0
+        acol = ColorRgba(140, 140, 140, 255)
+        if self.open == 1:
+            draw_line(buf, surf, ax - 5.0, ay + 2.0, ax, ay - 3.0, 1.5, acol)
+            draw_line(buf, surf, ax, ay - 3.0, ax + 5.0, ay + 2.0, 1.5, acol)
+        else:
+            draw_line(buf, surf, ax - 5.0, ay - 2.0, ax, ay + 3.0, 1.5, acol)
+            draw_line(buf, surf, ax, ay + 3.0, ax + 5.0, ay - 2.0, 1.5, acol)
+        if self.open == 1:
+            y0 = self.by + self.bh + 4.0
+            pop = Rect2D(self.bx, y0, self.bw, float(n) * self.item_h + 8.0)
+            fill_round_rect(buf, surf, pop, 6.0, ColorRgba(255, 255, 255, 255))
+            stroke_round_rect(buf, surf, pop, 6.0, 1.0, ColorRgba(230, 230, 230, 255))
+            i = int(0)
+            while i < n:
+                ry = y0 + 4.0 + float(i) * self.item_h
+                row = Rect2D(self.bx + 4.0, ry, self.bw - 8.0, self.item_h)
+                if i == self.selected:
+                    fill_round_rect(buf, surf, row, 4.0, ColorRgba(self.cr, self.cg, self.cb, 30))
+                else:
+                    if i == self.hover:
+                        fill_round_rect(buf, surf, row, 4.0, ColorRgba(0, 0, 0, 10))
+                opt = options[i]
+                omax = int((self.bw - 28.0) / 6.0)
+                if omax > 0:
+                    oseg = opt
+                    if len(opt) > omax:
+                        oseg = opt[0:omax]
+                    draw_string(buf, surf, oseg, self.bx + 12.0, ry + (self.item_h - 7.0) / 2.0, 1.0, ColorRgba(40, 40, 40, 255))
+                i = i + 1
+        return 1
+
+def make_ant_select(x: "f64", y: "f64", w: "f64", placeholder: "str") -> "AntSelectWidget":
+    return AntSelectWidget(x, y, w, 32.0, -1, 0, -1, 28.0, 22, 119, 255, 255, placeholder)
+
+class AntRateWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    value: "i32"
+    max_stars: "i32"
+    star_scale: "i32"
+    gap: "i32"
+    hover: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, value, max_stars, star_scale, gap, hover, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.value = value
+        self.max_stars = max_stars
+        self.star_scale = star_scale
+        self.gap = gap
+        self.hover = hover
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def set_value(self, v: "i32") -> "i32":
+        if v < 0:
+            v = 0
+        if v > self.max_stars:
+            v = self.max_stars
+        self.value = v
+        return v
+    def star_adv(self) -> "i32":
+        return 5 * self.star_scale + self.gap
+    def hit(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py < self.by:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        adv = self.star_adv()
+        if adv <= 0:
+            return 0
+        idx = int((px - self.bx) / float(adv)) + 1
+        if idx < 1:
+            idx = 1
+        if idx > self.max_stars:
+            idx = self.max_stars
+        return idx
+    def handle_pointer(self, e: "PointerEventArgs") -> "i32":
+        if e.is_down == 1:
+            return 0
+        h = self.hit(e.px, e.py)
+        if h > 0:
+            self.set_value(h)
+            return h
+        return 0
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        sc = 2.0
+        if self.star_scale == 1:
+            sc = 1.0
+        if self.star_scale == 3:
+            sc = 3.0
+        adv = self.star_adv()
+        i = int(0)
+        while i < self.max_stars:
+            x = self.bx + float(i * adv)
+            y = self.by
+            col = ColorRgba(217, 217, 217, 255)
+            if i < self.value:
+                col = ColorRgba(self.cr, self.cg, self.cb, self.ca)
+            draw_string(buf, surf, "*", x, y, sc, col)
+            i = i + 1
+        return 1
+
+def make_ant_rate(x: "f64", y: "f64", value: "i32") -> "AntRateWidget":
+    if value < 0:
+        value = 0
+    if value > 5:
+        value = 5
+    return AntRateWidget(x, y, 74.0, 16.0, value, 5, 2, 6, -1, 250, 173, 20, 255)
+
+class AntSpinWidget:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    size: "f64"
+    angle: "f64"
+    speed: "f64"
+    spinning: "i32"
+    cr: "i64"
+    cg: "i64"
+    cb: "i64"
+    ca: "i64"
+    def __init__(self, bx, by, bw, bh, size, angle, speed, spinning, cr, cg, cb, ca):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.size = size
+        self.angle = angle
+        self.speed = speed
+        self.spinning = spinning
+        self.cr = cr
+        self.cg = cg
+        self.cb = cb
+        self.ca = ca
+    def start(self) -> "i32":
+        self.spinning = 1
+        return 1
+    def stop(self) -> "i32":
+        self.spinning = 0
+        return 1
+    def set_speed(self, v: "f64") -> "f64":
+        self.speed = v
+        return v
+    def step(self, dt: "f64") -> "i32":
+        if self.spinning == 0:
+            return 0
+        self.angle = self.angle + self.speed * dt
+        while self.angle >= 360.0:
+            self.angle = self.angle - 360.0
+        while self.angle < 0.0:
+            self.angle = self.angle + 360.0
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface") -> "i32":
+        cx = self.bx + self.bw / 2.0
+        cy = self.by + self.bh / 2.0
+        rad = self.size / 2.0
+        draw_arc(buf, surf, cx, cy, rad, 3.0, 0.0, 360.0, ColorRgba(230, 230, 230, 255))
+        draw_arc(buf, surf, cx, cy, rad, 3.0, self.angle, 270.0, ColorRgba(self.cr, self.cg, self.cb, self.ca))
+        return 1
+
+def make_ant_spin(x: "f64", y: "f64", size: "f64") -> "AntSpinWidget":
+    return AntSpinWidget(x, y, size, size, size, 0.0, 360.0, 0, 22, 119, 255, 255)
+
+# =========================================================
 # RENDER LOOP (60fps, idle -> 0% CPU)
 # =========================================================
 class RenderLoop:
@@ -1285,6 +2854,17 @@ class RenderLoop:
 
 def make_render_loop(fps: "i32") -> "RenderLoop":
     return RenderLoop(fps, 0, 0, 0)
+
+def render_loop_pump_all(loops: "list[RenderLoop]", dt: "f64") -> "i32":
+    # Tick moi RenderLoop (1 loop / window), tra so frame due can ve lai.
+    due = 0
+    i = 0
+    while i < len(loops):
+        lp = loops[i]
+        springs = []
+        due = due + lp.tick(dt, springs, 0)
+        i = i + 1
+    return due
 
 # =========================================================
 # WIDGET HELPERS
@@ -1554,6 +3134,15 @@ def widget_selftest() -> "str":
     widget_check_i(acc, "textfield len sau 2 ky tu", len(tf.text), 2)
     tf.backspace()
     widget_check_i(acc, "textfield len sau backspace", len(tf.text), 1)
+    tf.type_char("ệ")
+    widget_check_i(acc, "textfield len sau ky tu Viet 3dv", len(tf.text), 4)
+    widget_check_i(acc, "textfield strlen Viet", vi_strlen(tf.text), 2)
+    tf.backspace()
+    widget_check_i(acc, "textfield backspace xoa ca sequence", len(tf.text), 1)
+    vtfok = 0
+    if tf.text == "a":
+        vtfok = 1
+    widget_check(acc, "textfield text sau backspace Viet", vtfok)
     # --- ListView virtualization (5000 dong)
     widget_check_i(acc, "listview first_visible ban dau", lv.first_visible(), 0)
     lv.scroll_by(900.0, 5000.0 * 18.0)
@@ -1655,6 +3244,156 @@ def widget_selftest() -> "str":
     fm.focus_index(0 - 1)
     fm.type_char("x")
     widget_check_i(acc, "khong focus -> khong widget nao nhan text", len(tf2.text), 1)
+    # --- Ant-inspired widgets (19-28) tren surface rieng (nen trang)
+    abuf = []
+    i = int(0)
+    while i < total:
+        abuf.append(0)
+        i = i + 1
+    asurf = PixelSurface(W, H, W)
+    awhite = ColorRgba(255, 255, 255, 255)
+    surface_clear(abuf, asurf, awhite)
+    abg = awhite.to_uint32()
+    tag = make_ant_tag(10.0, 156.0, "New", 2, 1)
+    te = PointerEventArgs(51.0, 167.0, 1, 1)
+    tag.handle_pointer(te)
+    te.is_down = 0
+    tr = tag.handle_pointer(te)
+    widget_check_i(acc, "ant tag close", tr, 1)
+    widget_check_i(acc, "ant tag closed", tag.closed, 1)
+    tag2 = make_ant_tag(70.0, 156.0, "Hot", 3, 0)
+    te2 = PointerEventArgs(80.0, 167.0, 1, 1)
+    te2.is_down = 0
+    tr2 = tag2.handle_pointer(te2)
+    widget_check_i(acc, "ant tag body click", tr2, 2)
+    tag2.render(abuf, asurf)
+    b5 = make_ant_badge(120.0, 156.0, 5)
+    widget_check_i(acc, "ant badge label 5", len(b5.label()), 1)
+    widget_check_i(acc, "ant badge visible", b5.is_visible(), 1)
+    b5.render(abuf, asurf)
+    b99 = make_ant_badge(150.0, 156.0, 120)
+    blok = 0
+    if b99.label() == "99+":
+        blok = 1
+    widget_check(acc, "ant badge overflow label 99+", blok)
+    b99.render(abuf, asurf)
+    bd = make_ant_dot(200.0, 156.0)
+    widget_check_i(acc, "ant badge dot visible", bd.is_visible(), 1)
+    bd.render(abuf, asurf)
+    bz = make_ant_badge(230.0, 156.0, 0)
+    widget_check_i(acc, "ant badge zero hidden", bz.is_visible(), 0)
+    bz2 = make_ant_badge(230.0, 156.0, 0, 99, 0, 1)
+    widget_check_i(acc, "ant badge zero shown", bz2.is_visible(), 1)
+    bz2.render(abuf, asurf)
+    av = make_ant_avatar(260.0, 150.0, "AB", 0)
+    widget_check_i(acc, "ant avatar render", av.render(abuf, asurf), 1)
+    al = make_ant_alert(10.0, 8.0, 300.0, "Network error", "Check connection", 3, 1)
+    ae = PointerEventArgs(294.0, 26.0, 1, 1)
+    ae.is_down = 0
+    ar = al.handle_pointer(ae)
+    widget_check_i(acc, "ant alert close", ar, 1)
+    widget_check_i(acc, "ant alert closed", al.closed, 1)
+    widget_check_i(acc, "ant alert render closed", al.render(abuf, asurf), 0)
+    al2 = make_ant_alert(10.0, 8.0, 300.0, "OK", "", 1, 0)
+    widget_check_i(acc, "ant alert render open", al2.render(abuf, asurf), 1)
+    pg = make_ant_pagination(10.0, 268.0, 300.0, 1, 10, 95)
+    widget_check_i(acc, "ant pagination total pages", pg.total_pages(), 10)
+    widget_check_i(acc, "ant pagination next", pg.next_page(), 2)
+    widget_check_i(acc, "ant pagination prev", pg.prev_page(), 1)
+    widget_check_i(acc, "ant pagination clamp high", pg.set_page(99), 10)
+    widget_check_i(acc, "ant pagination clamp low", pg.set_page(0), 1)
+    pg.set_page(5)
+    widget_check_i(acc, "ant pagination prev target", pg.activate(86.0, 282.0), 4)
+    pg.set_page(5)
+    widget_check_i(acc, "ant pagination page target", pg.activate(238.0, 282.0), 5)
+    widget_check_i(acc, "ant pagination render", pg.render(abuf, asurf), 1)
+    st_titles = []
+    st_titles.append("Cart")
+    st_titles.append("Checkout")
+    st_titles.append("Done")
+    st_descs = []
+    st_descs.append("")
+    st_descs.append("")
+    st_descs.append("")
+    tc1 = ant_str_count(st_titles)
+    tc2 = ant_str_count(st_descs)
+    widget_check_i(acc, "ant steps titles", tc1, 3)
+    widget_check_i(acc, "ant steps descs", tc2, 3)
+    stw = make_ant_steps(10.0, 84.0, 300.0, 1)
+    widget_check_i(acc, "ant steps state finish", stw.item_state(0), 1)
+    widget_check_i(acc, "ant steps state process", stw.item_state(1), 2)
+    widget_check_i(acc, "ant steps state wait", stw.item_state(2), 0)
+    stw.set_error(1)
+    widget_check_i(acc, "ant steps state error", stw.item_state(1), 3)
+    stw.clear_error()
+    widget_check_i(acc, "ant steps hit middle", stw.hit(160.0, 98.0, 3), 1)
+    widget_check_i(acc, "ant steps set current", stw.set_current(2, 3), 2)
+    widget_check_i(acc, "ant steps render", stw.render(abuf, asurf, st_titles, st_descs, 3), 1)
+    ths = []
+    ths.append("Name")
+    ths.append("Age")
+    tcs = []
+    tcs.append("Alice")
+    tcs.append("30")
+    tcs.append("Bob")
+    tcs.append("25")
+    cws = []
+    cws.append(120.0)
+    cws.append(60.0)
+    hc = ant_str_count(ths)
+    cc = ant_str_count(tcs)
+    widget_check_i(acc, "ant table headers", hc, 2)
+    widget_check_i(acc, "ant table cells", cc, 4)
+    mw = layout_measure_total(cws, 2, 0.0)
+    widget_check_ge(acc, "ant table widths", int(mw), 180)
+    tbl = make_ant_table(10.0, 184.0, 300.0)
+    widget_check_i(acc, "ant table select", tbl.select_row(1, 2), 1)
+    widget_check_i(acc, "ant table activate", tbl.activate(50.0, 244.0, 2), 1)
+    widget_check_i(acc, "ant table miss", tbl.activate(400.0, 300.0, 2), -1)
+    widget_check_i(acc, "ant table render", tbl.render(abuf, asurf, ths, tcs, cws, 2, 2), 1)
+    opts = []
+    opts.append("Apple")
+    opts.append("Banana")
+    opts.append("Cherry")
+    oc = ant_str_count(opts)
+    widget_check_i(acc, "ant select options", oc, 3)
+    sel = make_ant_select(330.0, 140.0, 140.0, "Pick fruit")
+    se = PointerEventArgs(400.0, 156.0, 1, 1)
+    se.is_down = 0
+    sr = sel.handle_pointer(se, opts, 3)
+    widget_check_i(acc, "ant select toggle open", sr, -2)
+    widget_check_i(acc, "ant select open", sel.open, 1)
+    se2 = PointerEventArgs(400.0, 222.0, 1, 1)
+    se2.is_down = 0
+    sr2 = sel.handle_pointer(se2, opts, 3)
+    widget_check_i(acc, "ant select pick banana", sr2, 1)
+    widget_check_i(acc, "ant select selected", sel.selected, 1)
+    widget_check_i(acc, "ant select render", sel.render(abuf, asurf, opts, 3), 1)
+    rt = make_ant_rate(330.0, 306.0, 3)
+    widget_check_i(acc, "ant rate hit star 3", rt.hit(367.0, 314.0), 3)
+    re = PointerEventArgs(367.0, 314.0, 1, 1)
+    re.is_down = 0
+    widget_check_i(acc, "ant rate click star 3", rt.handle_pointer(re), 3)
+    widget_check_i(acc, "ant rate clamp high", rt.set_value(9), 5)
+    widget_check_i(acc, "ant rate clamp low", rt.set_value(-1), 0)
+    rt.set_value(4)
+    widget_check_i(acc, "ant rate render", rt.render(abuf, asurf), 1)
+    sp = make_ant_spin(430.0, 306.0, 32.0)
+    sp.start()
+    sp.step(0.5)
+    widget_check_ge(acc, "ant spin angle", int(sp.angle), 180)
+    widget_check_i(acc, "ant spin render", sp.render(abuf, asurf), 1)
+    sp.stop()
+    apainted = widget_count_non_bg(abuf, asurf, abg)
+    widget_check_ge(acc, "ant widgets painted", apainted, 3000)
+    # --- multi-window pump: 1 RenderLoop / window ---
+    mloops = []
+    mloops.append(make_render_loop(60))
+    mloops.append(make_render_loop(60))
+    mq0 = mloops[0]
+    mq0.request_invalidate()
+    widget_check_i(acc, "pump 1 frame due", render_loop_pump_all(mloops, 0.016), 1)
+    widget_check_i(acc, "pump het due", render_loop_pump_all(mloops, 0.016), 0)
     print("--- widgets selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
     if acc[0] == acc[1]:
         return "WIDGETS_OK"

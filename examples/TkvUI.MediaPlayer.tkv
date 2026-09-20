@@ -1,0 +1,499 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.MediaPlayer - TokenVector Media Player GUI built with 100% TokenVector.UI
+Plays MP3, WAV, and TKVA formats with 60 FPS animated Spectrum Visualizer.
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+__tkv_extern_pinvoke__ = [
+    {"name": "mci_send", "dll": "winmm.dll", "symbol": "mciSendStringA", "convention": "stdcall", "params": ["str", "str", "i32", "i32"], "returns": "i32"},
+    {"name": "tkv_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"},
+    {"name": "win_exec", "dll": "kernel32.dll", "symbol": "WinExec", "convention": "stdcall", "params": ["str", "i32"], "returns": "i32"}
+]
+__tkv_extern_method__ = [
+    {"name": "tkv_sleep", "assembly": "mscorlib", "class": "System.Threading.Thread", "method": "Sleep", "params": ["i32"], "returns": "void"}
+]
+
+def player_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def player_audio_stop() -> "i32":
+    rc = mci_send("close all", "", 0, 0)
+    return rc
+
+def player_audio_play(path: "str") -> "i32":
+    rc1 = mci_send("close all", "", 0, 0)
+    open_cmd = "open \"" + path + "\" alias tkvsong"
+    rc2 = mci_send(open_cmd, "", 0, 0)
+    rc3 = mci_send("play tkvsong", "", 0, 0)
+    return rc3
+
+def player_audio_pause() -> "i32":
+    rc = mci_send("pause tkvsong", "", 0, 0)
+    return rc
+
+def player_audio_resume() -> "i32":
+    rc = mci_send("resume tkvsong", "", 0, 0)
+    return rc
+
+def player_audio_seek(ms: "i32") -> "i32":
+    rc1 = mci_send("seek tkvsong to " + str(ms), "", 0, 0)
+    rc2 = mci_send("play tkvsong", "", 0, 0)
+    return rc2
+
+def decode_tkva_file(tkva_path: "str", out_wav: "str") -> "i32":
+    cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"d:\\TokenVector.MediaPlayer\\decode_parallel.ps1\" -TkvaPath \"" + tkva_path + "\" -WavOutPath \"" + out_wav + "\" -Threads 24"
+    rc = win_exec(cmd, 0)
+    return rc
+
+def draw_spec_bars(buf: "list[i64]", surf: "PixelSurface", heights: "list[f64]", num_bars: "i32", start_x: "f64", center_y: "f64", spacing: "f64", col: "ColorRgba") -> "i32":
+    i = int(0)
+    while i < num_bars:
+        h = heights[i]
+        if h < 4.0:
+            h = 4.0
+        x = start_x + float(i) * spacing
+        y0 = center_y - h / 2.0
+        y1 = center_y + h / 2.0
+        # Draw vertical bar with thickness 3
+        draw_line(buf, surf, x, y0, x, y1, 3.0, col)
+        i = i + 1
+    return 1
+
+def run() -> "str":
+    print("==================================================")
+    print(" TOKENVECTOR MEDIA PLAYER GUI - TkvUI Engine")
+    print(" 100% TokenVector Framework (Zero External UI Libs)")
+    print("==================================================")
+
+    W = int(440)
+    H = int(780)
+    buf = player_alloc(W, H)
+    shown = player_alloc(W, H)
+    surf = PixelSurface(W, H, W)
+    th = theme_dark()
+
+    # Color tokens
+    c_bg = ColorRgba(16, 16, 20, 255)
+    c_card = ColorRgba(26, 27, 34, 255)
+    c_accent = ColorRgba(138, 92, 246, 255)
+    c_cyan = ColorRgba(56, 189, 248, 255)
+    c_white = ColorRgba(255, 255, 255, 255)
+    c_gray = ColorRgba(160, 160, 175, 255)
+    c_dim = ColorRgba(90, 90, 105, 255)
+    c_bar = ColorRgba(240, 240, 255, 255)
+    c_pill_off = ColorRgba(35, 36, 48, 255)
+
+    # 48 Equalizer bars
+    num_bars = int(48)
+    bar_heights = []
+    bar_targets = []
+    i = int(0)
+    while i < num_bars:
+        bar_heights.append(4.0)
+        bar_targets.append(4.0)
+        i = i + 1
+
+    # Playlist setup
+    track_names = []
+    track_paths = []
+    track_profiles = []
+    track_durations = [] # in seconds
+
+    # 1. TKVA Lossless
+    track_names.append("Anh Chi Biet Cam Nin Nghe Tieng Em Khoc")
+    track_paths.append("d:\\TokenVector.MediaPlayer\\audio_samples\\Anh_Chi_Biet_v30_lossless_parallel.tkva")
+    track_profiles.append("TKVA v30 Max Lossless (32.39 MB)")
+    track_durations.append(281)
+
+    # 2. TKVA Perceptual
+    track_names.append("Anh Chi Biet Cam Nin Nghe Tieng Em Khoc")
+    track_paths.append("d:\\TokenVector.MediaPlayer\\audio_samples\\Anh_Chi_Biet_v30_perceptual_ultra.tkva")
+    track_profiles.append("TKVA v30 Perceptual Ultra (6.98 MB)")
+    track_durations.append(281)
+
+    # 3. WAV Studio Master
+    track_names.append("Anh Chi Biet Cam Nin Nghe Tieng Em Khoc")
+    track_paths.append("d:\\TokenVector.MediaPlayer\\audio_samples\\Anh_Chi_Biet_Cam_Nin_Nghe_Tieng_Em_Khoc_StudioMaster_HiFi.wav")
+    track_profiles.append("WAV PCM Studio Master (54.04 MB)")
+    track_durations.append(281)
+
+    # 4. MP3 Audio
+    track_names.append("Hay Trao Cho Anh")
+    track_paths.append("d:\\TokenVector.MediaPlayer\\Hay Trao Cho Anh.mp3")
+    track_profiles.append("MP3 Audio Stereo 320kbps")
+    track_durations.append(245)
+
+    current_track = int(0)
+    is_playing = int(0)
+    is_shuffle = int(0)
+    is_repeat = int(0)
+    track_pos_sec = int(0)
+    total_dur_sec = track_durations[0]
+    play_start_tick = int(0)
+
+    # Create Platform Window
+    plat = Win32Platform(0)
+    wh = plat.create(200, 80, W, H, 1)
+    if wh.handle == 0:
+        print("[TkvUI] Khong the tao cua so tren Windows.")
+        return "TKVUI_WINDOW_FAIL"
+
+    print("[TkvUI] Cua so TokenVector Media Player da mo. Handle=" + str(wh.handle))
+
+    # Seed for visualizer pseudo-random wave
+    seed = int(12345)
+    quit_loop = int(0)
+    loop_count = int(0)
+
+    while quit_loop == 0:
+        loop_count = loop_count + 1
+        now_tick = tkv_ticks()
+
+        # Poll Win32 Input
+        pump = win_poll_messages()
+        if win_key_down(27) != 0: # ESC to quit
+            quit_loop = 1
+
+        pxs = win_pointer_x()
+        pys = win_pointer_y()
+        mx = float(pxs) - float(wh.x)
+        my = float(pys) - float(wh.y)
+        mouse_down = win_key_down(1)
+
+        # Handle button clicks
+        if mouse_down == 1:
+            # Top Close Button (X: 395..425, Y: 15..35)
+            if mx >= 395.0 and mx <= 425.0 and my >= 15.0 and my <= 35.0:
+                quit_loop = 1
+
+            # Play/Pause Button (Center: X: 195..245, Y: 670..720)
+            if mx >= 195.0 and mx <= 245.0 and my >= 670.0 and my <= 720.0:
+                if is_playing == 1:
+                    is_playing = 0
+                    player_audio_pause()
+                else:
+                    is_playing = 1
+                    play_start_tick = now_tick - (track_pos_sec * 1000)
+                    cur_p = track_paths[current_track]
+                    # If TKVA format, decode first
+                    if cur_p.endswith(".tkva"):
+                        tmp_wav = "d:\\TokenVector.MediaPlayer\\audio_samples\\tkvui_temp_play.wav"
+                        decode_tkva_file(cur_p, tmp_wav)
+                        tkv_sleep(400)
+                        player_audio_play(tmp_wav)
+                    else:
+                        player_audio_play(cur_p)
+                tkv_sleep(120)
+
+            # Prev Track Button (X: 145..180, Y: 680..710)
+            if mx >= 145.0 and mx <= 180.0 and my >= 680.0 and my <= 710.0:
+                current_track = (current_track - 1 + 4) % 4
+                track_pos_sec = 0
+                total_dur_sec = track_durations[current_track]
+                if is_playing == 1:
+                    cur_p = track_paths[current_track]
+                    if cur_p.endswith(".tkva"):
+                        tmp_wav = "d:\\TokenVector.MediaPlayer\\audio_samples\\tkvui_temp_play.wav"
+                        decode_tkva_file(cur_p, tmp_wav)
+                        tkv_sleep(400)
+                        player_audio_play(tmp_wav)
+                    else:
+                        player_audio_play(cur_p)
+                    play_start_tick = now_tick
+                tkv_sleep(150)
+
+            # Next Track Button (X: 260..295, Y: 680..710)
+            if mx >= 260.0 and mx <= 295.0 and my >= 680.0 and my <= 710.0:
+                if is_shuffle == 1:
+                    current_track = (current_track + 2) % 4
+                else:
+                    current_track = (current_track + 1) % 4
+                track_pos_sec = 0
+                total_dur_sec = track_durations[current_track]
+                if is_playing == 1:
+                    cur_p = track_paths[current_track]
+                    if cur_p.endswith(".tkva"):
+                        tmp_wav = "d:\\TokenVector.MediaPlayer\\audio_samples\\tkvui_temp_play.wav"
+                        decode_tkva_file(cur_p, tmp_wav)
+                        tkv_sleep(400)
+                        player_audio_play(tmp_wav)
+                    else:
+                        player_audio_play(cur_p)
+                    play_start_tick = now_tick
+                tkv_sleep(150)
+
+            # -15s Replay Button (X: 85..120, Y: 680..710)
+            if mx >= 85.0 and mx <= 120.0 and my >= 680.0 and my <= 710.0:
+                track_pos_sec = track_pos_sec - 15
+                if track_pos_sec < 0:
+                    track_pos_sec = 0
+                play_start_tick = now_tick - (track_pos_sec * 1000)
+                player_audio_seek(track_pos_sec * 1000)
+                tkv_sleep(150)
+
+            # +15s Forward Button (X: 320..355, Y: 680..710)
+            if mx >= 320.0 and mx <= 355.0 and my >= 680.0 and my <= 710.0:
+                track_pos_sec = track_pos_sec + 15
+                if track_pos_sec > total_dur_sec:
+                    track_pos_sec = total_dur_sec
+                play_start_tick = now_tick - (track_pos_sec * 1000)
+                player_audio_seek(track_pos_sec * 1000)
+                tkv_sleep(150)
+
+            # Shuffle Button (X: 30..65, Y: 680..710)
+            if mx >= 30.0 and mx <= 65.0 and my >= 680.0 and my <= 710.0:
+                if is_shuffle == 1:
+                    is_shuffle = 0
+                else:
+                    is_shuffle = 1
+                tkv_sleep(150)
+
+            # Repeat Button (X: 375..410, Y: 680..710)
+            if mx >= 375.0 and mx <= 410.0 and my >= 680.0 and my <= 710.0:
+                if is_repeat == 1:
+                    is_repeat = 0
+                else:
+                    is_repeat = 1
+                tkv_sleep(150)
+
+            # Progress Bar Scrubbing (X: 30..410, Y: 625..645)
+            if mx >= 30.0 and mx <= 410.0 and my >= 625.0 and my <= 645.0:
+                ratio = (mx - 30.0) / 380.0
+                track_pos_sec = int(ratio * float(total_dur_sec))
+                play_start_tick = now_tick - (track_pos_sec * 1000)
+                player_audio_seek(track_pos_sec * 1000)
+                tkv_sleep(100)
+
+            # Preset Track Selector Buttons (Y: 415..445)
+            # Track 1: X: 30..115, Track 2: X: 125..215, Track 3: X: 225..315, Track 4: X: 325..410
+            if my >= 415.0 and my <= 445.0:
+                sel = int(-1)
+                if mx >= 30.0 and mx <= 115.0:
+                    sel = 0
+                if mx >= 125.0 and mx <= 215.0:
+                    sel = 1
+                if mx >= 225.0 and mx <= 315.0:
+                    sel = 2
+                if mx >= 325.0 and mx <= 410.0:
+                    sel = 3
+                if sel >= 0 and sel != current_track:
+                    current_track = sel
+                    track_pos_sec = 0
+                    total_dur_sec = track_durations[current_track]
+                    if is_playing == 1:
+                        cur_p = track_paths[current_track]
+                        if cur_p.endswith(".tkva"):
+                            tmp_wav = "d:\\TokenVector.MediaPlayer\\audio_samples\\tkvui_temp_play.wav"
+                            decode_tkva_file(cur_p, tmp_wav)
+                            tkv_sleep(400)
+                            player_audio_play(tmp_wav)
+                        else:
+                            player_audio_play(cur_p)
+                        play_start_tick = now_tick
+                    tkv_sleep(150)
+
+        # Update Audio Progress Time
+        if is_playing == 1:
+            elapsed = (now_tick - play_start_tick) // 1000
+            track_pos_sec = elapsed
+            if track_pos_sec >= total_dur_sec:
+                if is_repeat == 1:
+                    track_pos_sec = 0
+                    play_start_tick = now_tick
+                    player_audio_seek(0)
+                else:
+                    current_track = (current_track + 1) % 4
+                    track_pos_sec = 0
+                    total_dur_sec = track_durations[current_track]
+                    cur_p = track_paths[current_track]
+                    if cur_p.endswith(".tkva"):
+                        tmp_wav = "d:\\TokenVector.MediaPlayer\\audio_samples\\tkvui_temp_play.wav"
+                        decode_tkva_file(cur_p, tmp_wav)
+                        tkv_sleep(400)
+                        player_audio_play(tmp_wav)
+                    else:
+                        player_audio_play(cur_p)
+                    play_start_tick = now_tick
+
+        # ==========================================
+        # 60 FPS RENDER FRAME
+        # ==========================================
+        surface_clear(buf, surf, c_bg)
+
+        # 1. Top Bar & Window Frame
+        fill_round_rect(buf, surf, Rect2D(12.0, 12.0, 416.0, 756.0), 24.0, c_card)
+        draw_string(buf, surf, "TOKENVECTOR MEDIA PLAYER", 30.0, 26.0, 1.0, c_gray)
+        draw_string(buf, surf, "-", 370.0, 24.0, 1.5, c_gray)
+        draw_string(buf, surf, "X", 405.0, 24.0, 1.5, c_cyan)
+
+        # 2. Album Cover Card (Center)
+        fill_round_rect(buf, surf, Rect2D(30.0, 56.0, 380.0, 340.0), 18.0, ColorRgba(8, 8, 12, 255))
+        stroke_round_rect(buf, surf, Rect2D(30.0, 56.0, 380.0, 340.0), 18.0, 1.5, ColorRgba(40, 42, 54, 255))
+        
+        # Decorative vinyl ring on cover
+        draw_arc(buf, surf, 220.0, 215.0, 110.0, 0.0, 360.0, 2.0, ColorRgba(25, 27, 36, 255))
+        draw_arc(buf, surf, 220.0, 215.0, 75.0, 0.0, 360.0, 1.5, ColorRgba(35, 38, 50, 255))
+        draw_arc(buf, surf, 220.0, 215.0, 40.0, 0.0, 360.0, 2.0, c_accent)
+        
+        # Album Center Text
+        draw_string(buf, surf, "ALBUM COVER", 0.0, 205.0, 2.0, c_white, 1, 440.0)
+        draw_string(buf, surf, "TOKENVECTOR Hi-Fi ENGINE", 0.0, 235.0, 1.0, c_cyan, 1, 440.0)
+
+        # 3. Format Selector Pills (Lossless / Perceptual / WAV / MP3)
+        p0_col = c_pill_off
+        if current_track == 0:
+            p0_col = c_accent
+        fill_round_rect(buf, surf, Rect2D(30.0, 415.0, 85.0, 28.0), 8.0, p0_col)
+        draw_string(buf, surf, "Lossless", 42.0, 423.0, 1.0, c_white)
+
+        p1_col = c_pill_off
+        if current_track == 1:
+            p1_col = c_accent
+        fill_round_rect(buf, surf, Rect2D(125.0, 415.0, 90.0, 28.0), 8.0, p1_col)
+        draw_string(buf, surf, "Perceptual", 132.0, 423.0, 1.0, c_white)
+
+        p2_col = c_pill_off
+        if current_track == 2:
+            p2_col = c_accent
+        fill_round_rect(buf, surf, Rect2D(225.0, 415.0, 90.0, 28.0), 8.0, p2_col)
+        draw_string(buf, surf, "WAV 48k", 242.0, 423.0, 1.0, c_white)
+
+        p3_col = c_pill_off
+        if current_track == 3:
+            p3_col = c_accent
+        fill_round_rect(buf, surf, Rect2D(325.0, 415.0, 85.0, 28.0), 8.0, p3_col)
+        draw_string(buf, surf, "MP3 320k", 337.0, 423.0, 1.0, c_white)
+
+        # 4. Song Metadata
+        draw_string(buf, surf, track_names[current_track], 0.0, 460.0, 1.2, c_white, 1, 440.0)
+        draw_string(buf, surf, track_profiles[current_track], 0.0, 480.0, 1.0, c_cyan, 1, 440.0)
+
+        # 5. Equalizer Spectrum Visualizer (48 bars)
+        # Update targets based on state
+        i = int(0)
+        while i < num_bars:
+            if is_playing == 1:
+                # Deterministic pseudo-random harmonic beat calculation
+                seed = (seed * 1103515245 + 12345) % 2147483647
+                rnd = float(seed % 1000) / 1000.0
+                
+                pos_ratio = float(i) / float(num_bars)
+                # Band emphasis: bass on low, vocal on mid, crispness on high
+                band = 1.0
+                if i < 12:
+                    band = 1.35
+                if i >= 12 and i < 28:
+                    band = 1.1
+                if i >= 28:
+                    band = 0.8
+                
+                target_h = 60.0 * (0.3 + 0.7 * rnd) * band
+                if target_h < 4.0:
+                    target_h = 4.0
+                if target_h > 75.0:
+                    target_h = 75.0
+                bar_targets[i] = target_h
+            else:
+                # Resting gentle wave when paused
+                wave = 6.0 + 3.0 * float(i % 5)
+                bar_targets[i] = wave
+            
+            # Smooth 60 FPS interpolation (Fast attack + smooth decay)
+            cur_h = bar_heights[i]
+            tgt_h = bar_targets[i]
+            if tgt_h > cur_h:
+                cur_h = cur_h + (tgt_h - cur_h) * 0.45
+            else:
+                cur_h = cur_h - (cur_h - tgt_h) * 0.18
+            bar_heights[i] = cur_h
+            i = i + 1
+
+        # Draw 48 Equalizer Spectrum Bars (Center Y: 560.0)
+        draw_spec_bars(buf, surf, bar_heights, num_bars, 35.0, 555.0, 7.8, c_bar)
+
+        # 6. Timeline & Progress Slider
+        cur_min = track_pos_sec // 60
+        cur_sec = track_pos_sec % 60
+        tot_min = total_dur_sec // 60
+        tot_sec = total_dur_sec % 60
+
+        str_cur_sec = str(cur_sec)
+        if cur_sec < 10:
+            str_cur_sec = "0" + str_cur_sec
+        str_tot_sec = str(tot_sec)
+        if tot_sec < 10:
+            str_tot_sec = "0" + str_tot_sec
+
+        time_cur = str(cur_min) + ":" + str_cur_sec
+        time_tot = str(tot_min) + ":" + str_tot_sec
+
+        draw_string(buf, surf, time_cur, 30.0, 615.0, 1.0, c_gray)
+        draw_string(buf, surf, time_tot, 375.0, 615.0, 1.0, c_gray)
+
+        # Background track line
+        draw_line(buf, surf, 30.0, 635.0, 410.0, 635.0, 4.0, ColorRgba(45, 48, 62, 255))
+        
+        # Active progress bar
+        prog_ratio = float(track_pos_sec) / float(total_dur_sec)
+        if prog_ratio > 1.0:
+            prog_ratio = 1.0
+        prog_w = 380.0 * prog_ratio
+        if prog_w > 0.0:
+            draw_line(buf, surf, 30.0, 635.0, 30.0 + prog_w, 635.0, 4.0, c_accent)
+            # Scrubber knob dot
+            fill_round_rect(buf, surf, Rect2D(25.0 + prog_w, 630.0, 10.0, 10.0), 5.0, c_white)
+
+        # 7. Player Control Buttons (7 Buttons)
+        # 1. Shuffle
+        col_shuf = c_dim
+        if is_shuffle == 1:
+            col_shuf = c_accent
+        draw_string(buf, surf, "SHUF", 32.0, 692.0, 1.0, col_shuf)
+
+        # 2. -15s
+        draw_string(buf, surf, "-15s", 92.0, 692.0, 1.0, c_gray)
+
+        # 3. Prev (|<)
+        draw_string(buf, surf, "|<<", 152.0, 692.0, 1.2, c_white)
+
+        # 4. Large Play/Pause Button (Center Circle: X=220, Y=695, R=25)
+        fill_round_rect(buf, surf, Rect2D(195.0, 670.0, 50.0, 50.0), 25.0, c_accent)
+        if is_playing == 1:
+            # Pause icon (||)
+            draw_line(buf, surf, 214.0, 685.0, 214.0, 705.0, 3.0, c_white)
+            draw_line(buf, surf, 226.0, 685.0, 226.0, 705.0, 3.0, c_white)
+        else:
+            # Play icon (>)
+            draw_string(buf, surf, ">", 217.0, 684.0, 2.0, c_white)
+
+        # 5. Next (>|)
+        draw_string(buf, surf, ">>|", 268.0, 692.0, 1.2, c_white)
+
+        # 6. +15s
+        draw_string(buf, surf, "+15s", 325.0, 692.0, 1.0, c_gray)
+
+        # 7. Repeat
+        col_rep = c_dim
+        if is_repeat == 1:
+            col_rep = c_accent
+        draw_string(buf, surf, "REP", 382.0, 692.0, 1.0, col_rep)
+
+        # 8. Present Frame to Desktop Window
+        plat.present(buf, surf, wh)
+        
+        # 60 FPS rate limit (~16ms per frame)
+        tkv_sleep(16)
+
+    # Cleanup when window is closed
+    player_audio_stop()
+    plat.close_window(wh)
+    print("[TkvUI] Da dong cua so TokenVector Media Player.")
+    return "TKVUI_PLAYER_SUCCESS"
+
+

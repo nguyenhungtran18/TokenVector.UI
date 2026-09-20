@@ -1,8 +1,8 @@
 {
   "name": "TokenVector.UI",
   "alias": "TkvUI",
-  "version": "2.3.1",
-  "description": "Thư viện UI đa nền tảng 100% TokenVector (.tkv) - zero dependency: rasterizer, font bitmap, effects, layout flex/grid, 15 widget, cửa sổ native Win32.",
+  "version": "2.9.0",
+  "description": "Thu vien UI da nen tang 100% TokenVector (.tkv) - zero dependency: rasterizer, font bitmap, effects, layout flex/grid, 28 widget + 16 native-look widget, media player, theme engine, model/view/SQLite, PDF printing, A11y bridge, font fallback, native dialogs, IME, UIA/AT-SPI provider, packaging/WASM tooling.",
   "license": "MIT",
   "repository": "https://github.com/nguyenhungtran18/TokenVector",
   "toolchain": {
@@ -16,12 +16,30 @@
     { "name": "TkvUI.Core",     "file": "TkvUI.Core.tkv",     "imports": [],                                       "summary": "ColorRgba/ColorHsla, Point2D, Rect2D, Matrix3x2, PixelSurface (list[i64]), Theme, Insets/CornerRadius, DPI, SurfacePool-lite", "selftest": "core_selftest" },
     { "name": "TkvUI.Graphics", "file": "TkvUI.Graphics.tkv", "imports": ["TkvUI.Core"],                           "summary": "draw_line (Bresenham), fill/stroke_round_rect, draw_arc (Sin/Cos), draw_polyline, clip_rect_intersect, draw_image", "selftest": "graphics_selftest" },
     { "name": "TkvUI.Text",     "file": "TkvUI.Text.tkv",     "imports": ["TkvUI.Core"],                           "summary": "Font bitmap 5x7 (95 glyph + box fallback), glyph atlas pre-baked (text_atlas_draw_string), char_code, measure_string, draw_string (align/tracking/scale), wrap + ellipsis", "selftest": "text_selftest" },
+    { "name": "TkvUI.Viet",     "file": "TkvUI.Viet.tkv",     "imports": ["TkvUI.Core"],                           "summary": "Vietnamese bitmap 5x7 (134 precomposed glyphs), UTF-8 sequence utils (vi_strlen/vi_seq_len_at/vi_truncate), vi_draw_bits", "selftest": null },
+    { "name": "TkvUI.I18nData", "file": "TkvUI.I18nData.tkv", "imports": ["TkvUI.Core"],                           "summary": "Baked subset font bytes (Hebrew/Arabic/CJK) + codepoint/slot tables cho text_atlas_bake_i18n (khong doc file luc chay)", "selftest": null },
     { "name": "TkvUI.Effects",  "file": "TkvUI.Effects.tkv",  "imports": ["TkvUI.Core", "TkvUI.Graphics"],          "summary": "box_blur, kawase_blur 3-pass, backdrop_blur (glass), specular highlight, drop shadow", "selftest": "effects_selftest" },
     { "name": "TkvUI.Platform", "file": "TkvUI.Platform.tkv", "imports": ["TkvUI.Core"],                           "summary": "detect_platform() thật (probe runtime), Win32 ULW thật, X11/Cocoa stub, Android/iOS host-driven contract", "selftest": "platform_selftest" },
     { "name": "TkvUI.Events",   "file": "TkvUI.Events.tkv",   "imports": ["TkvUI.Core"],                           "summary": "PointerEventArgs, HitTestResult, pointer_button_label, no_hit", "selftest": null },
     { "name": "TkvUI.Input",    "file": "TkvUI.Input.tkv",    "imports": ["TkvUI.Core", "TkvUI.Events"],            "summary": "hit_test_tree topmost-first, EventDispatcher (pointer capture), TouchEventArgs, GestureRecognizer (tap/pan/pinch)", "selftest": "input_selftest" },
     { "name": "TkvUI.Layout",   "file": "TkvUI.Layout.tkv",   "imports": ["TkvUI.Core"],                           "summary": "FlexStyle/GridStyle/Constraint, flex row/col wrap + cross-align + justify, stack, grid + span, DPI, validator", "selftest": "layout_selftest" },
-    { "name": "TkvUI.Widgets",  "file": "TkvUI.Widgets.tkv",  "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Effects","TkvUI.Platform","TkvUI.Events","TkvUI.Input","TkvUI.Layout"], "summary": "UIElement + 15 widget, Spring/Tween, InvalidationManager, FrameScheduler, RenderLoop", "selftest": "widget_selftest" }
+    { "name": "TkvUI.Widgets",  "file": "TkvUI.Widgets.tkv",  "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Effects","TkvUI.Platform","TkvUI.Events","TkvUI.Input","TkvUI.Layout"], "summary": "UIElement + 28 widget (15 base + DPad/ControlBtn/Joystick + 10 Ant-inspired), Spring/Tween, InvalidationManager, FrameScheduler, RenderLoop", "selftest": "widget_selftest" },
+    { "name": "TkvUI.Media",    "file": "TkvUI.Media.tkv",    "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Events","TkvUI.Input"], "summary": "Media-player UI: transport, seekbar, volume, repeat, shuffle, speed, playlist, equalizer+presets, spectrum, A-B loop, media_format_time", "selftest": "media_selftest" },
+    { "name": "TkvUI.Bidi",     "file": "TkvUI.Bidi.tkv",     "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Viet","TkvUI.I18nData","TkvUI.Platform"], "summary": "Bidi UAX#9 + HarfBuzz FFI stub + visual reorder + atlas draw (Hebrew/Arabic/CJK/emoji)", "selftest": "bidi_selftest" },
+    { "name": "TkvUI.Gpu",      "file": "TkvUI.Gpu.tkv",      "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform"], "summary": "GPU abstraction + factory + backend pick + Vulkan/D3D11/Metal probes + shader pipeline stubs", "selftest": "gpu_selftest" },
+    { "name": "TkvUI.A11y",     "file": "TkvUI.A11y.tkv",     "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform"], "summary": "Accessibility tree model (role/label/value/states/bounds) + UIA/ObjC FFI stubs + JSON dump stub", "selftest": "a11y_selftest" },
+    { "name": "TkvUI.Font",     "file": "TkvUI.Font.tkv",     "imports": ["TkvUI.Core"], "summary": "Windows GDI font baker (CreateFontA+TextOutA vao DIB, GetPixel ve atlas alpha coverage), font_measure/draw_string. Optional, khong import boi umbrella (can GDI that).", "selftest": "font_selftest" },
+    { "name": "TkvUI.Theme",    "file": "TkvUI.Theme.tkv",    "imports": ["TkvUI.Core"],                           "summary": "OS native-look theme engine: OsPalette 13 roles (Light/Dark/HighContrast), OsMetrics, OsTheme state, state-derivation + geometry helpers", "selftest": "theme_selftest" },
+    { "name": "TkvUI.Widgets.Native", "file": "TkvUI.Widgets.Native.tkv", "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Layout","TkvUI.Theme"], "summary": "16 native-look widgets (Button/LineEdit/ComboBox/Table/Tree/TabBar/MenuBar/ToolBar/Dialog/ScrollBar/Splitter/Progress/Slider/SpinBox/ListView/ToolTip)", "selftest": "native_selftest" },
+    { "name": "TkvUI.Data",     "file": "TkvUI.Data.tkv",     "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Theme"], "summary": "Model/View/Delegate: flat cells, filter/sort proxy, MvTableState render, StringList, Text/Spin/Combo/Date delegates", "selftest": "data_selftest" },
+    { "name": "TkvUI.SQLite",   "file": "TkvUI.SQLite.tkv",   "imports": ["TkvUI.Core","TkvUI.Data"],              "summary": "SQL/ORM in-memory thuan .tkv: schema phang, CRUD, snapshot transaction, SqlTableModel (Data proxy), SqlQuery cursor, SqlRelation", "selftest": "sqlite_selftest" },
+    { "name": "TkvUI.Printing", "file": "TkvUI.Printing.tkv", "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Theme","TkvUI.Data"], "summary": "In/PDF thuan .tkv: PdfPaper/Printer/Margins, PdfFont Base14, PdfPainter (text/rect/path), PdfDocument+xref, table export, PrintDialog stub, PrintPreview", "selftest": "printing_selftest" },
+    { "name": "TkvUI.A11yBridge", "file": "TkvUI.A11yBridge.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform","TkvUI.A11y","TkvUI.Widgets.Native"], "summary": "Screen-reader bridge: backend pick UIA/AT-SPI/NS/TalkBack, role/state maps, guarded UIA calls, event router, live regions, providers, reader detect, focus tracker, widget builders, JSON dump that", "selftest": "abridge_selftest" },
+    { "name": "TkvUI.FontFallback", "file": "TkvUI.FontFallback.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Viet","TkvUI.I18nData"], "summary": "Chuoi font du phong: Text 5x7 -> Viet 134 glyph -> i18n baked (Hebrew/Arabic/CJK) -> box fallback; monospace 6px/seq", "selftest": "fallback_selftest" },
+    { "name": "TkvUI.NativeDlg", "file": "TkvUI.NativeDlg.tkv", "imports": ["TkvUI.Core","TkvUI.Graphics","TkvUI.Text","TkvUI.Theme","TkvUI.Data"], "summary": "File/Color/Font dialogs (API day du, stub cho Win32 that); filter/path/color/hex/font; render browser; SIM cho native marshal", "selftest": "nativedlg_selftest" },
+    { "name": "TkvUI.Ime", "file": "TkvUI.Ime.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Viet"], "summary": "Bo go Tieng Viet Telex/VNI + composition state; tone/mu/breve/horn; composer thuan logic + OS stub; SIM cho IME that", "selftest": "ime_selftest" },
+    { "name": "TkvUI.Uia", "file": "TkvUI.Uia.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform","TkvUI.A11y","TkvUI.A11yBridge"], "summary": "UIA provider kieu host-driven: fragment JSON + event outbox + live regions; SIM cho COM vtable that (upstream)", "selftest": "uia_selftest" },
+    { "name": "TkvUI.Atspi", "file": "TkvUI.Atspi.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform","TkvUI.A11y"], "summary": "AT-SPI provider kieu host-driven: D-Bus envelope + event outbox + tree JSON; SIM cho D-Bus/.so that (upstream)", "selftest": "atspi_selftest" }
   ],
   "umbrella": {
     "file": "TokenVector.UI.tkv",
@@ -32,7 +50,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "12 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK)"
+    "last_result": "35 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK, v2.9.0: +FontFallback/NativeDlg/Ime/Uia/Atspi + CrudDemoFull)"
   },
   "package": {
     "script": "tools/package.sh",

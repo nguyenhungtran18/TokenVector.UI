@@ -1,0 +1,184 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.MediaDemo - demo man hinh media player dung TkvUI.Media (P8)
+
+Headless (khong tao cua so, khong am thanh that): dung widget library de
+ve 1 man hinh player hoan chinh roi do pixel + do tuong tac.
+Build:
+  tkvc.exe build examples/TkvUI.MediaDemo.tkv --entry run --out build/TkvUI.MediaDemo.exe
+"""
+__tkv_import__ = ["../TokenVector.UI"]
+
+def mdemo_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def mdemo_painted(buf: "list[i64]", surf: "PixelSurface", packed: "i64") -> "i32":
+    c = int(0)
+    n = surf.width * surf.height
+    i = int(0)
+    while i < n:
+        if buf[i] != packed:
+            c = c + 1
+        i = i + 1
+    return c
+
+def run() -> "str":
+    print("=== TkvUI.MediaDemo version=" + tkvui_version() + " ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    W = 480
+    H = 640
+    buf = mdemo_alloc(W, H)
+    surf = PixelSurface(W, H, W)
+    bgc = ColorRgba(14, 14, 18, 255)
+    surface_clear(buf, surf, bgc)
+    packed = bgc.to_uint32()
+    # --- spectrum (24 bars, gia lap tin hieu)
+    spc = make_media_spectrum(10.0, 10.0, 460.0, 80.0, 24)
+    vals = []
+    pks = []
+    i = int(0)
+    while i < 24:
+        vals.append(0.0)
+        pks.append(0.0)
+        i = i + 1
+    vc = media_list_count_f(vals)
+    pc = media_list_count_f(pks)
+    acc[1] = acc[1] + 1
+    if vc == 24:
+        acc[0] = acc[0] + 1
+        print("  PASS spectrum buffers = 24")
+    else:
+        print("  FAIL spectrum buffers")
+    vals[0] = 0.9
+    vals[5] = 0.7
+    vals[11] = 0.85
+    vals[17] = 0.5
+    vals[23] = 0.65
+    spc.step(0.016, vals, pks, 24)
+    spc.render(buf, surf, vals, pks, 24)
+    # --- seekbar 0:45 / 4:00
+    sk = make_media_seekbar(10.0, 100.0, 460.0, 45000, 240000)
+    sk.set_from_pointer(250.0)
+    acc[1] = acc[1] + 1
+    if sk.pos_ms > 40000:
+        if sk.pos_ms < 140000:
+            acc[0] = acc[0] + 1
+            print("  PASS seek scrub = " + str(sk.pos_ms))
+        else:
+            print("  FAIL seek scrub")
+    else:
+        print("  FAIL seek scrub")
+    sk.render(buf, surf)
+    # --- transport: nhan play
+    tp = make_media_transport(10.0, 140.0, 460.0, 1, 1, 1)
+    tp.activate(212.0, 164.0)
+    acc[1] = acc[1] + 1
+    if tp.playing == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS transport playing")
+    else:
+        print("  FAIL transport playing")
+    tp.render(buf, surf)
+    # --- volume + repeat + shuffle + speed + abloop
+    vo = make_media_volume(10.0, 196.0, 200.0, 0.8, 0)
+    vo.toggle_mute()
+    acc[1] = acc[1] + 1
+    if vo.muted == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS volume mute")
+    else:
+        print("  FAIL volume mute")
+    vo.toggle_mute()
+    vo.render(buf, surf)
+    rp = make_media_repeat(220.0, 196.0)
+    rp.cycle()
+    rp.render(buf, surf)
+    sh = make_media_shuffle(270.0, 196.0)
+    sh.toggle()
+    sh.render(buf, surf)
+    sd = make_media_speed(320.0, 196.0)
+    sd.cycle()
+    sd.render(buf, surf)
+    ab = make_media_abloop(380.0, 196.0, 90.0)
+    ab.press(60000)
+    ab.press(90000)
+    acc[1] = acc[1] + 1
+    if ab.armed == 2:
+        acc[0] = acc[0] + 1
+        print("  PASS ab loop armed")
+    else:
+        print("  FAIL ab loop armed")
+    ab.render(buf, surf)
+    # --- playlist 4 bai
+    titles = []
+    titles.append("Song A")
+    titles.append("Song B")
+    titles.append("Song C")
+    titles.append("Song D")
+    artists = []
+    artists.append("Singer 1")
+    artists.append("Singer 2")
+    artists.append("Singer 3")
+    artists.append("Singer 4")
+    durs = []
+    durs.append("3:12")
+    durs.append("4:05")
+    durs.append("2:48")
+    durs.append("5:01")
+    tc = media_list_count_s(titles)
+    ac2 = media_list_count_s(artists)
+    dc = media_list_count_s(durs)
+    pl = make_media_playlist(10.0, 232.0, 300.0, 2, 44.0)
+    pl.select_row(1, tc)
+    pl.set_playing(1, tc)
+    acc[1] = acc[1] + 1
+    if pl.playing == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS playlist playing track 1")
+    else:
+        print("  FAIL playlist playing")
+    pl.render(buf, surf, titles, artists, durs, tc)
+    # --- equalizer rock preset
+    eq = make_media_equalizer(320.0, 232.0, 150.0, 88.0, 5)
+    gains = []
+    gi = int(0)
+    while gi < 5:
+        gains.append(0.0)
+        gi = gi + 1
+    gc = media_list_count_f(gains)
+    media_eq_apply_preset(gains, 5, 2)
+    acc[1] = acc[1] + 1
+    if gains[0] == 5.0:
+        acc[0] = acc[0] + 1
+        print("  PASS eq rock preset")
+    else:
+        print("  FAIL eq rock preset")
+    elabs = []
+    elabs.append("60")
+    elabs.append("250")
+    elabs.append("1k")
+    elabs.append("4k")
+    elabs.append("16k")
+    lc = media_list_count_s(elabs)
+    eq.render(buf, surf, gains, elabs, 5)
+    # --- now playing bar
+    draw_string(buf, surf, "Now playing: Song B - Singer 2", 10.0, 610.0, 1.0, ColorRgba(230, 230, 238, 255))
+    painted = mdemo_painted(buf, surf, packed)
+    print("[mediademo] painted=" + str(painted))
+    acc[1] = acc[1] + 1
+    if painted > 6000:
+        acc[0] = acc[0] + 1
+        print("  PASS scene render")
+    else:
+        print("  FAIL scene render")
+    print("--- media demo: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        return "TKVUI_MEDIA_DEMO_OK"
+    return "TKVUI_MEDIA_DEMO_FAIL"

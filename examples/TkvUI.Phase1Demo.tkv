@@ -1,0 +1,147 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Phase1Demo - demo tich hop Phase 1+2: Theme + Native widgets + Data + SQLite.
+
+Headless (khong tao cua so): ve widgets ra PixelSurface, chay CRUD, kiem tra
+merge 4 module moi khong trung ten. Build:
+  tkvc.exe build examples/TkvUI.Phase1Demo.tkv --entry phase1_run --out build/phase1.exe
+"""
+__tkv_import__ = ["../TkvUI.Theme", "../TkvUI.Widgets.Native", "../TkvUI.Data", "../TkvUI.SQLite"]
+
+def phase1_alloc(w: "i32", h: "i32") -> "list[i64]":
+    buf = []
+    n = w * h
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def phase1_count(buf: "list[i64]", bg: "i64") -> "i32":
+    c = int(0)
+    i = int(0)
+    while i < len(buf):
+        if buf[i] != bg:
+            c = c + 1
+        i = i + 1
+    return c
+
+def phase1_labels3() -> "list[str]":
+    out = []
+    out.append("File")
+    out.append("Edit")
+    out.append("View")
+    return out
+
+def phase1_rows5() -> "list[str]":
+    out = []
+    out.append("An")
+    out.append("Binh")
+    out.append("Chi")
+    out.append("Dung")
+    out.append("Em")
+    return out
+
+def phase1_cells() -> "list[str]":
+    out = []
+    out.append("An")
+    out.append("30")
+    out.append("Binh")
+    out.append("25")
+    out.append("Chi")
+    out.append("35")
+    return out
+
+def phase1_headers() -> "list[str]":
+    out = []
+    out.append("Name")
+    out.append("Age")
+    return out
+
+def phase1_widths() -> "list[f64]":
+    out = []
+    out.append(100.0)
+    out.append(60.0)
+    return out
+
+def phase1_run() -> "str":
+    print("== Phase1Demo: theme + native + data + sqlite ==")
+    # --- theme switch Light/Dark ---
+    th = os_theme_make(0)
+    th.toggle()
+    pal = os_theme_palette(th)
+    bgc = os_role_color(pal, 0)
+    # --- surface + paint widgets ---
+    w = int(400)
+    h = int(300)
+    surf = PixelSurface(w, h, w)
+    buf = phase1_alloc(w, h)
+    surface_clear(buf, surf, bgc)
+    b = make_native_button(10.0, 10.0, 90.0, 24.0, "Save")
+    b.set_hover(1)
+    b.render(buf, surf, 1)
+    e = make_native_lineedit(110.0, 10.0, 150.0, "Name")
+    e.type_char("A")
+    e.focus(1)
+    e.render(buf, surf, 1)
+    pr = make_native_progress(10.0, 44.0, 200.0)
+    pr.set_value(60.0)
+    pr.render(buf, surf, 1)
+    sl = make_native_slider(10.0, 70.0, 200.0, 40.0)
+    sl.render(buf, surf, 1)
+    lv = make_native_listview(10.0, 100.0, 150.0, 120.0, 5)
+    lv.select(2)
+    lv.render(buf, surf, 1, phase1_rows5(), 5)
+    st = make_mv_table(170.0, 100.0, 200.0, 120.0)
+    st.sort_by(1)
+    order = []
+    vis = []
+    i = int(0)
+    while i < 3:
+        order.append(i)
+        vis.append(1)
+        i = i + 1
+    shown = st.render(buf, surf, 1, phase1_headers(), phase1_cells(), phase1_widths(), 2, order, vis)
+    painted = phase1_count(buf, bgc.to_uint32())
+    print("painted=" + str(painted) + " rows=" + str(shown))
+    # --- CRUD tren SQLite ---
+    db = make_sql_db()
+    sql_open(db, ":memory:")
+    tn = []
+    ct = []
+    cn = []
+    cy = []
+    nn = []
+    pk = []
+    ts = []
+    tc = []
+    tnc = []
+    rows = []
+    cols = phase1_headers()
+    types = []
+    types.append(0)
+    types.append(1)
+    sql_create_table(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, "staff", cols, types)
+    v1 = []
+    v1.append("An")
+    v1.append("30")
+    sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", v1)
+    v2 = []
+    v2.append("Binh")
+    v2.append("25")
+    sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", v2)
+    total = sql_sum_int(tn, ct, cn, ts, tc, tnc, rows, "staff", "Age")
+    print("staff_total_age=" + str(total))
+    ok = 1
+    if painted < 1000:
+        ok = 0
+    if shown != 3:
+        ok = 0
+    if total != 55:
+        ok = 0
+    if th.mode != 1:
+        ok = 0
+    if ok == 1:
+        print("PHASE1_OK")
+        return "PHASE1_OK"
+    print("PHASE1_FAIL")
+    return "PHASE1_FAIL"
