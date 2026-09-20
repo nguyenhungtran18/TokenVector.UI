@@ -1,0 +1,860 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Data - Model/View/Delegate + SortFilterProxy (Phase 2).
+
+Phu thuoc: Core, Graphics, Text, Theme. DAG: Data <- Theme.
+Du lieu (cells, headers, flags) do CALLER giu trong list va truyen vao
+(record khong duoc chua list). Don vi render dung palette OS.
+
+Tien to Mv*/mv_*/make_mv_* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Theme"]
+
+# Sort direction / filter op (tai lieu; than method dung literal so)
+MV_SORT_NONE = 0
+MV_SORT_ASC = 1
+MV_SORT_DESC = 2
+MV_OP_EQ = 0
+MV_OP_NE = 1
+MV_OP_GT = 2
+MV_OP_LT = 3
+MV_OP_CONTAINS = 4
+
+# =========================================================
+# MvIndex - dinh vi cell
+# =========================================================
+class MvIndex:
+    row: "i32"
+    col: "i32"
+    valid: "i32"
+    def __init__(self, row, col, valid):
+        self.row = row
+        self.col = col
+        self.valid = valid
+    def same(self, other: "MvIndex") -> "i32":
+        if self.row != other.row:
+            return 0
+        if self.col != other.col:
+            return 0
+        return 1
+
+def make_mv_index(row: "i32", col: "i32") -> "MvIndex":
+    return MvIndex(row, col, 1)
+
+def mv_invalid() -> "MvIndex":
+    return MvIndex(-1, -1, 0)
+
+# =========================================================
+# CELL HELPERS - flat row-major cells do caller giu
+# =========================================================
+def mv_flat_idx(ncols: "i32", row: "i32", col: "i32") -> "i32":
+    return row * ncols + col
+
+def mv_cell_get(cells: "list[str]", ncols: "i32", row: "i32", col: "i32") -> "str":
+    idx = row * ncols + col
+    if idx < 0:
+        return ""
+    if idx >= len(cells):
+        return ""
+    return cells[idx]
+
+def mv_cell_set(cells: "list[str]", ncols: "i32", row: "i32", col: "i32", val: "str") -> "i32":
+    idx = row * ncols + col
+    if idx < 0:
+        return 0
+    if idx >= len(cells):
+        return 0
+    cells[idx] = val
+    return 1
+
+def mv_row_append(cells: "list[str]", ncols: "i32", vals: "list[str]") -> "i32":
+    # Tra ve row index vua them (-1 neu thieu cot)
+    if len(vals) < ncols:
+        return -1
+    base = len(cells) // ncols
+    i = int(0)
+    while i < ncols:
+        cells.append(vals[i])
+        i = i + 1
+    return base
+
+def mv_row_remove(cells: "list[str]", ncols: "i32", row: "i32") -> "i32":
+    nrows = len(cells) // ncols
+    if row < 0:
+        return 0
+    if row >= nrows:
+        return 0
+    # Xoa bang cach chep dong cuoi len (doi thu tu) — O(cols)
+    last = nrows - 1
+    if row != last:
+        j = int(0)
+        while j < ncols:
+            cells[row * ncols + j] = cells[last * ncols + j]
+            j = j + 1
+    k = int(0)
+    while k < ncols:
+        cells.pop()
+        k = k + 1
+    return 1
+
+def mv_row_count(cells: "list[str]", ncols: "i32") -> "i32":
+    if ncols <= 0:
+        return 0
+    return len(cells) // ncols
+
+# =========================================================
+# STRING UTILS - contains / parse int (khong dung `in`)
+# =========================================================
+def mv_contains(hay: "str", nd: "str") -> "i32":
+    nh = len(hay)
+    nn = len(nd)
+    if nn == 0:
+        return 1
+    if nn > nh:
+        return 0
+    i = int(0)
+    while i <= nh - nn:
+        k = int(0)
+        match = 1
+        while k < nn:
+            if hay[i + k] != nd[k]:
+                match = 0
+                break
+            k = k + 1
+        if match == 1:
+            return 1
+        i = i + 1
+    return 0
+
+def mv_digit_val(ch: "str") -> "i32":
+    if ch == "0":
+        return 0
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    if ch == "6":
+        return 6
+    if ch == "7":
+        return 7
+    if ch == "8":
+        return 8
+    if ch == "9":
+        return 9
+    return -1
+
+def mv_parse_int(s: "str") -> "i32":
+    # Parse so nguyen don gian; tra 0 khi khong hop le
+    n = len(s)
+    if n == 0:
+        return 0
+    neg = 0
+    start = 0
+    if s[0] == "-":
+        neg = 1
+        start = 1
+    if s[0] == "+":
+        start = 1
+    v = int(0)
+    got = 0
+    i = start
+    while i < n:
+        d = mv_digit_val(s[i])
+        if d < 0:
+            break
+        v = v * 10 + d
+        got = 1
+        i = i + 1
+    if got == 0:
+        return 0
+    if neg == 1:
+        v = 0 - v
+    return v
+
+def mv_is_int(s: "str") -> "i32":
+    n = len(s)
+    if n == 0:
+        return 0
+    start = 0
+    if s[0] == "-":
+        start = 1
+    if s[0] == "+":
+        start = 1
+    if start >= n:
+        return 0
+    i = start
+    while i < n:
+        if mv_digit_val(s[i]) < 0:
+            return 0
+        i = i + 1
+    return 1
+
+def mv_compare_str(a: "str", b: "str") -> "i32":
+    # So sanh chuoi theo ma don vi: -1/0/1 (du de sort on dinh)
+    na = len(a)
+    nb = len(b)
+    m = na
+    if nb < m:
+        m = nb
+    i = int(0)
+    while i < m:
+        ca = a[i]
+        cb = b[i]
+        if ca != cb:
+            if ca < cb:
+                return -1
+            return 1
+        i = i + 1
+    if na == nb:
+        return 0
+    if na < nb:
+        return -1
+    return 1
+
+# =========================================================
+# PROXY - filter + sort mapping (order/visible do caller giu)
+# =========================================================
+def mv_match_cell(val: "str", op: "i32", target: "str") -> "i32":
+    if op == 1:
+        if val != target:
+            return 1
+        return 0
+    if op == 2:
+        a = mv_parse_int(val)
+        b = mv_parse_int(target)
+        if mv_is_int(val) == 1:
+            if mv_is_int(target) == 1:
+                if a > b:
+                    return 1
+                return 0
+        if mv_compare_str(val, target) > 0:
+            return 1
+        return 0
+    if op == 3:
+        a = mv_parse_int(val)
+        b = mv_parse_int(target)
+        if mv_is_int(val) == 1:
+            if mv_is_int(target) == 1:
+                if a < b:
+                    return 1
+                return 0
+        if mv_compare_str(val, target) < 0:
+            return 1
+        return 0
+    if op == 4:
+        return mv_contains(val, target)
+    if val == target:
+        return 1
+    return 0
+
+def mv_filter_apply(cells: "list[str]", ncols: "i32", col: "i32", op: "i32", target: "str", visible: "list[int]") -> "i32":
+    # Dien visible[row] = 1/0; tra ve so dong thay duoc
+    nrows = mv_row_count(cells, ncols)
+    while len(visible) < nrows:
+        visible.append(1)
+    shown = int(0)
+    r = int(0)
+    while r < nrows:
+        v = mv_cell_get(cells, ncols, r, col)
+        ok = mv_match_cell(v, op, target)
+        visible[r] = ok
+        if ok == 1:
+            shown = shown + 1
+        r = r + 1
+    return shown
+
+def mv_visible_to_real(visible: "list[int]", nth: "i32") -> "i32":
+    # Map dong-thu-nth dang hien -> row that (-1 neu qua pham vi)
+    seen = int(0)
+    r = int(0)
+    while r < len(visible):
+        if visible[r] == 1:
+            if seen == nth:
+                return r
+            seen = seen + 1
+        r = r + 1
+    return -1
+
+def mv_visible_count(visible: "list[int]") -> "i32":
+    c = int(0)
+    r = int(0)
+    while r < len(visible):
+        if visible[r] == 1:
+            c = c + 1
+        r = r + 1
+    return c
+
+def mv_sort_build(cells: "list[str]", ncols: "i32", col: "i32", direction: "i32", order: "list[i32]") -> "i32":
+    # Sap xep index dong theo cot; direction 0=giu nguyen, 1=asc, 2=desc.
+    # Merge sort ON DINH tu day (giong bubble cu) + key precompute: parse int
+    # 1 lan/row thay vi moi comparison. O(n log n) comparisons thay vi O(n^2).
+    nrows = mv_row_count(cells, ncols)
+    while len(order) < nrows:
+        order.append(len(order))
+    i = int(0)
+    while i < nrows:
+        order[i] = i
+        i = i + 1
+    if direction == 0:
+        return nrows
+    if nrows <= 1:
+        return nrows
+    # Precompute sort keys: 1 lan/row (bubble cu parse lai moi comparison)
+    key_is_int = []
+    key_int = []
+    r = int(0)
+    while r < nrows:
+        v = mv_cell_get(cells, ncols, r, col)
+        ii = mv_is_int(v)
+        key_is_int.append(ii)
+        if ii == 1:
+            key_int.append(mv_parse_int(v))
+        else:
+            key_int.append(0)
+        r = r + 1
+    # Buffer tam cho merge
+    tmp = []
+    t = int(0)
+    while t < nrows:
+        tmp.append(0)
+        t = t + 1
+    width = int(1)
+    while width < nrows:
+        lo = int(0)
+        while lo < nrows:
+            mid = lo + width
+            if mid > nrows:
+                mid = nrows
+            hi = lo + width + width
+            if hi > nrows:
+                hi = nrows
+            a = lo
+            b = mid
+            k = lo
+            while a < mid and b < hi:
+                ra = order[a]
+                rb = order[b]
+                cmp = int(0)
+                if key_is_int[ra] == 1 and key_is_int[rb] == 1:
+                    ia = key_int[ra]
+                    ib = key_int[rb]
+                    if ia < ib:
+                        cmp = -1
+                    if ia > ib:
+                        cmp = 1
+                else:
+                    cmp = mv_compare_str(mv_cell_get(cells, ncols, ra, col), mv_cell_get(cells, ncols, rb, col))
+                # Lay ben trai khi bang nhau -> on dinh (giong bubble: equal never swap)
+                take_a = int(0)
+                if direction == 1:
+                    if cmp <= 0:
+                        take_a = 1
+                else:
+                    if cmp >= 0:
+                        take_a = 1
+                if take_a == 1:
+                    tmp[k] = ra
+                    a = a + 1
+                else:
+                    tmp[k] = rb
+                    b = b + 1
+                k = k + 1
+            while a < mid:
+                tmp[k] = order[a]
+                a = a + 1
+                k = k + 1
+            while b < hi:
+                tmp[k] = order[b]
+                b = b + 1
+                k = k + 1
+            c = lo
+            while c < hi:
+                order[c] = tmp[c]
+                c = c + 1
+            lo = lo + width + width
+        width = width + width
+    return nrows
+
+# =========================================================
+# MvTableState - selection + sort + scroll + render
+# =========================================================
+class MvTableState:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    sel_row: "i32"
+    sel_col: "i32"
+    sort_col: "i32"
+    sort_dir: "i32"
+    scroll_y: "f64"
+    scroll_x: "f64"
+    def __init__(self, bx, by, bw, bh, sel_row, sel_col, sort_col, sort_dir, scroll_y, scroll_x):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.sel_row = sel_row
+        self.sel_col = sel_col
+        self.sort_col = sort_col
+        self.sort_dir = sort_dir
+        self.scroll_y = scroll_y
+        self.scroll_x = scroll_x
+    def select(self, row: "i32", col: "i32", nrows: "i32", ncols: "i32") -> "i32":
+        if row < 0:
+            return 0
+        if row >= nrows:
+            return 0
+        if col < 0:
+            return 0
+        if col >= ncols:
+            return 0
+        self.sel_row = row
+        self.sel_col = col
+        return 1
+    def sort_by(self, col: "i32") -> "i32":
+        if col == self.sort_col:
+            if self.sort_dir == 1:
+                self.sort_dir = 2
+            else:
+                self.sort_dir = 1
+        else:
+            self.sort_col = col
+            self.sort_dir = 1
+        return self.sort_dir
+    def scroll_by(self, dy: "f64", nrows: "i32") -> "f64":
+        total = float(nrows) * 22.0
+        view = self.bh - 24.0
+        self.scroll_y = os_clamp_scroll(self.scroll_y + dy, total, view)
+        return self.scroll_y
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", headers: "list[str]", cells: "list[str]", widths: "list[f64]", ncols: "i32", order: "list[i32]", visible: "list[int]") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        x = self.bx - self.scroll_x
+        i = int(0)
+        while i < ncols:
+            w = 80.0
+            if i < len(widths):
+                w = widths[i]
+            hr = Rect2D(x, self.by, w, 24.0)
+            fill_round_rect(buf, surf, hr, 0.0, os_header_bg(pal, 0))
+            if i < len(headers):
+                draw_string(buf, surf, headers[i], x + 4.0, self.by + 8.0, 1.0, os_role_color(pal, 1))
+            if i == self.sort_col:
+                sx = x + w - 12.0
+                if self.sort_dir == 1:
+                    draw_line(buf, surf, sx, self.by + 16.0, sx + 4.0, self.by + 8.0, 1.5, os_role_color(pal, 1))
+                    draw_line(buf, surf, sx + 4.0, self.by + 8.0, sx + 8.0, self.by + 16.0, 1.5, os_role_color(pal, 1))
+                else:
+                    draw_line(buf, surf, sx, self.by + 8.0, sx + 4.0, self.by + 16.0, 1.5, os_role_color(pal, 1))
+                    draw_line(buf, surf, sx + 4.0, self.by + 16.0, sx + 8.0, self.by + 8.0, 1.5, os_role_color(pal, 1))
+            x = x + w
+            i = i + 1
+        draw_line(buf, surf, self.bx, self.by + 24.0, self.bx + self.bw, self.by + 24.0, 1.0, os_separator_color(pal))
+        # Ve theo thu tu order[], bo qua dong bi filter
+        shown = int(0)
+        k = int(0)
+        nrows = mv_row_count(cells, ncols)
+        while k < nrows:
+            row = k
+            if k < len(order):
+                row = order[k]
+            vis = 1
+            if row < len(visible):
+                vis = visible[row]
+            if vis == 1:
+                y = self.by + 24.0 + float(shown) * 22.0 - self.scroll_y
+                if y + 22.0 > self.by + 24.0:
+                    if y < self.by + self.bh:
+                        xx = self.bx - self.scroll_x
+                        j = int(0)
+                        while j < ncols:
+                            w2 = 80.0
+                            if j < len(widths):
+                                w2 = widths[j]
+                            sel = 0
+                            if row == self.sel_row:
+                                if j == self.sel_col:
+                                    sel = 1
+                            cr2 = Rect2D(xx, y, w2, 22.0)
+                            fill_round_rect(buf, surf, cr2, 0.0, os_row_bg(pal, shown, sel))
+                            draw_string(buf, surf, mv_cell_get(cells, ncols, row, j), xx + 4.0, y + 7.0, 1.0, os_row_fg(pal, sel))
+                            j = j + 1
+                            xx = xx + w2
+                shown = shown + 1
+            k = k + 1
+        return shown
+
+def make_mv_table(x: "f64", y: "f64", w: "f64", h: "f64") -> "MvTableState":
+    return MvTableState(x, y, w, h, -1, -1, -1, 0, 0.0, 0.0)
+
+# =========================================================
+# MvStringList - model 1 cot don gian
+# =========================================================
+class MvStringList:
+    count: "i32"
+    selected: "i32"
+    def __init__(self, count, selected):
+        self.count = count
+        self.selected = selected
+    def sync(self, items: "list[str]") -> "i32":
+        self.count = len(items)
+        if self.selected >= self.count:
+            self.selected = self.count - 1
+        return self.count
+    def select(self, idx: "i32") -> "i32":
+        if idx < 0:
+            return self.selected
+        if idx >= self.count:
+            return self.selected
+        self.selected = idx
+        return idx
+    def add_at(self, items: "list[str]", idx: "i32", val: "str") -> "i32":
+        if idx < 0:
+            return 0
+        if idx > len(items):
+            return 0
+        items.append("")
+        k = len(items) - 1
+        while k > idx:
+            items[k] = items[k - 1]
+            k = k - 1
+        items[idx] = val
+        self.count = len(items)
+        return 1
+    def drop_at(self, items: "list[str]", idx: "i32") -> "i32":
+        if idx < 0:
+            return 0
+        if idx >= len(items):
+            return 0
+        k = idx
+        while k < len(items) - 1:
+            items[k] = items[k + 1]
+            k = k + 1
+        items.pop()
+        self.count = len(items)
+        if self.selected >= self.count:
+            self.selected = self.count - 1
+        return 1
+
+def make_mv_stringlist() -> "MvStringList":
+    return MvStringList(0, -1)
+
+# =========================================================
+# DELEGATES - paint/edit/sizeHint
+# =========================================================
+class MvTextDelegate:
+    maxlen: "i32"
+    align: "i32"
+    def __init__(self, maxlen, align):
+        self.maxlen = maxlen
+        self.align = align
+    def validate(self, val: "str") -> "i32":
+        if self.maxlen > 0:
+            if len(val) > self.maxlen:
+                return 0
+        return 1
+    def edit(self, current: "str", val: "str") -> "str":
+        if self.validate(val) == 1:
+            return val
+        return current
+    def paint(self, buf: "list[i64]", surf: "PixelSurface", x: "f64", y: "f64", w: "f64", val: "str", selected: "i32", mode: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        tx = x
+        if self.align == 1:
+            tm = measure_string(val, 1.0)
+            tx = x + (w - tm.w) / 2.0
+        draw_string(buf, surf, val, tx, y, 1.0, os_row_fg(pal, selected))
+        return 1
+
+def make_mv_text_delegate() -> "MvTextDelegate":
+    return MvTextDelegate(0, 0)
+
+class MvSpinDelegate:
+    minimum: "i32"
+    maximum: "i32"
+    step_v: "i32"
+    def __init__(self, minimum, maximum, step_v):
+        self.minimum = minimum
+        self.maximum = maximum
+        self.step_v = step_v
+    def clamp(self, v: "i32") -> "i32":
+        if v < self.minimum:
+            v = self.minimum
+        if v > self.maximum:
+            v = self.maximum
+        return v
+    def edit(self, current: "str", val: "str") -> "str":
+        if mv_is_int(val) == 0:
+            return current
+        return str(self.clamp(mv_parse_int(val)))
+    def spin(self, current: "str", up: "i32") -> "str":
+        v = mv_parse_int(current)
+        if up == 1:
+            v = v + self.step_v
+        else:
+            v = v - self.step_v
+        return str(self.clamp(v))
+
+def make_mv_spin_delegate(lo: "i32", hi: "i32") -> "MvSpinDelegate":
+    return MvSpinDelegate(lo, hi, 1)
+
+class MvComboDelegate:
+    count: "i32"
+    editable: "i32"
+    def __init__(self, count, editable):
+        self.count = count
+        self.editable = editable
+    def validate(self, idx: "i32") -> "i32":
+        if idx < 0:
+            return 0
+        if idx >= self.count:
+            return 0
+        return 1
+    def edit(self, current: "i32", idx: "i32") -> "i32":
+        if self.validate(idx) == 1:
+            return idx
+        return current
+    def label(self, options: "list[str]", idx: "i32") -> "str":
+        if self.validate(idx) == 0:
+            return ""
+        if idx >= len(options):
+            return ""
+        return options[idx]
+
+def make_mv_combo_delegate(count: "i32") -> "MvComboDelegate":
+    return MvComboDelegate(count, 0)
+
+class MvDateDelegate:
+    min_ymd: "i32"
+    max_ymd: "i32"
+    def __init__(self, min_ymd, max_ymd):
+        self.min_ymd = min_ymd
+        self.max_ymd = max_ymd
+    def is_leap(self, y: "i32") -> "i32":
+        if y - (y // 400) * 400 == 0:
+            return 1
+        if y - (y // 100) * 100 == 0:
+            return 0
+        if y - (y // 4) * 4 == 0:
+            return 1
+        return 0
+    def days_in(self, y: "i32", m: "i32") -> "i32":
+        if m == 2:
+            if self.is_leap(y) == 1:
+                return 29
+            return 28
+        if m == 4:
+            return 30
+        if m == 6:
+            return 30
+        if m == 9:
+            return 30
+        if m == 11:
+            return 30
+        return 31
+    def valid(self, ymd: "i32") -> "i32":
+        y = ymd // 10000
+        m = (ymd - y * 10000) // 100
+        d = ymd - y * 10000 - m * 100
+        if y < 1900:
+            return 0
+        if y > 2100:
+            return 0
+        if m < 1:
+            return 0
+        if m > 12:
+            return 0
+        if d < 1:
+            return 0
+        if d > self.days_in(y, m):
+            return 0
+        if ymd < self.min_ymd:
+            return 0
+        if ymd > self.max_ymd:
+            return 0
+        return 1
+    def edit(self, current: "i32", ymd: "i32") -> "i32":
+        if self.valid(ymd) == 1:
+            return ymd
+        return current
+    def text(self, ymd: "i32") -> "str":
+        y = ymd // 10000
+        m = (ymd - y * 10000) // 100
+        d = ymd - y * 10000 - m * 100
+        ms = str(m)
+        if m < 10:
+            ms = "0" + str(m)
+        ds = str(d)
+        if d < 10:
+            ds = "0" + str(d)
+        return str(y) + "-" + ms + "-" + ds
+
+def make_mv_date_delegate() -> "MvDateDelegate":
+    return MvDateDelegate(19000101, 21001231)
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def mvcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def mvcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def mvcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def mv_seed_cells() -> "list[str]":
+    out = []
+    out.append("An")
+    out.append("30")
+    out.append("HN")
+    out.append("Binh")
+    out.append("25")
+    out.append("HCM")
+    out.append("Chi")
+    out.append("35")
+    out.append("DN")
+    return out
+
+def mv_seed_order(n: "i32") -> "list[i32]":
+    out = []
+    i = int(0)
+    while i < n:
+        out.append(0)
+        i = i + 1
+    return out
+
+def mv_seed_visible(n: "i32") -> "list[int]":
+    out = []
+    i = int(0)
+    while i < n:
+        out.append(1)
+        i = i + 1
+    return out
+
+def data_selftest() -> "str":
+    print("== TkvUI.Data selftest ==")
+    acc = [int(0), int(0)]
+    cells = mv_seed_cells()
+    mvcheck_i(acc, "rows", mv_row_count(cells, 3), 3)
+    mvcheck_s(acc, "cell", mv_cell_get(cells, 3, 1, 0), "Binh")
+    mv_cell_set(cells, 3, 1, 1, "26")
+    mvcheck_s(acc, "set", mv_cell_get(cells, 3, 1, 1), "26")
+    seed3 = mv_seed_cells()
+    first3 = seed3[0:3]
+    mv_row_append(cells, 3, first3)
+    mvcheck_i(acc, "append", mv_row_count(cells, 3), 4)
+    mv_row_remove(cells, 3, 0)
+    mvcheck_i(acc, "remove", mv_row_count(cells, 3), 3)
+    # string utils
+    mvcheck_i(acc, "contains", mv_contains("Ha Noi", "Noi"), 1)
+    mvcheck_i(acc, "nocontains", mv_contains("Ha Noi", "HCM"), 0)
+    mvcheck_i(acc, "parse", mv_parse_int("-42"), -42)
+    mvcheck_i(acc, "isint", mv_is_int("12a"), 0)
+    mvcheck_i(acc, "cmp", mv_compare_str("abc", "abd"), -1)
+    # filter
+    vis = mv_seed_visible(3)
+    shown = mv_filter_apply(cells, 3, 2, 0, "HCM", vis)
+    mvcheck_i(acc, "filter.shown", shown, 1)
+    mvcheck_i(acc, "filter.map", mv_visible_to_real(vis, 0), 1)
+    mvcheck_i(acc, "filter.count", mv_visible_count(vis), 1)
+    # sort by age asc: 30,26,35 -> order [1,0,2]
+    ord1 = mv_seed_order(3)
+    mv_sort_build(cells, 3, 1, 1, ord1)
+    mvcheck_i(acc, "sort.first", ord1[0], 1)
+    mvcheck_i(acc, "sort.last", ord1[2], 2)
+    # sort desc: 30,26,35 -> [2,0,1]
+    ord2 = mv_seed_order(3)
+    mv_sort_build(cells, 3, 1, 2, ord2)
+    mvcheck_i(acc, "sort.desc.first", ord2[0], 2)
+    mvcheck_i(acc, "sort.desc.mid", ord2[1], 0)
+    mvcheck_i(acc, "sort.desc.last", ord2[2], 1)
+    # sort string col asc: An,Binh,Chi -> [0,1,2]
+    ord3 = mv_seed_order(3)
+    mv_sort_build(cells, 3, 0, 1, ord3)
+    mvcheck_i(acc, "sort.str.first", ord3[0], 0)
+    mvcheck_i(acc, "sort.str.last", ord3[2], 2)
+    # stability: 2 rows age=35 giu nguyen thu tu ban dau
+    cells4 = mv_seed_cells()
+    r4 = []
+    r4.append("Chi")
+    r4.append("35")
+    r4.append("DN")
+    mv_row_append(cells4, 3, r4)
+    ord4 = mv_seed_order(4)
+    mv_sort_build(cells4, 3, 1, 1, ord4)
+    mvcheck_i(acc, "sort.stable", ord4[0], 1)
+    mvcheck_i(acc, "sort.stable.eq1", ord4[2], 2)
+    mvcheck_i(acc, "sort.stable.eq2", ord4[3], 3)
+    # direction=0 giu identity; empty -> 0
+    ord5 = mv_seed_order(4)
+    mv_sort_build(cells4, 3, 1, 0, ord5)
+    mvcheck_i(acc, "sort.dir0", ord5[3], 3)
+    cells0 = []
+    ord0 = mv_seed_order(0)
+    mvcheck_i(acc, "sort.empty", mv_sort_build(cells0, 3, 1, 1, ord0), 0)
+    # table state
+    st = make_mv_table(0.0, 0.0, 300.0, 200.0)
+    st.select(1, 2, 3, 3)
+    mvcheck_i(acc, "state.sel", st.sel_row, 1)
+    mvcheck_i(acc, "state.sort", st.sort_by(1), 1)
+    # string list
+    sl = make_mv_stringlist()
+    items = []
+    items.append("a")
+    items.append("b")
+    sl.sync(items)
+    sl.add_at(items, 1, "x")
+    mvcheck_s(acc, "slist.ins", items[1], "x")
+    sl.drop_at(items, 0)
+    mvcheck_s(acc, "slist.rm", items[0], "x")
+    # delegates
+    td = make_mv_text_delegate()
+    mvcheck_s(acc, "text.edit", td.edit("old", "new"), "new")
+    sd = make_mv_spin_delegate(0, 100)
+    mvcheck_s(acc, "spin.edit", sd.edit("5", "200"), "100")
+    mvcheck_s(acc, "spin.bad", sd.edit("5", "ab"), "5")
+    mvcheck_s(acc, "spin.step", sd.spin("5", 1), "6")
+    cd = make_mv_combo_delegate(3)
+    mvcheck_i(acc, "combo.ok", cd.edit(0, 2), 2)
+    mvcheck_i(acc, "combo.bad", cd.edit(0, 9), 0)
+    dd = make_mv_date_delegate()
+    mvcheck_i(acc, "date.leap", dd.is_leap(2024), 1)
+    mvcheck_i(acc, "date.valid", dd.valid(20260229), 0)
+    mvcheck_i(acc, "date.ok", dd.valid(20240902), 1)
+    mvcheck_i(acc, "date.edit", dd.edit(20240101, 20241301), 20240101)
+    mvcheck_s(acc, "date.text", dd.text(20240902), "2024-09-02")
+    ia = make_mv_index(1, 2)
+    ib = make_mv_index(1, 2)
+    mvcheck_i(acc, "index.same", ia.same(ib), 1)
+    print("data: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "DATA_OK"
+    return "DATA_FAIL"

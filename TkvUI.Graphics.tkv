@@ -48,7 +48,86 @@ def draw_line(buf: "list[i64]", surf: "PixelSurface", x0: "f64", y0: "f64", x1: 
             break
     return 1
 
+def fill_round_rect_packed(buf: "list[i64]", surf: "PixelSurface", rect: "Rect2D", radius: "f64", packed: "i64") -> "i32":
+    # Ghi truc tiep packed (da clip 1 lan, band-split, khong corner-math vung giua).
+    # Pixel output DONG NHAT fill_round_rect goc: cung predicate goc phan vung.
+    x0 = int(rect.x)
+    y0 = int(rect.y)
+    x1 = int(rect.x + rect.w)
+    y1 = int(rect.y + rect.h)
+    sw = surf.width
+    sh = surf.height
+    if x0 < 0:
+        x0 = 0
+    if y0 < 0:
+        y0 = 0
+    if x1 > sw:
+        x1 = sw
+    if y1 > sh:
+        y1 = sh
+    if x0 >= x1:
+        return 1
+    if y0 >= y1:
+        return 1
+    rad = radius
+    if rad < 0:
+        rad = 0
+    rad2 = rad * rad
+    # Bien goc NGUYEN - giong het predicate goc (int() moi pixel da hoist ra day)
+    cxl = int(rect.x + rad)
+    cxr = int(rect.x + rect.w - rad)
+    cyt = int(rect.y + rad)
+    cyb = int(rect.y + rect.h - rad)
+    stride = surf.stride
+    y = y0
+    while y < y1:
+        drow = y * stride
+        if y < cyt or y >= cyb:
+            # Strip tren/duoi: giua 2 goc thi inside, 2 bien thi test tron
+            x = x0
+            while x < x1:
+                inside = 1
+                if x < cxl or x >= cxr:
+                    # Xac dinh goc tren hay duoi theo y (elif goc: tren uu tien)
+                    if y < cyt:
+                        if x < cxl:
+                            dx = rect.x + rad - (float(x) + 0.5)
+                            dy = rect.y + rad - (float(y) + 0.5)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+                        else:
+                            dx = (float(x) + 0.5) - (rect.x + rect.w - rad)
+                            dy = rect.y + rad - (float(y) + 0.5)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+                    else:
+                        if x < cxl:
+                            dx = rect.x + rad - (float(x) + 0.5)
+                            dy = (float(y) + 0.5) - (rect.y + rect.h - rad)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+                        else:
+                            dx = (float(x) + 0.5) - (rect.x + rect.w - rad)
+                            dy = (float(y) + 0.5) - (rect.y + rect.h - rad)
+                            if dx * dx + dy * dy > rad2:
+                                inside = 0
+                if inside == 1:
+                    buf[drow + x] = packed
+                x = x + 1
+        else:
+            # Band giua: khong nam vung goc nao -> toan inside
+            x = x0
+            while x < x1:
+                buf[drow + x] = packed
+                x = x + 1
+        y = y + 1
+    return 1
+
 def fill_round_rect(buf: "list[i64]", surf: "PixelSurface", rect: "Rect2D", radius: "f64", color: "ColorRgba") -> "i32":
+    # Opaque -> packed fast path (band-split, khong call/pixel).
+    # Translucent -> duong cu per-pixel blend (gi nguyen pixel output).
+    if color.a == 255:
+        return fill_round_rect_packed(buf, surf, rect, radius, color.to_uint32())
     # Fill with corner distance check
     x0 = int(rect.x)
     y0 = int(rect.y)
@@ -98,48 +177,14 @@ def stroke_round_rect(buf: "list[i64]", surf: "PixelSurface", rect: "Rect2D", ra
     irad = radius - thickness
     if irad < 0:
         irad = 0
-    # Fill outer
+    # Fill outer (opaque tu fast-path band-split ben trong)
     fill_round_rect(buf, surf, rect, radius, color)
     # Punch inner with transparent (simulate by clearing with 0 alpha? Instead blend with bg alpha 0 would erase)
     # For demo, just draw inner with transparent trick: set alpha 0 pixels would not show, so we just overwrite inner with clear color of 0
     # Instead we carve by filling inner with color of background (assume 0)
     # We'll fill inner with fully transparent then skip - simpler: draw inner rect with blend of transparent does nothing, so we need to directly set
-    x0 = int(inner.x)
-    y0 = int(inner.y)
-    x1 = int(inner.x + inner.w)
-    y1 = int(inner.y + inner.h)
-    rad2 = irad * irad
-    for y in range(y0, y1):
-        for x in range(x0, x1):
-            dx = 0.0
-            dy = 0.0
-            inside = 1
-            if x < int(inner.x + irad) and y < int(inner.y + irad):
-                dx = inner.x + irad - (float(x) + 0.5)
-                dy = inner.y + irad - (float(y) + 0.5)
-                if dx * dx + dy * dy > rad2:
-                    inside = 0
-            else:
-                if x >= int(inner.x + inner.w - irad) and y < int(inner.y + irad):
-                    dx = (float(x) + 0.5) - (inner.x + inner.w - irad)
-                    dy = inner.y + irad - (float(y) + 0.5)
-                    if dx * dx + dy * dy > rad2:
-                        inside = 0
-                else:
-                    if x < int(inner.x + irad) and y >= int(inner.y + inner.h - irad):
-                        dx = inner.x + irad - (float(x) + 0.5)
-                        dy = (float(y) + 0.5) - (inner.y + inner.h - irad)
-                        if dx * dx + dy * dy > rad2:
-                            inside = 0
-                    else:
-                        if x >= int(inner.x + inner.w - irad) and y >= int(inner.y + inner.h - irad):
-                            dx = (float(x) + 0.5) - (inner.x + inner.w - irad)
-                            dy = (float(y) + 0.5) - (inner.y + inner.h - irad)
-                            if dx * dx + dy * dy > rad2:
-                                inside = 0
-            if inside == 1:
-                # clear inner to transparent by setting 0
-                surface_set_pixel(buf, surf, x, y, 0)
+    # Carve = packed-fill 0 (band-split, tuong duong pixel-exact vong lap cu)
+    fill_round_rect_packed(buf, surf, inner, irad, 0)
     return 1
 
 def draw_arc(buf: "list[i64]", surf: "PixelSurface", cx: "f64", cy: "f64", radius: "f64", thickness: "f64", start_angle: "f64", sweep_angle: "f64", color: "ColorRgba") -> "i32":

@@ -1,0 +1,160 @@
+# -*- coding: utf-8 -*-
+# TkvUI.CrudBench - Benchmark CRUD operations (CHUAN HOA 2026-09-19).
+# Workload: 10 reps; moi rep = CREATE TABLE tuoi + INSERT 1000 + SELECT/SORT
+# + UPDATE 1000 + DELETE 1000. Report trung binh/rep (lam tron GetTickCount
+# quantum ~16ms bang tong luy ke). In-memory lists (tuong duong PyQt :memory:).
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme",
+                  "../TkvUI.Data", "../TkvUI.SQLite", "../TkvUI.Widgets.Native",
+                  "../TkvUI.NativeDlg", "../TkvUI.Platform"]
+
+DB_PATH = "build/staff_bench.db"
+
+def bench_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def bench_run() -> "str":
+    print("== TkvUI CrudBench (std: 10 reps x 1000 rows, fresh table/rep) ==")
+    reps = int(10)
+    tot_ins = int(0)
+    tot_sel = int(0)
+    tot_upd = int(0)
+    tot_del = int(0)
+    r = int(0)
+    while r < reps:
+        db = make_sql_db()
+        sql_open(db, DB_PATH)
+        tn = []
+        ct = []
+        cn = []
+        cy = []
+        nn = []
+        pk = []
+        ts = []
+        tc = []
+        tnc = []
+        rows = []
+        cols = []
+        cols.append("id")
+        cols.append("name")
+        cols.append("age")
+        cols.append("city")
+        types = []
+        types.append(1)
+        types.append(0)
+        types.append(1)
+        types.append(0)
+        sql_create_table(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, "staff", cols, types)
+        # Khai bao INTEGER PK don -> rowid-index O(1) cho point update/delete
+        sql_set_notnull(ct, cn, nn, pk, 0, "id", 1)
+        sql_pk_declare(db, ct, cn, cy, pk, tnc, ts, tc, rows, 0)
+        t0 = text_ticks()
+        i = int(0)
+        while i < 1000:
+            vals = []
+            vals.append(str(i + 1))
+            vals.append("Name" + str(i))
+            vals.append(str(20 + i - ((i // 50) * 50)))
+            vals.append("City" + str(i - ((i // 20) * 20)))
+            sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", vals)
+            i = i + 1
+        t1 = text_ticks()
+        tot_ins = tot_ins + t1 - t0
+        flat = []
+        sql_model_project(ts, tc, tnc, rows, 0, flat)
+        order = []
+        vis = []
+        n = sql_count_rows(tn, tc, "staff")
+        i = int(0)
+        while i < n:
+            order.append(i)
+            vis.append(1)
+            i = i + 1
+        t0 = text_ticks()
+        mv_sort_build(flat, 4, 1, 1, order)
+        mv_filter_apply(flat, 4, -1, 0, "", vis)
+        t1 = text_ticks()
+        tot_sel = tot_sel + t1 - t0
+        t0 = text_ticks()
+        i = int(0)
+        while i < 1000:
+            sql_update_rows(db, tn, ct, cn, ts, tc, tnc, rows, "staff", "age", "25", "id", 0, str(i + 1))
+            i = i + 1
+        t1 = text_ticks()
+        tot_upd = tot_upd + t1 - t0
+        t0 = text_ticks()
+        i = int(999)
+        while i >= 0:
+            sql_delete_rows(db, tn, ct, cn, ts, tc, tnc, rows, "staff", "id", 0, str(i + 1))
+            i = i - 1
+        t1 = text_ticks()
+        tot_del = tot_del + t1 - t0
+        sql_close(db)
+        r = r + 1
+    avg_ins = tot_ins // reps
+    avg_sel = tot_sel // reps
+    avg_upd = tot_upd // reps
+    avg_del = tot_del // reps
+    print("INSERT 1000x10: avg=" + str(avg_ins) + "ms total=" + str(tot_ins) + "ms")
+    print("SELECT+SORT 1000x10: avg=" + str(avg_sel) + "ms total=" + str(tot_sel) + "ms")
+    print("UPDATE 1000x10: avg=" + str(avg_upd) + "ms total=" + str(tot_upd) + "ms")
+    print("DELETE 1000x10: avg=" + str(avg_del) + "ms total=" + str(tot_del) + "ms")
+    print("TOTAL avg/rep: " + str(avg_ins + avg_sel + avg_upd + avg_del) + "ms")
+    return "BENCH_OK"
+
+def bench_persist() -> "str":
+    print("== TkvUI PersistBench (file-backed TKVSQL1) ==")
+    db = make_sql_db()
+    sql_open(db, "build/staff_persist.db")
+    tn = []
+    ct = []
+    cn = []
+    cy = []
+    nn = []
+    pk = []
+    ts = []
+    tc = []
+    tnc = []
+    rows = []
+    cols = []
+    cols.append("id")
+    cols.append("name")
+    cols.append("age")
+    cols.append("city")
+    types = []
+    types.append(1)
+    types.append(0)
+    types.append(1)
+    types.append(0)
+    sql_create_table(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, "staff", cols, types)
+    sql_set_notnull(ct, cn, nn, pk, 0, "id", 1)
+    sql_pk_declare(db, ct, cn, cy, pk, tnc, ts, tc, rows, 0)
+    i = int(0)
+    while i < 1000:
+        vals = []
+        vals.append(str(i + 1))
+        vals.append("Name" + str(i))
+        vals.append(str(20 + i - ((i // 50) * 50)))
+        vals.append("City" + str(i - ((i // 20) * 20)))
+        sql_insert(db, tn, ct, cn, nn, ts, tc, tnc, rows, "staff", vals)
+        i = i + 1
+    t0 = text_ticks()
+    r = int(0)
+    while r < 5:
+        sql_save(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, rows)
+        r = r + 1
+    t1 = text_ticks()
+    save_ms = t1 - t0
+    t0 = text_ticks()
+    r = int(0)
+    while r < 5:
+        sql_load(db, tn, ct, cn, cy, nn, pk, ts, tc, tnc, rows)
+        r = r + 1
+    t1 = text_ticks()
+    load_ms = t1 - t0
+    n = sql_count_rows(tn, tc, "staff")
+    return "save_ms=" + str(save_ms) + "_x5 load_ms=" + str(load_ms) + "_x5 rows=" + str(n)

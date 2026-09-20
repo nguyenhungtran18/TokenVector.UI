@@ -1,0 +1,1361 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.SQLite - SQL/ORM tren engine in-memory thuan .tkv (Phase 2).
+
+Phu thuoc: Core, Data (tai dung mv_* cho sort/filter/substring).
+Thiet ke:
+- Schema + rows do CALLER giu trong list phang (record cam chua list):
+  tnames: ten bang; scol_*: schema cot phang (table idx, name, type,
+  notnull, pk); tstart/tcount/tncol: segment rows moi bang trong `rows`.
+- Transaction = snapshot (snap_*): begin chup, rollback phuc hoi chinh xac,
+  commit xoa. Khong ho tro nested begin (tra ma loi).
+- API co chu y SqliteConnection/Statement/Transaction/SqlTableModel/
+  SqlQueryModel/SqlRelation cua plan; pinvoke sqlite3 that la buoc tiep theo
+  (can upstream marshal + .so/.dll resolve) — engine nay giu nguyen API.
+
+Ma loi: 0=ok 1=closed 2=dup-table 3=no-table 4=col-mismatch 5=notnull
+6=bad-col 7=tx-state 8=tx-active.
+
+Tien to Sql*/sql_* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Data"]
+__tkv_extern_method__ = [
+    {"name": "sqlf_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"},
+    {"name": "sqlf_read", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"},
+    {"name": "sqlf_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}
+]
+
+# Column types
+SQL_TYPE_TEXT = 0
+SQL_TYPE_INT = 1
+SQL_TYPE_REAL = 2
+
+# =========================================================
+# SqlColumn / SqlDb
+# =========================================================
+class SqlColumn:
+    name: "str"
+    ctype: "i32"
+    notnull: "i32"
+    pk: "i32"
+    def __init__(self, name, ctype, notnull, pk):
+        self.name = name
+        self.ctype = ctype
+        self.notnull = notnull
+        self.pk = pk
+
+def make_sql_column(name: "str", ctype: "i32") -> "SqlColumn":
+    return SqlColumn(name, ctype, 0, 0)
+
+def make_sql_column_nn(name: "str", ctype: "i32", pk: "i32") -> "SqlColumn":
+    return SqlColumn(name, ctype, 1, pk)
+
+class SqlDb:
+    path: "str"
+    is_open: "i32"
+    tx_depth: "i32"
+    last_code: "i32"
+    last_msg: "str"
+    n_tables: "i32"
+    persist_gen: "i32"
+    pk_tidx: "list[i32]"
+    pk_col: "list[i32]"
+    pk_base: "list[i32]"
+    pk_cap: "list[i32]"
+    pk_start: "list[i32]"
+    pk_ok: "list[i32]"
+    pk_slots: "list[i32]"
+    def __init__(self, path, is_open, tx_depth, last_code, last_msg, n_tables):
+        self.path = path
+        self.is_open = is_open
+        self.tx_depth = tx_depth
+        self.last_code = last_code
+        self.last_msg = last_msg
+        self.n_tables = n_tables
+        self.persist_gen = 0
+        self.pk_tidx = []
+        self.pk_col = []
+        self.pk_base = []
+        self.pk_cap = []
+        self.pk_start = []
+        self.pk_ok = []
+        self.pk_slots = []
+    def fail(self, code: "i32", msg: "str") -> "i32":
+        self.last_code = code
+        self.last_msg = msg
+        return code
+    def ok(self) -> "i32":
+        self.last_code = 0
+        self.last_msg = "ok"
+        return 0
+
+def make_sql_db() -> "SqlDb":
+    return SqlDb("", 0, 0, 0, "", 0, 0)
+
+def sql_open(db: "SqlDb", path: "str") -> "i32":
+    db.path = path
+    db.is_open = 1
+    db.tx_depth = 0
+    return db.ok()
+
+def sql_close(db: "SqlDb") -> "i32":
+    db.is_open = 0
+    return db.ok()
+
+def sql_is_open(db: "SqlDb") -> "i32":
+    return db.is_open
+
+def sql_table_idx(tnames: "list[str]", name: "str") -> "i32":
+    i = int(0)
+    while i < len(tnames):
+        if tnames[i] == name:
+            return i
+        i = i + 1
+    return -1
+
+def sql_table_ncol(scol_table: "list[i32]", tidx: "i32") -> "i32":
+    c = int(0)
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            c = c + 1
+        i = i + 1
+    return c
+
+def sql_col_pos(scol_table: "list[i32]", scol_name: "list[str]", tidx: "i32", col: "str") -> "i32":
+    # Vi tri cot thu may trong bang (0-based), -1 neu khong co
+    pos = int(0)
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            if scol_name[i] == col:
+                return pos
+            pos = pos + 1
+        i = i + 1
+    return -1
+
+def sql_col_flag(scol_table: "list[i32]", scol_name: "list[str]", flags: "list[i32]", tidx: "i32", col: "str") -> "i32":
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            if scol_name[i] == col:
+                return flags[i]
+        i = i + 1
+    return 0
+
+# =========================================================
+# PK ROWID INDEX - tra cuu diem O(1) cho INTEGER PK don (giong SQLite rowid).
+# Opt-in qua sql_pk_declare; moi tac dong cau truc duy tri hoac vo hieu hoa
+# (fallback scan cu). Fast path LUON verify key bang string equality nen
+# stale slot khong bao gio tra ket qua sai (chi cham hon).
+# =========================================================
+def sql_pk_find(db: "SqlDb", tidx: "i32") -> "i32":
+    # Entry index trong db.pk_* hoac -1
+    e = int(0)
+    while e < len(db.pk_tidx):
+        if db.pk_tidx[e] == tidx:
+            return e
+        e = e + 1
+    return -1
+
+def sql_pk_drop_entry(db: "SqlDb", e: "i32") -> "i32":
+    # Xoa entry e (doi cac entry sau len). Slots cu bo hoang (bounded).
+    i = e
+    while i + 1 < len(db.pk_tidx):
+        db.pk_tidx[i] = db.pk_tidx[i + 1]
+        db.pk_col[i] = db.pk_col[i + 1]
+        db.pk_base[i] = db.pk_base[i + 1]
+        db.pk_cap[i] = db.pk_cap[i + 1]
+        db.pk_start[i] = db.pk_start[i + 1]
+        db.pk_ok[i] = db.pk_ok[i + 1]
+        i = i + 1
+    if len(db.pk_tidx) > 0:
+        db.pk_tidx.pop()
+        db.pk_col.pop()
+        db.pk_base.pop()
+        db.pk_cap.pop()
+        db.pk_start.pop()
+        db.pk_ok.pop()
+    return 1
+
+def sql_pk_rebuild(db: "SqlDb", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", e: "i32") -> "i32":
+    # Dung lai slots tu rows hien tai. Trung key -> vo hieu (fallback scan).
+    tidx = db.pk_tidx[e]
+    pcol = db.pk_col[e]
+    start = db.pk_start[e]
+    cap = db.pk_cap[e]
+    base = db.pk_base[e]
+    i = int(0)
+    while i < cap:
+        db.pk_slots[start + i] = -1
+        i = i + 1
+    n = tcount[tidx]
+    r = int(0)
+    while r < n:
+        kstr = sql_row_get(rows, tstart, tncol, tidx, r, pcol)
+        if mv_is_int(kstr) == 0:
+            db.pk_ok[e] = 0
+            return 0
+        k = mv_parse_int(kstr)
+        if k < base or k >= base + cap:
+            db.pk_ok[e] = 0
+            return 0
+        if db.pk_slots[start + k - base] != -1:
+            db.pk_ok[e] = 0
+            return 0
+        db.pk_slots[start + k - base] = r
+        r = r + 1
+    db.pk_ok[e] = 1
+    return n
+
+def sql_pk_grow(db: "SqlDb", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", e: "i32", need_key: "i32") -> "i32":
+    # Mo rong slots (gap doi) de chua need_key, giu base cu neu duoc.
+    base = db.pk_base[e]
+    cap = db.pk_cap[e]
+    if cap < 16:
+        cap = 16
+    newbase = base
+    if need_key < newbase:
+        newbase = need_key
+    newcap = cap + cap
+    while need_key < newbase or need_key >= newbase + newcap:
+        newcap = newcap + newcap
+    newstart = len(db.pk_slots)
+    i = int(0)
+    while i < newcap:
+        db.pk_slots.append(-1)
+        i = i + 1
+    db.pk_base[e] = newbase
+    db.pk_cap[e] = newcap
+    db.pk_start[e] = newstart
+    return sql_pk_rebuild(db, tstart, tcount, tncol, rows, e)
+
+def sql_pk_declare(db: "SqlDb", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_pk: "list[i32]", tncol: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", rows: "list[str]", tidx: "i32") -> "i32":
+    # Dang ky rowid-index neu bang co DUNG 1 pk cot kieu INT. Build tu rows
+    # hien co (duoc phep rong). Tra 1 neu dang ky, 0 neu khong du dieu kien.
+    old = sql_pk_find(db, tidx)
+    if old >= 0:
+        sql_pk_drop_entry(db, old)
+    pkcount = int(0)
+    pkpos = int(-1)
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            if scol_pk[i] == 1:
+                # Vi tri cot = dem cot cua bang den day
+                pos = int(0)
+                j = int(0)
+                while j < i:
+                    if scol_table[j] == tidx:
+                        pos = pos + 1
+                    j = j + 1
+                pkcount = pkcount + 1
+                pkpos = pos
+                if scol_type[i] != 1:
+                    return 0
+        i = i + 1
+    if pkcount != 1:
+        return 0
+    if pkpos < 0:
+        return 0
+    # Tim min key hien co de chon base (bang rong -> base 0, cap 64)
+    base = int(0)
+    cap = int(64)
+    n = tcount[tidx]
+    if n > 0:
+        first = int(1)
+        r = int(0)
+        while r < n:
+            kstr = sql_row_get(rows, tstart, tncol, tidx, r, pkpos)
+            if mv_is_int(kstr) == 0:
+                return 0
+            k = mv_parse_int(kstr)
+            if first == 1:
+                base = k
+                first = 0
+            else:
+                if k < base:
+                    base = k
+            r = r + 1
+        span = n + 16
+        while cap < span:
+            cap = cap + cap
+    e = len(db.pk_tidx)
+    db.pk_tidx.append(tidx)
+    db.pk_col.append(pkpos)
+    db.pk_base.append(base)
+    db.pk_cap.append(cap)
+    db.pk_start.append(len(db.pk_slots))
+    db.pk_ok.append(1)
+    i = int(0)
+    while i < cap:
+        db.pk_slots.append(-1)
+        i = i + 1
+    sql_pk_rebuild(db, tstart, tcount, tncol, rows, e)
+    if db.pk_ok[e] == 1:
+        return 1
+    return 0
+
+def sql_pk_lookup(db: "SqlDb", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", e: "i32", key: "str") -> "i32":
+    # Tra row number hoac -1. Verify equality nen stale slot an toan.
+    if e < 0:
+        return -1
+    if e >= len(db.pk_tidx):
+        return -1
+    if db.pk_ok[e] == 0:
+        return -1
+    if mv_is_int(key) == 0:
+        return -1
+    k = mv_parse_int(key)
+    base = db.pk_base[e]
+    cap = db.pk_cap[e]
+    if k < base or k >= base + cap:
+        return -1
+    r = db.pk_slots[db.pk_start[e] + k - base]
+    if r < 0:
+        return -1
+    tidx = db.pk_tidx[e]
+    if tidx < 0 or tidx >= len(tcount):
+        return -1
+    if r >= tcount[tidx]:
+        return -1
+    if sql_row_get(rows, tstart, tncol, tidx, r, db.pk_col[e]) != key:
+        return -1
+    return r
+
+def sql_pk_invalidate_all(db: "SqlDb") -> "i32":
+    e = int(0)
+    while e < len(db.pk_ok):
+        db.pk_ok[e] = 0
+        e = e + 1
+    return 1
+
+def sql_create_table(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", name: "str", cols: "list[str]", types: "list[i32]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    if sql_table_idx(tnames, name) >= 0:
+        return db.fail(2, "dup table")
+    if len(cols) != len(types):
+        return db.fail(4, "col mismatch")
+    tidx = len(tnames)
+    tnames.append(name)
+    # Drop stale pk entry neu tidx tai su dung (an toan cross-table sau load)
+    oldexcel = sql_pk_find(db, tidx)
+    if oldexcel >= 0:
+        sql_pk_drop_entry(db, oldexcel)
+    # Offset segment = tong kich thuoc cac bang da co
+    off = int(0)
+    t = int(0)
+    while t < tidx:
+        off = off + tcount[t] * tncol[t]
+        t = t + 1
+    tstart.append(off)
+    tcount.append(0)
+    tncol.append(len(cols))
+    i = int(0)
+    while i < len(cols):
+        scol_table.append(tidx)
+        scol_name.append(cols[i])
+        scol_type.append(types[i])
+        scol_notnull.append(0)
+        scol_pk.append(0)
+        i = i + 1
+    db.n_tables = len(tnames)
+    return db.ok()
+
+def sql_set_notnull(scol_table: "list[i32]", scol_name: "list[str]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tidx: "i32", col: "str", pk: "i32") -> "i32":
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            if scol_name[i] == col:
+                scol_notnull[i] = 1
+                scol_pk[i] = pk
+                return 1
+        i = i + 1
+    return 0
+
+# =========================================================
+# ROW SEGMENTS - moi bang chiem 1 doan lien tuc trong `rows`
+# =========================================================
+def sql_seg_start(tstart: "list[i32]", tidx: "i32") -> "i32":
+    if tidx < 0:
+        return 0
+    if tidx >= len(tstart):
+        return 0
+    return tstart[tidx]
+
+def sql_rebase(tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]") -> "i32":
+    # Tinh lai offset tung bang (sau bien doi cau truc lon)
+    off = int(0)
+    t = int(0)
+    while t < len(tstart):
+        tstart[t] = off
+        off = off + tcount[t] * tncol[t]
+        t = t + 1
+    return off
+
+def sql_shift_right(rows: "list[str]", pos: "i32", k: "i32") -> "i32":
+    # Dich phai k phan tu tu pos (mo rong list), phuc vu insert giua
+    c = int(0)
+    while c < k:
+        rows.append("")
+        c = c + 1
+    i = len(rows) - 1
+    while i >= pos + k:
+        rows[i] = rows[i - k]
+        i = i - 1
+    return len(rows)
+
+def sql_shift_left(rows: "list[str]", pos: "i32", k: "i32") -> "i32":
+    # Xoa k phan tu tai pos (don doan ve truoc + pop)
+    i = pos
+    while i + k < len(rows):
+        rows[i] = rows[i + k]
+        i = i + 1
+    c = int(0)
+    while c < k:
+        rows.pop()
+        c = c + 1
+    return len(rows)
+
+def sql_insert(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_notnull: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", vals: "list[str]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return db.fail(3, "no table")
+    nc = tncol[tidx]
+    if len(vals) != nc:
+        return db.fail(4, "col mismatch")
+    # NOT NULL check
+    p = int(0)
+    i = int(0)
+    while i < len(scol_table):
+        if scol_table[i] == tidx:
+            if scol_notnull[i] == 1:
+                if vals[p] == "":
+                    return db.fail(5, "notnull")
+            p = p + 1
+        i = i + 1
+    start = tstart[tidx] + tcount[tidx] * nc
+    k = int(0)
+    while k < nc:
+        rows.append("")
+        k = k + 1
+    # Dich cac bang phia sau sang phai (chen giua)
+    n = len(rows) - 1
+    while n >= start + nc:
+        rows[n] = rows[n - nc]
+        n = n - 1
+    k = int(0)
+    while k < nc:
+        rows[start + k] = vals[k]
+        k = k + 1
+    tcount[tidx] = tcount[tidx] + 1
+    t = tidx + 1
+    while t < len(tstart):
+        tstart[t] = tstart[t] + nc
+        t = t + 1
+    # Duy tri rowid-index: dong moi = cuoi span (row = tcount-1)
+    e = sql_pk_find(db, tidx)
+    if e >= 0:
+        if db.pk_ok[e] == 1:
+            pcol = db.pk_col[e]
+            if pcol < 0 or pcol >= len(vals):
+                db.pk_ok[e] = 0
+            else:
+                kstr = vals[pcol]
+                if mv_is_int(kstr) == 0:
+                    db.pk_ok[e] = 0
+                else:
+                    k = mv_parse_int(kstr)
+                    if k < db.pk_base[e] or k >= db.pk_base[e] + db.pk_cap[e]:
+                        sql_pk_grow(db, tstart, tcount, tncol, rows, e, k)
+                    else:
+                        if db.pk_slots[db.pk_start[e] + k - db.pk_base[e]] != -1:
+                            db.pk_ok[e] = 0
+                        else:
+                            db.pk_slots[db.pk_start[e] + k - db.pk_base[e]] = tcount[tidx] - 1
+    return db.ok()
+
+def sql_row_get(rows: "list[str]", tstart: "list[i32]", tncol: "list[i32]", tidx: "i32", row: "i32", col: "i32") -> "str":
+    nc = tncol[tidx]
+    idx = tstart[tidx] + row * nc + col
+    if idx < 0:
+        return ""
+    if idx >= len(rows):
+        return ""
+    return rows[idx]
+
+def sql_row_set(rows: "list[str]", tstart: "list[i32]", tncol: "list[i32]", tidx: "i32", row: "i32", col: "i32", val: "str") -> "i32":
+    nc = tncol[tidx]
+    idx = tstart[tidx] + row * nc + col
+    if idx < 0:
+        return 0
+    if idx >= len(rows):
+        return 0
+    rows[idx] = val
+    return 1
+
+def sql_match_row(rows: "list[str]", tstart: "list[i32]", tncol: "list[i32]", tidx: "i32", row: "i32", wcol: "i32", op: "i32", target: "str") -> "i32":
+    if wcol < 0:
+        return 1
+    v = sql_row_get(rows, tstart, tncol, tidx, row, wcol)
+    return mv_match_cell(v, op, target)
+
+def sql_select(tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", where_col: "str", op: "i32", target: "str", out_idx: "list[i32]") -> "i32":
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return 0
+    wcol = -1
+    if where_col != "":
+        wcol = sql_col_pos(scol_table, scol_name, tidx, where_col)
+        if wcol < 0:
+            return 0
+    n = tcount[tidx]
+    r = int(0)
+    while r < n:
+        if sql_match_row(rows, tstart, tncol, tidx, r, wcol, op, target) == 1:
+            out_idx.append(r)
+        r = r + 1
+    return len(out_idx)
+
+def sql_update_rows(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", set_col: "str", set_val: "str", where_col: "str", op: "i32", target: "str") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return db.fail(3, "no table")
+    scol = sql_col_pos(scol_table, scol_name, tidx, set_col)
+    if scol < 0:
+        return db.fail(6, "bad col")
+    wcol = -1
+    if where_col != "":
+        wcol = sql_col_pos(scol_table, scol_name, tidx, where_col)
+        if wcol < 0:
+            return db.fail(6, "bad col")
+    # PK rowid fast path: point lookup O(1) tren INTEGER PK don
+    e = sql_pk_find(db, tidx)
+    if e >= 0:
+        if db.pk_ok[e] == 1:
+            if op == 0:
+                if wcol == db.pk_col[e]:
+                    r = sql_pk_lookup(db, tstart, tcount, tncol, rows, e, target)
+                    if r < 0:
+                        db.ok()
+                        return 0
+                    if scol == db.pk_col[e]:
+                        db.pk_ok[e] = 0
+                    else:
+                        sql_row_set(rows, tstart, tncol, tidx, r, scol, set_val)
+                        db.ok()
+                        return 1
+    n = tcount[tidx]
+    aff = int(0)
+    r = int(0)
+    while r < n:
+        if sql_match_row(rows, tstart, tncol, tidx, r, wcol, op, target) == 1:
+            sql_row_set(rows, tstart, tncol, tidx, r, scol, set_val)
+            aff = aff + 1
+        r = r + 1
+    db.ok()
+    return aff
+
+def sql_delete_rows(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", where_col: "str", op: "i32", target: "str") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return db.fail(3, "no table")
+    nc = tncol[tidx]
+    wcol = -1
+    if where_col != "":
+        wcol = sql_col_pos(scol_table, scol_name, tidx, where_col)
+        if wcol < 0:
+            return db.fail(6, "bad col")
+    start = tstart[tidx]
+    n = tcount[tidx]
+    # PK rowid fast path: point lookup O(1), xoa on dinh 1 dong + rebuild span
+    e = sql_pk_find(db, tidx)
+    if e >= 0:
+        if db.pk_ok[e] == 1:
+            if op == 0:
+                if wcol == db.pk_col[e]:
+                    r = sql_pk_lookup(db, tstart, tcount, tncol, rows, e, target)
+                    if r < 0:
+                        db.ok()
+                        return 0
+                    rr = r
+                    while rr + 1 < n:
+                        c = int(0)
+                        while c < nc:
+                            rows[start + rr * nc + c] = rows[start + (rr + 1) * nc + c]
+                            c = c + 1
+                        rr = rr + 1
+                    tail = start + (n - 1) * nc
+                    sql_shift_left(rows, tail, nc)
+                    tcount[tidx] = n - 1
+                    t = tidx + 1
+                    while t < len(tstart):
+                        tstart[t] = tstart[t] - nc
+                        t = t + 1
+                    # Fix slots O(cap) int-ops (khong rescan+parse nhu rebuild):
+                    # xoa key, giam moi slot tro qua dong r
+                    k = mv_parse_int(target)
+                    base = db.pk_base[e]
+                    cap = db.pk_cap[e]
+                    ps = db.pk_start[e]
+                    db.pk_slots[ps + k - base] = -1
+                    s = int(0)
+                    while s < cap:
+                        if db.pk_slots[ps + s] > r:
+                            db.pk_slots[ps + s] = db.pk_slots[ps + s] - 1
+                        s = s + 1
+                    db.ok()
+                    return 1
+    kept = int(0)
+    r = int(0)
+    while r < n:
+        if sql_match_row(rows, tstart, tncol, tidx, r, wcol, op, target) == 1:
+            r = r + 1
+        else:
+            # Giu lai: chep ve vung kept (stable, giu thu tu)
+            if kept != r:
+                c = int(0)
+                while c < nc:
+                    rows[start + kept * nc + c] = rows[start + r * nc + c]
+                    c = c + 1
+            kept = kept + 1
+            r = r + 1
+    removed = n - kept
+    # Cat duoi + rebase cac bang sau
+    tail = start + kept * nc
+    sql_shift_left(rows, tail, removed * nc)
+    tcount[tidx] = kept
+    t = tidx + 1
+    while t < len(tstart):
+        tstart[t] = tstart[t] - removed * nc
+        t = t + 1
+    db.ok()
+    return removed
+
+def sql_count_rows(tnames: "list[str]", tcount: "list[i32]", name: "str") -> "i32":
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return 0
+    return tcount[tidx]
+
+def sql_sum_int(tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", name: "str", col: "str") -> "i32":
+    tidx = sql_table_idx(tnames, name)
+    if tidx < 0:
+        return 0
+    c = sql_col_pos(scol_table, scol_name, tidx, col)
+    if c < 0:
+        return 0
+    s = int(0)
+    r = int(0)
+    while r < tcount[tidx]:
+        s = s + mv_parse_int(sql_row_get(rows, tstart, tncol, tidx, r, c))
+        r = r + 1
+    return s
+
+# =========================================================
+# TRANSACTION - snapshot/rollback
+# =========================================================
+def sql_snap_copy(dst: "list[str]", src: "list[str]") -> "i32":
+    while len(dst) > 0:
+        dst.pop()
+    i = int(0)
+    while i < len(src):
+        dst.append(src[i])
+        i = i + 1
+    return len(dst)
+
+def sql_snap_copy_i(dst: "list[i32]", src: "list[i32]") -> "i32":
+    while len(dst) > 0:
+        dst.pop()
+    i = int(0)
+    while i < len(src):
+        dst.append(src[i])
+        i = i + 1
+    return len(dst)
+
+def sql_begin(db: "SqlDb", tcount: "list[i32]", tstart: "list[i32]", rows: "list[str]", snap_count: "list[i32]", snap_start: "list[i32]", snap_rows: "list[str]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    if db.tx_depth != 0:
+        return db.fail(7, "tx state")
+    sql_snap_copy_i(snap_count, tcount)
+    sql_snap_copy_i(snap_start, tstart)
+    sql_snap_copy(snap_rows, rows)
+    db.tx_depth = 1
+    return db.ok()
+
+def sql_commit(db: "SqlDb", snap_count: "list[i32]", snap_start: "list[i32]", snap_rows: "list[str]") -> "i32":
+    if db.tx_depth == 0:
+        return db.fail(7, "tx state")
+    while len(snap_count) > 0:
+        snap_count.pop()
+    while len(snap_start) > 0:
+        snap_start.pop()
+    while len(snap_rows) > 0:
+        snap_rows.pop()
+    db.tx_depth = 0
+    return db.ok()
+
+def sql_rollback(db: "SqlDb", tcount: "list[i32]", tstart: "list[i32]", rows: "list[str]", snap_count: "list[i32]", snap_start: "list[i32]", snap_rows: "list[str]") -> "i32":
+    if db.tx_depth == 0:
+        return db.fail(7, "tx state")
+    sql_snap_copy_i(tcount, snap_count)
+    sql_snap_copy_i(tstart, snap_start)
+    sql_snap_copy(rows, snap_rows)
+    db.tx_depth = 0
+    # Rows phuc hoi tu snapshot -> rowid-index co the stale: vo hieu hoa
+    # (verify-on-use van dung, nhung rebuild luoi o day tranh O(n) khong can)
+    sql_pk_invalidate_all(db)
+    return db.ok()
+
+# =========================================================
+# SqlTableModel - live binding table <-> view (qua Data proxy)
+# =========================================================
+class SqlTableModel:
+    tidx: "i32"
+    sort_col: "i32"
+    sort_dir: "i32"
+    filter_col: "i32"
+    filter_op: "i32"
+    filter_val: "str"
+    def __init__(self, tidx, sort_col, sort_dir, filter_col, filter_op, filter_val):
+        self.tidx = tidx
+        self.sort_col = sort_col
+        self.sort_dir = sort_dir
+        self.filter_col = filter_col
+        self.filter_op = filter_op
+        self.filter_val = filter_val
+    def bind(self, tidx: "i32") -> "i32":
+        self.tidx = tidx
+        self.sort_col = -1
+        self.sort_dir = 0
+        self.filter_col = -1
+        self.filter_op = 0
+        self.filter_val = ""
+        return tidx
+    def set_sort(self, col: "i32", direction: "i32") -> "i32":
+        self.sort_col = col
+        self.sort_dir = direction
+        return direction
+    def set_filter(self, col: "i32", op: "i32", val: "str") -> "i32":
+        self.filter_col = col
+        self.filter_op = op
+        self.filter_val = val
+        return col
+
+def make_sql_tablemodel() -> "SqlTableModel":
+    return SqlTableModel(-1, -1, 0, -1, 0, "")
+
+def sql_model_project(tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", tidx: "i32", flat: "list[str]") -> "i32":
+    # Chep toan bo bang ra list phang tam (de dung mv_sort/filter)
+    nc = tncol[tidx]
+    n = tcount[tidx]
+    r = int(0)
+    while r < n:
+        c = int(0)
+        while c < nc:
+            flat.append(sql_row_get(rows, tstart, tncol, tidx, r, c))
+            c = c + 1
+        r = r + 1
+    return n
+
+def sql_model_refresh(model: "SqlTableModel", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", order: "list[i32]", visible: "list[int]") -> "i32":
+    # Dung lai proxy cua Data tren ban project; tra ve so dong thay duoc
+    flat = []
+    n = sql_model_project(tstart, tcount, tncol, rows, model.tidx, flat)
+    nc = tncol[model.tidx]
+    while len(order) > 0:
+        order.pop()
+    while len(visible) > 0:
+        visible.pop()
+    i = int(0)
+    while i < n:
+        order.append(0)
+        visible.append(1)
+        i = i + 1
+    mv_sort_build(flat, nc, model.sort_col, model.sort_dir, order)
+    if model.filter_col >= 0:
+        return mv_filter_apply(flat, nc, model.filter_col, model.filter_op, model.filter_val, visible)
+    return n
+
+def sql_model_cell(model: "SqlTableModel", tstart: "list[i32]", tncol: "list[i32]", rows: "list[str]", order: "list[i32]", visible: "list[int]", vrow: "i32", col: "i32") -> "str":
+    # Doc cell qua mapping hien tai (vrow = dong thu vrow dang hien)
+    seen = int(0)
+    k = int(0)
+    n = len(order)
+    while k < n:
+        real = order[k]
+        vis = 1
+        if real < len(visible):
+            vis = visible[real]
+        if vis == 1:
+            if seen == vrow:
+                return sql_row_get(rows, tstart, tncol, model.tidx, real, col)
+            seen = seen + 1
+        k = k + 1
+    return ""
+
+# =========================================================
+# SqlQuery - read-only cursor don gian
+# =========================================================
+class SqlQuery:
+    count: "i32"
+    pos: "i32"
+    def __init__(self, count, pos):
+        self.count = count
+        self.pos = pos
+    def reset(self, count: "i32") -> "i32":
+        self.count = count
+        self.pos = -1
+        return count
+    def next_row(self) -> "i32":
+        self.pos = self.pos + 1
+        if self.pos >= self.count:
+            return 0
+        return 1
+    def at(self, out_idx: "list[i32]") -> "i32":
+        if self.pos < 0:
+            return -1
+        if self.pos >= len(out_idx):
+            return -1
+        return out_idx[self.pos]
+
+def make_sql_query() -> "SqlQuery":
+    return SqlQuery(0, -1)
+
+# =========================================================
+# SqlRelation - foreign key lookup
+# =========================================================
+class SqlRelation:
+    ftable: "str"
+    fcol: "str"
+    dtable: "str"
+    dcol: "str"
+    ddisplay: "str"
+    def __init__(self, ftable, fcol, dtable, dcol, ddisplay):
+        self.ftable = ftable
+        self.fcol = fcol
+        self.dtable = dtable
+        self.dcol = dcol
+        self.ddisplay = ddisplay
+
+def make_sql_relation(ftable: "str", fcol: "str", dtable: "str", dcol: "str", ddisplay: "str") -> "SqlRelation":
+    return SqlRelation(ftable, fcol, dtable, dcol, ddisplay)
+
+def sql_relation_label(rel: "SqlRelation", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]", key: "str") -> "str":
+    dt = sql_table_idx(tnames, rel.dtable)
+    if dt < 0:
+        return key
+    kc = sql_col_pos(scol_table, scol_name, dt, rel.dcol)
+    dc = sql_col_pos(scol_table, scol_name, dt, rel.ddisplay)
+    if kc < 0:
+        return key
+    if dc < 0:
+        return key
+    r = int(0)
+    while r < tcount[dt]:
+        if sql_row_get(rows, tstart, tncol, dt, r, kc) == key:
+            return sql_row_get(rows, tstart, tncol, dt, r, dc)
+        r = r + 1
+    return key
+
+# =========================================================
+# SELFTEST - CRUD demo
+# =========================================================
+def sqlcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def sqlcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def sqlcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def sql_cols2(a: "str", b: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    return out
+
+def sql_cols4(a: "str", b: "str", c: "str", d: "str") -> "list[str]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    out.append(d)
+    return out
+
+def sql_types2(a: "i32", b: "i32") -> "list[i32]":
+    out = []
+    out.append(a)
+    out.append(b)
+    return out
+
+def sql_types4(a: "i32", b: "i32", c: "i32", d: "i32") -> "list[i32]":
+    out = []
+    out.append(a)
+    out.append(b)
+    out.append(c)
+    out.append(d)
+    return out
+
+def sqlite_selftest() -> "str":
+    print("== TkvUI.SQLite selftest ==")
+    acc = [int(0), int(0)]
+    db = make_sql_db()
+    sql_open(db, ":memory:")
+    sqlcheck_i(acc, "open", sql_is_open(db), 1)
+    tnames = []
+    scol_table = []
+    scol_name = []
+    scol_type = []
+    scol_notnull = []
+    scol_pk = []
+    tstart = []
+    tcount = []
+    tncol = []
+    rows = []
+    # dept(id, name)
+    sqlcheck_i(acc, "create.dept", sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "dept", sql_cols2("id", "name"), sql_types2(1, 0)), 0)
+    # users(id, name, age, dept_id)
+    sqlcheck_i(acc, "create.users", sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "users", sql_cols4("id", "name", "age", "dept_id"), sql_types4(1, 0, 1, 1)), 0)
+    sqlcheck_i(acc, "create.dup", sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "dept", sql_cols2("id", "name"), sql_types2(1, 0)), 2)
+    # insert dept
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "dept", sql_cols2("1", "Sales"))
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "dept", sql_cols2("2", "Tech"))
+    sqlcheck_i(acc, "dept.count", sql_count_rows(tnames, tcount, "dept"), 2)
+    # insert users
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "users", sql_cols4("1", "An", "30", "1"))
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "users", sql_cols4("2", "Binh", "25", "2"))
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "users", sql_cols4("3", "Chi", "35", "2"))
+    sqlcheck_i(acc, "users.count", sql_count_rows(tnames, tcount, "users"), 3)
+    sqlcheck_i(acc, "users.sum", sql_sum_int(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "age"), 90)
+    # select where dept_id == 2
+    out = []
+    n = sql_select(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "dept_id", 0, "2", out)
+    sqlcheck_i(acc, "select.n", n, 2)
+    sqlcheck_i(acc, "select.r0", out[0], 1)
+    # update age
+    aff = sql_update_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "age", "26", "name", 0, "Binh")
+    sqlcheck_i(acc, "update.aff", aff, 1)
+    sqlcheck_i(acc, "update.sum", sql_sum_int(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "age"), 91)
+    # delete
+    rem = sql_delete_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "name", 0, "Chi")
+    sqlcheck_i(acc, "delete.n", rem, 1)
+    sqlcheck_i(acc, "delete.count", sql_count_rows(tnames, tcount, "users"), 2)
+    # PK rowid-index tren bang rieng (khong dung users de khoi lech flow sau)
+    sqlcheck_i(acc, "pk.create", sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "pkx", sql_cols2("id", "v"), sql_types2(1, 0)), 0)
+    sql_set_notnull(scol_table, scol_name, scol_notnull, scol_pk, 2, "id", 1)
+    sqlcheck_i(acc, "pk.declare", sql_pk_declare(db, scol_table, scol_name, scol_type, scol_pk, tncol, tstart, tcount, rows, 2), 1)
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "pkx", sql_cols2("1", "a"))
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "pkx", sql_cols2("2", "b"))
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "pkx", sql_cols2("3", "c"))
+    # point update qua index: v cua id=2 -> B
+    aff = sql_update_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "pkx", "v", "B", "id", 0, "2")
+    sqlcheck_i(acc, "pk.update.aff", aff, 1)
+    sqlcheck_s(acc, "pk.update.val", sql_row_get(rows, tstart, tncol, 2, 1, 1), "B")
+    # point update miss -> 0
+    aff = sql_update_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "pkx", "v", "Z", "id", 0, "999")
+    sqlcheck_i(acc, "pk.update.miss", aff, 0)
+    # point delete qua index: xoa id=1, giu thu tu [2,3]
+    rem = sql_delete_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "pkx", "id", 0, "1")
+    sqlcheck_i(acc, "pk.delete.n", rem, 1)
+    sqlcheck_i(acc, "pk.delete.count", sql_count_rows(tnames, tcount, "pkx"), 2)
+    sqlcheck_s(acc, "pk.delete.kept", sql_row_get(rows, tstart, tncol, 2, 0, 1), "B")
+    # update sau delete van dung (rebuild span)
+    aff = sql_update_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "pkx", "v", "C", "id", 0, "3")
+    sqlcheck_i(acc, "pk.update.afterdel", aff, 1)
+    sqlcheck_s(acc, "pk.update.afterdel.val", sql_row_get(rows, tstart, tncol, 2, 1, 1), "C")
+    # non-int key tren bang khac -> declare tu choi (0), khong anh huong pkx
+    sqlcheck_i(acc, "pk.create.t3", sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "t3", sql_cols2("id", "v"), sql_types2(0, 0)), 0)
+    sql_set_notnull(scol_table, scol_name, scol_notnull, scol_pk, 3, "id", 1)
+    sqlcheck_i(acc, "pk.declare.text", sql_pk_declare(db, scol_table, scol_name, scol_type, scol_pk, tncol, tstart, tcount, rows, 3), 0)
+    # duplicate key -> invalidate, fallback scan van dung (aff=2)
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "pkx", sql_cols2("2", "dup"))
+    aff = sql_update_rows(db, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "pkx", "v", "Q", "id", 0, "2")
+    sqlcheck_i(acc, "pk.dup.aff", aff, 2)
+    # transaction rollback
+    snap_c = []
+    snap_s = []
+    snap_r = []
+    sql_begin(db, tcount, tstart, rows, snap_c, snap_s, snap_r)
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "users", sql_cols4("4", "Dung", "28", "1"))
+    sqlcheck_i(acc, "tx.count", sql_count_rows(tnames, tcount, "users"), 3)
+    sql_rollback(db, tcount, tstart, rows, snap_c, snap_s, snap_r)
+    sqlcheck_i(acc, "tx.rollback", sql_count_rows(tnames, tcount, "users"), 2)
+    # transaction commit
+    sql_begin(db, tcount, tstart, rows, snap_c, snap_s, snap_r)
+    sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "users", sql_cols4("4", "Dung", "28", "1"))
+    sql_commit(db, snap_c, snap_s, snap_r)
+    sqlcheck_i(acc, "tx.commit", sql_count_rows(tnames, tcount, "users"), 3)
+    # relation dept_id -> dept.name
+    rel = make_sql_relation("users", "dept_id", "dept", "id", "name")
+    sqlcheck_s(acc, "rel", sql_relation_label(rel, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "2"), "Tech")
+    sqlcheck_s(acc, "rel.miss", sql_relation_label(rel, tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "9"), "9")
+    # model refresh: sort age desc + filter dept 1
+    m = make_sql_tablemodel()
+    m.bind(sql_table_idx(tnames, "users"))
+    m.set_sort(2, 2)
+    m.set_filter(3, 0, "1")
+    order = []
+    vis = []
+    shown = sql_model_refresh(m, tstart, tcount, tncol, rows, order, vis)
+    sqlcheck_i(acc, "model.shown", shown, 2)
+    sqlcheck_s(acc, "model.cell", sql_model_cell(m, tstart, tncol, rows, order, vis, 0, 1), "An")
+    # query cursor
+    q = make_sql_query()
+    q2out = []
+    qn = sql_select(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "", 0, "", q2out)
+    q.reset(qn)
+    walked = int(0)
+    while q.next_row() == 1:
+        walked = walked + 1
+    sqlcheck_i(acc, "query.walk", walked, 3)
+    # P1 persistence (dat SAU moi check users de khong lech flow):
+    # users hien tai [An30,Binh26,Dung28], dept 2, pkx 3 (+dup), t3 rong
+    sql_open(db, "build/persist_selftest.db")
+    sqlcheck_i(acc, "persist.save", sql_save(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 0)
+    sqlcheck_i(acc, "persist.gen", db.persist_gen, 1)
+    sqlcheck_i(acc, "persist.load", sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 0)
+    sqlcheck_i(acc, "persist.users.count", sql_count_rows(tnames, tcount, "users"), 3)
+    sqlcheck_i(acc, "persist.users.sum", sql_sum_int(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "users", "age"), 84)
+    sqlcheck_i(acc, "persist.dept.count", sql_count_rows(tnames, tcount, "dept"), 2)
+    sqlcheck_i(acc, "persist.pkx.count", sql_count_rows(tnames, tcount, "pkx"), 3)
+    sqlcheck_i(acc, "persist.t3.count", sql_count_rows(tnames, tcount, "t3"), 0)
+    sqlcheck_s(acc, "persist.spot", sql_row_get(rows, tstart, tncol, 1, 0, 1), "An")
+    # corrupt slot A -> load van OK tu B
+    sqlf_write(db.path + ".a", "GARBAGE-NOT-A-DB")
+    sqlcheck_i(acc, "persist.corruptA", sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 0)
+    sqlcheck_i(acc, "persist.corruptA.count", sql_count_rows(tnames, tcount, "users"), 3)
+    # save tiep (gen 2 vao slot A) roi corrupt B -> load tu A
+    sqlcheck_i(acc, "persist.save2", sql_save(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 0)
+    sqlf_write(db.path + ".b", "GARBAGE")
+    sqlcheck_i(acc, "persist.corruptB", sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 0)
+    sqlcheck_i(acc, "persist.corruptB.gen", db.persist_gen, 2)
+    # hong ca 2 slot -> fail 8 (lists rong sau do, nhung khong con check nao)
+    sqlf_write(db.path + ".a", "XX")
+    sqlf_write(db.path + ".b", "YY")
+    sqlcheck_i(acc, "persist.bothbad", sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows), 8)
+    # khong co file -> fail 2 (db/lists rieng, isolated)
+    db2 = make_sql_db()
+    sql_open(db2, "build/persist_nonexistent_xyz.db")
+    tn2 = []
+    ct2 = []
+    cn2 = []
+    cy2 = []
+    nn2 = []
+    pk2 = []
+    ts2 = []
+    tc2 = []
+    tnc2 = []
+    rows2 = []
+    sqlcheck_i(acc, "persist.nofile", sql_load(db2, tn2, ct2, cn2, cy2, nn2, pk2, ts2, tc2, tnc2, rows2), 2)
+    sql_close(db)
+    sqlcheck_i(acc, "close", sql_is_open(db), 0)
+    print("sqlite: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "SQLITE_OK"
+    return "SQLITE_FAIL"
+
+# =========================================================
+# P1 - PERSISTENCE (dual-slot, generation, text format TKVSQL1)
+# Format: moi chuoi luu <len-dec>\n<raw>\n (khong escaping); so luu dong dec.
+# Atomicity: ghi slot generation NHO hon; load chon slot hop le gen CAO nhat.
+# Chi dung WriteAllText/ReadAllText/Exists (proven) + mv_parse_int.
+# Quy tac compiler tuan thu: if nhieu dong (khong elif 1-dong), khong alias
+# param list, khong ord(), out qua out-list, param truc tiep.
+# =========================================================
+def sql_pl_line(s: "str", pos: "i32", out: "list[str]") -> "i32":
+    # Doc 1 dong tu pos. Clear + append dong vao out, tra pos moi (-1 het).
+    while len(out) > 0:
+        out.pop()
+    n = len(s)
+    if pos >= n:
+        return -1
+    end = pos
+    while end < n:
+        if s[end] == "\n":
+            break
+        end = end + 1
+    out.append(s[pos:end])
+    if end >= n:
+        return n
+    return end + 1
+
+def sql_pl_wstr(chunks: "list[str]", s: "str") -> "i32":
+    chunks.append(str(len(s)))
+    chunks.append(s)
+    return 1
+
+def sql_pl_rstr(content: "str", pos: "i32", tmp: "list[str]", out: "list[str]") -> "i32":
+    # Doc chuoi length-prefixed tai pos, append vao out, tra pos moi (-1 loi).
+    while len(out) > 0:
+        out.pop()
+    p = sql_pl_line(content, pos, tmp)
+    if p < 0:
+        return -1
+    nl = mv_parse_int(tmp[0])
+    if nl < 0:
+        return -1
+    if p + nl > len(content):
+        return -1
+    out.append(content[p:p + nl])
+    p = p + nl
+    if p >= len(content):
+        return -1
+    if content[p] != "\n":
+        return -1
+    return p + 1
+
+def sql_slot_gen(path: "str") -> "i32":
+    # Generation cua slot (-1 neu thieu/loi/sai magic).
+    if sqlf_exists(path) == True:
+        content = sqlf_read(path)
+        tmp = []
+        pos = sql_pl_line(content, 0, tmp)
+        if pos < 0:
+            return -1
+        if tmp[0] != "TKVSQL1":
+            return -1
+        pos = sql_pl_line(content, pos, tmp)
+        if pos < 0:
+            return -1
+        return mv_parse_int(tmp[0])
+    return -1
+
+def sql_slot_parse(content: "str", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    # Parse full slot vao caller lists (CLEAR truoc). Tra generation, -1 loi.
+    while len(tnames) > 0:
+        tnames.pop()
+    while len(scol_table) > 0:
+        scol_table.pop()
+    while len(scol_name) > 0:
+        scol_name.pop()
+    while len(scol_type) > 0:
+        scol_type.pop()
+    while len(scol_notnull) > 0:
+        scol_notnull.pop()
+    while len(scol_pk) > 0:
+        scol_pk.pop()
+    while len(tstart) > 0:
+        tstart.pop()
+    while len(tcount) > 0:
+        tcount.pop()
+    while len(tncol) > 0:
+        tncol.pop()
+    while len(rows) > 0:
+        rows.pop()
+    tmp = []
+    got = []
+    pos = sql_pl_line(content, 0, tmp)
+    if pos < 0:
+        return -1
+    if tmp[0] != "TKVSQL1":
+        return -1
+    pos = sql_pl_line(content, pos, tmp)
+    if pos < 0:
+        return -1
+    gen = mv_parse_int(tmp[0])
+    if gen < 0:
+        return -1
+    pos = sql_pl_line(content, pos, tmp)
+    if pos < 0:
+        return -1
+    nt = mv_parse_int(tmp[0])
+    if nt < 0:
+        return -1
+    if nt > 100000:
+        return -1
+    t = int(0)
+    while t < nt:
+        pos = sql_pl_line(content, pos, tmp)
+        if pos < 0:
+            return -1
+        if tmp[0] != "TABLE":
+            return -1
+        pos = sql_pl_rstr(content, pos, tmp, got)
+        if pos < 0:
+            return -1
+        tnames.append(got[0])
+        pos = sql_pl_line(content, pos, tmp)
+        if pos < 0:
+            return -1
+        nc = mv_parse_int(tmp[0])
+        pos = sql_pl_line(content, pos, tmp)
+        if pos < 0:
+            return -1
+        nr = mv_parse_int(tmp[0])
+        if nc < 0:
+            return -1
+        if nr < 0:
+            return -1
+        if nc > 10000:
+            return -1
+        if nr > 1000000:
+            return -1
+        tncol.append(nc)
+        tcount.append(nr)
+        tstart.append(len(rows))
+        c = int(0)
+        while c < nc:
+            pos = sql_pl_rstr(content, pos, tmp, got)
+            if pos < 0:
+                return -1
+            scol_table.append(t)
+            scol_name.append(got[0])
+            pos = sql_pl_line(content, pos, tmp)
+            if pos < 0:
+                return -1
+            scol_type.append(mv_parse_int(tmp[0]))
+            pos = sql_pl_line(content, pos, tmp)
+            if pos < 0:
+                return -1
+            scol_notnull.append(mv_parse_int(tmp[0]))
+            pos = sql_pl_line(content, pos, tmp)
+            if pos < 0:
+                return -1
+            scol_pk.append(mv_parse_int(tmp[0]))
+            c = c + 1
+        r = int(0)
+        while r < nr:
+            cc = int(0)
+            while cc < nc:
+                pos = sql_pl_rstr(content, pos, tmp, got)
+                if pos < 0:
+                    return -1
+                rows.append(got[0])
+                cc = cc + 1
+            r = r + 1
+        t = t + 1
+    pos = sql_pl_line(content, pos, tmp)
+    if pos < 0:
+        return -1
+    if tmp[0] != "TKVEND":
+        return -1
+    pos = sql_pl_line(content, pos, tmp)
+    if pos < 0:
+        return -1
+    if mv_parse_int(tmp[0]) != len(rows):
+        return -1
+    return gen
+
+def sql_save(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    if db.path == "":
+        return db.fail(9, "no path")
+    db.persist_gen = db.persist_gen + 1
+    gen = db.persist_gen
+    chunks = []
+    chunks.append("TKVSQL1")
+    chunks.append(str(gen))
+    chunks.append(str(len(tnames)))
+    t = int(0)
+    while t < len(tnames):
+        chunks.append("TABLE")
+        sql_pl_wstr(chunks, tnames[t])
+        chunks.append(str(tncol[t]))
+        chunks.append(str(tcount[t]))
+        i = int(0)
+        while i < len(scol_table):
+            if scol_table[i] == t:
+                sql_pl_wstr(chunks, scol_name[i])
+                chunks.append(str(scol_type[i]))
+                chunks.append(str(scol_notnull[i]))
+                chunks.append(str(scol_pk[i]))
+            i = i + 1
+        start = tstart[t]
+        nc = tncol[t]
+        r = int(0)
+        while r < tcount[t]:
+            c = int(0)
+            while c < nc:
+                sql_pl_wstr(chunks, rows[start + r * nc + c])
+                c = c + 1
+            r = r + 1
+        t = t + 1
+    chunks.append("TKVEND")
+    chunks.append(str(len(rows)))
+    content = ""
+    i = int(0)
+    while i < len(chunks):
+        content = content + chunks[i] + "\n"
+        i = i + 1
+    slot_a = db.path + ".a"
+    slot_b = db.path + ".b"
+    ga = sql_slot_gen(slot_a)
+    gb = sql_slot_gen(slot_b)
+    if ga < gb:
+        sqlf_write(slot_a, content)
+    else:
+        sqlf_write(slot_b, content)
+    return db.ok()
+
+def sql_load(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    if db.path == "":
+        return db.fail(9, "no path")
+    slot_a = db.path + ".a"
+    slot_b = db.path + ".b"
+    ea = int(0)
+    if sqlf_exists(slot_a) == True:
+        ea = 1
+    eb = int(0)
+    if sqlf_exists(slot_b) == True:
+        eb = 1
+    if ea == 0 and eb == 0:
+        return db.fail(2, "no file")
+    ga = sql_slot_gen(slot_a)
+    gb = sql_slot_gen(slot_b)
+    gen = int(-1)
+    if gb > ga:
+        content_b = sqlf_read(slot_b)
+        gen = sql_slot_parse(content_b, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+        if gen < 0:
+            if ga < 0:
+                return db.fail(8, "corrupt")
+            content_a = sqlf_read(slot_a)
+            gen = sql_slot_parse(content_a, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+    else:
+        if ga < 0:
+            return db.fail(8, "corrupt")
+        content_a = sqlf_read(slot_a)
+        gen = sql_slot_parse(content_a, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+        if gen < 0:
+            if gb < 0:
+                return db.fail(8, "corrupt")
+            content_b = sqlf_read(slot_b)
+            gen = sql_slot_parse(content_b, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+    if gen < 0:
+        return db.fail(8, "corrupt")
+    db.persist_gen = gen
+    t = int(0)
+    while t < len(tnames):
+        sql_pk_declare(db, scol_table, scol_name, scol_type, scol_pk, tncol, tstart, tcount, rows, t)
+        t = t + 1
+    return db.ok()

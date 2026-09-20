@@ -1,0 +1,61 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.BenchText - benchmark render text khoi lon (Phase 6.2).
+
+400 dong x 54 ky tu, 5 lap: atlas vs classic. Do bang GetTickCount (ms).
+Build:
+  tkvc.exe build examples/TkvUI.BenchText.tkv --entry bench_text_block --out build/bench_text.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text"]
+
+def bench_line() -> "str":
+    return "the quick brown fox jumps over the lazy dog 0123456789"
+
+def bench_alloc(n: "i32") -> "list[i64]":
+    buf = []
+    i = int(0)
+    while i < n:
+        buf.append(0)
+        i = i + 1
+    return buf
+
+def bench_text_block() -> "str":
+    line = bench_line()
+    nlines = 400
+    step = 8.0
+    w = int(340)
+    h = int(3200)
+    surf = PixelSurface(w, h, w)
+    buf = bench_alloc(w * h)
+    atlas = text_atlas_record(1)
+    abuf = text_atlas_baked_buffer(atlas)
+    white = ColorRgba(255, 255, 255, 255)
+    black = ColorRgba(0, 0, 0, 255)
+    reps = 5
+    # scratch tai dung qua 2000 calls (bot churn gen0, giam peak RSS)
+    scratch = []
+    # atlas
+    t0 = text_ticks()
+    r = int(0)
+    while r < reps:
+        surface_clear(buf, surf, black)
+        li = int(0)
+        while li < nlines:
+            text_atlas_draw_string_ex(abuf, atlas, buf, surf, line, scratch, 0.0, float(li) * step, white)
+            li = li + 1
+        r = r + 1
+    t1 = text_ticks()
+    atlas_ms = t1 - t0
+    # classic
+    t0 = text_ticks()
+    r = int(0)
+    while r < reps:
+        surface_clear(buf, surf, black)
+        li = int(0)
+        while li < nlines:
+            draw_string(buf, surf, line, 0.0, float(li) * step, 1.0, white)
+            li = li + 1
+        r = r + 1
+    t1 = text_ticks()
+    classic_ms = t1 - t0
+    total_chars = nlines * len(line) * reps
+    return "atlas_ms=" + str(atlas_ms) + " classic_ms=" + str(classic_ms) + " lines=" + str(nlines * reps) + " chars=" + str(total_chars)
