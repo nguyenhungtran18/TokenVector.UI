@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.VideoDemo - player demo dau tien xem duoc video that (duong A).
+
+Content TKVV bake san (ball+square 160x120 8f) + widget Media that
+(Transport/SeekBar/Speed/ABLoop) + clock Video + blit ra PixelSurface.
+Don vi: Video clock = centisecond (cs), widget Media = millisecond (ms);
+demo doi ms = cs*10 o ranh gioi (ghi ro de khong lan).
+
+Chay headless (verify.sh): build + videodemo_run -> VIDEODEMO_OK.
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Media", "../TkvUI.Tkvv", "../TkvUI.TkvvPlay", "../TkvUI.Video"]
+
+def vd_speed_permille(sp: "MediaSpeedWidget") -> "i32":
+    # idx 0..4 -> 0.5x/1x/1.25x/1.5x/2x (theo MediaSpeedWidget.label).
+    if sp.idx == 0:
+        return 500
+    if sp.idx == 2:
+        return 1250
+    if sp.idx == 3:
+        return 1500
+    if sp.idx == 4:
+        return 2000
+    return 1000
+
+def vd_tick(st: "list[i32]", permille: "i32", dt_cs: "i32", total: "i32", ab: "MediaABLoopWidget") -> "i32":
+    # Tien clock khi playing (st[0]=t_cs, st[1]=playing). AB-loop wrap ve a,
+    # het video loop ve 0. Tra t moi.
+    if st[1] == 0:
+        return st[0]
+    if total <= 0:
+        return st[0]
+    adv = dt_cs * permille // 1000
+    t = st[0] + adv
+    if ab.armed == 2:
+        span = ab.b_ms - ab.a_ms
+        if span > 0:
+            base = ab.a_ms // 10
+            if t * 10 >= ab.b_ms:
+                t = base + (t * 10 - ab.b_ms) // 10
+                if t * 10 >= ab.b_ms:
+                    t = base
+            if t * 10 < ab.a_ms:
+                t = base
+    if t >= total:
+        t = t - (t // total) * total
+    st[0] = t
+    return t
+
+def vd_pack(r: "i32", g: "i32", b: "i32") -> "i64":
+    return 255 * 16777216 + r * 65536 + g * 256 + b
+
+def vd_blit(buf: "list[i64]", surf: "PixelSurface", rgb: "list[i32]", w: "i32", h: "i32", dx: "i32", dy: "i32") -> "i32":
+    # Ve frame RGB vao surface tai (dx, dy). Tra so pixel.
+    y = int(0)
+    while y < h:
+        x = int(0)
+        while x < w:
+            o = (y * w + x) * 3
+            surface_set_pixel(buf, surf, dx + x, dy + y, vd_pack(rgb[o], rgb[o + 1], rgb[o + 2]))
+            x = x + 1
+        y = y + 1
+    return w * h
+
+def vd_sum(vals: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + vals[i]
+        i = i + 1
+    return t
+
+def vd_decode_at(data: "list[i32]", w: "i32", h: "i32", ftypes: "list[i32]", foffs: "list[i32]", flens: "list[i32]", delays: "list[i32]", nfr: "i32", t: "i32", out_idx: "list[i32]") -> "i32":
+    # Giai frame tai thoi diem t (chain tu 0 - nhu player that). Tra frame idx.
+    fi = vid_frame_at(delays, nfr, t)
+    ref = []
+    k = int(0)
+    while k <= fi:
+        cur = []
+        tkvv_decode_frame(data, w, h, ftypes, foffs, flens, k, ref, cur)
+        ref = cur
+        k = k + 1
+    q = int(0)
+    while q < w * h:
+        out_idx[q] = ref[q]
+        q = q + 1
+    return fi
+
+def vdcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def vdcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def videodemo_run() -> "str":
+    print("== TkvUI.VideoDemo ==")
+    acc = [int(0), int(0)]
+    data = tkvp_bytes()
+    ftypes = []
+    foffs = []
+    flens = []
+    fdelays = []
+    palbuf = []
+    err = []
+    nfr = tkvv_parse(data, ftypes, foffs, flens, fdelays, palbuf, err)
+    vdcheck_i(acc, "nframes", nfr, 8)
+    vdcheck_i(acc, "parse err", err[0], 0)
+    total = vid_total_cs(fdelays, nfr)
+    vdcheck_i(acc, "total cs", total, 80)
+    tr = make_media_transport(8.0, 160.0, 200.0, 1, 1, 1)
+    sb = make_media_seekbar(8.0, 128.0, 304.0, 0, 800)
+    sp = make_media_speed(216.0, 160.0)
+    ab = make_media_abloop(8.0, 190.0, 200.0)
+    vdcheck_i(acc, "dur ms", sb.dur_ms, 800)
+    vdcheck_i(acc, "speed 1x", vd_speed_permille(sp), 1000)
+    surf = PixelSurface(320, 220, 320)
+    buf = []
+    i = int(0)
+    while i < 320 * 220:
+        buf.append(0)
+        i = i + 1
+    st = [0, 0]
+    idx = []
+    zi = int(0)
+    while zi < 19200:
+        idx.append(0)
+        zi = zi + 1
+    vdcheck_i(acc, "idx len", len(idx), 19200)
+    rgb = []
+    # --- case 1: frame dau + blit ---
+    fi0 = vd_decode_at(data, 160, 120, ftypes, foffs, flens, fdelays, nfr, 0, idx)
+    vdcheck_i(acc, "f at 0", fi0, 0)
+    gif_frame_rgb(palbuf, 0, idx, 19200, rgb)
+    vdcheck_i(acc, "rgb sum f0", vd_sum(rgb, 57600), tkvp_f0_sum())
+    vd_blit(buf, surf, rgb, 160, 120, 8, 4)
+    cnt = text_count_nonzero(buf, 320 * 220, 0, 320 * 220)
+    okpx = 0
+    if cnt > 1000:
+        okpx = 1
+    vdcheck(acc, "blit px", okpx)
+    # --- case 2: play + tick 15cs -> frame 1, seekbar theo ---
+    tr.toggle()
+    st[1] = tr.playing
+    vdcheck_i(acc, "playing", tr.playing, 1)
+    vd_tick(st, vd_speed_permille(sp), 15, total, ab)
+    vdcheck_i(acc, "t=15", st[0], 15)
+    sb.set_pos(st[0] * 10)
+    vdcheck_i(acc, "seekbar 150", sb.pos_ms, 150)
+    fi1 = vd_decode_at(data, 160, 120, ftypes, foffs, flens, fdelays, nfr, st[0], idx)
+    vdcheck_i(acc, "f at 15", fi1, 1)
+    # --- case 3: pause giu clock ---
+    tr.toggle()
+    st[1] = tr.playing
+    vd_tick(st, vd_speed_permille(sp), 50, total, ab)
+    vdcheck_i(acc, "paused t", st[0], 15)
+    # --- case 4: speed 2x ---
+    sp.set_idx(4)
+    vdcheck_i(acc, "speed 2x", vd_speed_permille(sp), 2000)
+    tr.toggle()
+    st[1] = tr.playing
+    vd_tick(st, vd_speed_permille(sp), 10, total, ab)
+    vdcheck_i(acc, "t=35", st[0], 35)
+    # --- case 5: seek 450ms -> frame 4 ---
+    sb.set_pos(450)
+    st[0] = sb.pos_ms // 10
+    fi4 = vd_decode_at(data, 160, 120, ftypes, foffs, flens, fdelays, nfr, st[0], idx)
+    vdcheck_i(acc, "seek frame", fi4, 4)
+    rgb4 = []
+    gif_frame_rgb(palbuf, 0, idx, 19200, rgb4)
+    vdcheck_i(acc, "rgb sum f4", vd_sum(rgb4, 57600), tkvp_f4_sum())
+    # --- case 6: AB loop 200-500ms ---
+    ab.press(200)
+    ab.press(500)
+    vdcheck_i(acc, "ab armed", ab.armed, 2)
+    st[0] = 48
+    vd_tick(st, 1000, 5, total, ab)
+    vdcheck_i(acc, "ab wrap", st[0], 23)
+    # --- case 7: het video loop ve 0 ---
+    ab.clear_loop()
+    st[0] = 75
+    vd_tick(st, 1000, 10, total, ab)
+    vdcheck_i(acc, "end loop", st[0], 5)
+    print("videodemo: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "VIDEODEMO_OK"
+    return "VIDEODEMO_FAIL"

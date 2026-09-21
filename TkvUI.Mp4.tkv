@@ -1,0 +1,423 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Mp4 - MP4 demux thuan .tkv (duong B: doc MP4, lop container).
+
+Chi boc VO (boxes) + doc metadata/tracks/sample table - KHONG decode H.264
+(payload tra ve tho cho OpenH264 sau nay). Giong mo mp4demux: ftyp/moov
+(mvhd/trak{tkhd/mdia{mdhd/hdlr/minf/stbl}})/mdat. Co64/largesize/uuid/moov-
+phu ngoai subset (ma loi ro). u32 gia dinh < 2^31 (file test nho).
+
+Ma loi: 0=ok 1=bad-size 2=truncated 3=not-found 4=bad-ver.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Mp4Data"]
+
+MP4_OK = 0
+MP4_BAD_SIZE = 1
+MP4_TRUNC = 2
+MP4_NOT_FOUND = 3
+MP4_BAD_VER = 4
+
+def mp4_u32(data: "list[i32]", off: "i32") -> "i32":
+    if off < 0:
+        return -1
+    if off + 3 >= len(data):
+        return -1
+    if data[off] > 127:
+        return -1
+    return data[off] * 16777216 + data[off + 1] * 65536 + data[off + 2] * 256 + data[off + 3]
+
+def mp4_tag(data: "list[i32]", off: "i32") -> "i32":
+    return mp4_u32(data, off)
+
+def mp4_need(data: "list[i32]", off: "i32", n: "i32") -> "i32":
+    if off < 0:
+        return 0
+    if off + n > len(data):
+        return 0
+    return 1
+
+def mp4_walk(data: "list[i32]", s: "i32", e: "i32", out_off: "list[i32]", out_tag: "list[i32]", out_size: "list[i32]") -> "i32":
+    # Liet ke boxes con trong [s, e). Tra so box, -1 neu corrupt.
+    # (size==1 largesize / size==0 to-EOF ngoai subset -> bad-size.)
+    off = s
+    n = int(0)
+    while off < e:
+        if mp4_need(data, off, 8) == 0:
+            return -1
+        sz = mp4_u32(data, off)
+        if sz < 8:
+            return -1
+        if off + sz > e:
+            return -1
+        out_off.append(off)
+        out_tag.append(mp4_tag(data, off + 4))
+        out_size.append(sz)
+        off = off + sz
+        n = n + 1
+    return n
+
+def mp4_find(data: "list[i32]", s: "i32", e: "i32", tag: "i32") -> "i32":
+    # Offset box con dau tien co tag (box start), -1 neu thieu/corrupt.
+    # s = offset box con DAU TIEN (sau header parent), khong phai parent start.
+    off = s
+    while off < e:
+        if mp4_need(data, off, 8) == 0:
+            return -1
+        sz = mp4_u32(data, off)
+        if sz < 8 or off + sz > e:
+            return -1
+        if mp4_tag(data, off + 4) == tag:
+            return off
+        off = off + sz
+    return -1
+
+def mp4_full(data: "list[i32]", off: "i32") -> "i32":
+    # Version byte cua full-box (off = box start). -1 neu thieu.
+    if mp4_need(data, off + 8, 4) == 0:
+        return -1
+    return data[off + 8]
+
+def mp4_child_end(data: "list[i32]", start: "i32") -> "i32":
+    # Offset ket thuc (start+size) cua box. -1 neu loi.
+    if mp4_need(data, start, 8) == 0:
+        return -1
+    sz = mp4_u32(data, start)
+    if sz < 8:
+        return -1
+    if start + sz > len(data):
+        return -1
+    return start + sz
+
+def mp4_mvhd_duration(data: "list[i32]", moov: "i32", moov_end: "i32", out_ts_dur: "list[i32]") -> "i32":
+    # [timescale, duration] movie. Tra 1/0.
+    m = mp4_find(data, moov + 8, moov_end, 1836476516)
+    if m < 0:
+        return 0
+    if mp4_full(data, m) != 0:
+        return 0
+    if mp4_need(data, m + 8, 20) == 0:
+        return 0
+    out_ts_dur.append(mp4_u32(data, m + 20))
+    out_ts_dur.append(mp4_u32(data, m + 24))
+    return 1
+
+def mp4_parse_trak(data: "list[i32]", tstart: "i32", tend: "i32", out_tid: "list[i32]", out_hdlr: "list[i32]", out_ts: "list[i32]", out_dur: "list[i32]", out_codec: "list[i32]", out_wh: "list[i32]", out_nsamp: "list[i32]", out_sizes: "list[i32]", out_szbase: "list[i32]", out_runf: "list[i32]", out_runn: "list[i32]", out_rund: "list[i32]", out_scbase: "list[i32]", out_chunks: "list[i32]", out_cobase: "list[i32]") -> "i32":
+    # Parse 1 trak. Track tables append vao flats + base indices.
+    # (sizes/runs/chunks gop chung; szbase/scbase/cobase chi vung moi track.)
+    # Tra 1/0.
+    tk = mp4_find(data, tstart + 8, tend, 1953196132)
+    if tk < 0:
+        return 0
+    if mp4_need(data, tk + 8, 84) == 0:
+        return 0
+    tid = mp4_u32(data, tk + 20)
+    dur = mp4_u32(data, tk + 28)
+    w = mp4_u32(data, tk + 84) // 65536
+    h = mp4_u32(data, tk + 88) // 65536
+    mdia = mp4_find(data, tstart + 8, tend, 1835297121)
+    if mdia < 0:
+        return 0
+    mend = mp4_child_end(data, mdia)
+    if mend < 0:
+        return 0
+    md = mp4_find(data, mdia + 8, mend, 1835296868)
+    if md < 0:
+        return 0
+    if mp4_full(data, md) != 0:
+        return 0
+    if mp4_need(data, md + 8, 24) == 0:
+        return 0
+    ts = mp4_u32(data, md + 20)
+    mdur = mp4_u32(data, md + 24)
+    hl = mp4_find(data, mdia + 8, mend, 1751411826)
+    if hl < 0:
+        return 0
+    if mp4_need(data, hl + 8, 8) == 0:
+        return 0
+    hdlr = mp4_tag(data, hl + 16)
+    mi = mp4_find(data, mdia + 8, mend, 1835626086)
+    if mi < 0:
+        return 0
+    miend = mp4_child_end(data, mi)
+    if miend < 0:
+        return 0
+    st = mp4_find(data, mi + 8, miend, 1937007212)
+    if st < 0:
+        return 0
+    stend = mp4_child_end(data, st)
+    if stend < 0:
+        return 0
+    sd = mp4_find(data, st + 8, stend, 1937011556)
+    if sd < 0:
+        return 0
+    if mp4_need(data, sd + 8, 8) == 0:
+        return 0
+    nentry = mp4_u32(data, sd + 12)
+    if nentry < 1:
+        return 0
+    if mp4_need(data, sd + 16, 8) == 0:
+        return 0
+    codec = mp4_tag(data, sd + 20)
+    tss = mp4_find(data, st + 8, stend, 1937011827)
+    tsc = mp4_find(data, st + 8, stend, 1937011555)
+    tsz = mp4_find(data, st + 8, stend, 1937011578)
+    tco = mp4_find(data, st + 8, stend, 1937007471)
+    if tss < 0 or tsc < 0 or tsz < 0 or tco < 0:
+        return 0
+    if mp4_need(data, tsz + 8, 12) == 0:
+        return 0
+    samsz = mp4_u32(data, tsz + 12)
+    nsamp = mp4_u32(data, tsz + 16)
+    szb = len(out_sizes)
+    if samsz != 0:
+        si = int(0)
+        while si < nsamp:
+            out_sizes.append(samsz)
+            si = si + 1
+    else:
+        if mp4_need(data, tsz + 20, nsamp * 4) == 0:
+            return 0
+        si = int(0)
+        while si < nsamp:
+            out_sizes.append(mp4_u32(data, tsz + 20 + si * 4))
+            si = si + 1
+    if mp4_need(data, tsc + 8, 4) == 0:
+        return 0
+    nruns = mp4_u32(data, tsc + 12)
+    if mp4_need(data, tsc + 16, nruns * 12) == 0:
+        return 0
+    scb = len(out_runf)
+    ri = int(0)
+    while ri < nruns:
+        out_runf.append(mp4_u32(data, tsc + 16 + ri * 12))
+        out_runn.append(mp4_u32(data, tsc + 20 + ri * 12))
+        out_rund.append(mp4_u32(data, tsc + 24 + ri * 12))
+        ri = ri + 1
+    if mp4_need(data, tco + 8, 4) == 0:
+        return 0
+    nch = mp4_u32(data, tco + 12)
+    if mp4_need(data, tco + 16, nch * 4) == 0:
+        return 0
+    cob = len(out_chunks)
+    ci = int(0)
+    while ci < nch:
+        out_chunks.append(mp4_u32(data, tco + 16 + ci * 4))
+        ci = ci + 1
+    out_tid.append(tid)
+    out_hdlr.append(hdlr)
+    out_ts.append(ts)
+    out_dur.append(mdur)
+    out_codec.append(codec)
+    out_wh.append(w)
+    out_wh.append(h)
+    out_nsamp.append(nsamp)
+    out_szbase.append(szb)
+    out_scbase.append(scb)
+    out_cobase.append(cob)
+    return 1
+
+def mp4_sample_offset(out_sizes: "list[i32]", szb: "i32", out_runf: "list[i32]", out_runn: "list[i32]", scb: "i32", nruns: "i32", out_chunks: "list[i32]", cob: "i32", nchunks: "i32", idx: "i32") -> "i32":
+    # File offset cua sample idx (0-based) trong 1 track. O(1) locate qua
+    # stsc runs + stco (khong scan). Tra -1 neu le.
+    # Moi run r cover chunks [first_r, first_{r+1}) (run cuoi toi het chunks).
+    if idx < 0:
+        return -1
+    acc = int(0)
+    ri = int(0)
+    chunk = int(-1)
+    inchunk = int(0)
+    while ri < nruns:
+        first = out_runf[scb + ri]
+        n = out_runn[scb + ri]
+        if n <= 0:
+            return -1
+        last = nchunks + 1
+        if ri + 1 < nruns:
+            last = out_runf[scb + ri + 1]
+        cnt = last - first
+        if cnt < 0:
+            return -1
+        if idx < acc + cnt * n:
+            rel = idx - acc
+            chunk = first + rel // n
+            inchunk = rel % n
+            break
+        acc = acc + cnt * n
+        ri = ri + 1
+    if chunk < 1 or chunk > nchunks:
+        return -1
+    if cob + chunk - 1 >= len(out_chunks):
+        return -1
+    off = out_chunks[cob + chunk - 1]
+    base = acc
+    j = int(0)
+    while j < inchunk:
+        if szb + base + j >= len(out_sizes):
+            return -1
+        off = off + out_sizes[szb + base + j]
+        j = j + 1
+    return off
+
+def mp4_extract_sample(data: "list[i32]", out_sizes: "list[i32]", szb: "i32", nsamp: "i32", out_runf: "list[i32]", out_runn: "list[i32]", scb: "i32", nruns: "i32", out_chunks: "list[i32]", cob: "i32", nchunks: "i32", idx: "i32", out: "list[i32]") -> "i32":
+    # Copy bytes sample idx vao out. Tra so byte, -1 neu le.
+    if idx < 0 or idx >= nsamp:
+        return -1
+    off = mp4_sample_offset(out_sizes, szb, out_runf, out_runn, scb, nruns, out_chunks, cob, nchunks, idx)
+    if off < 0:
+        return -1
+    if szb + idx >= len(out_sizes):
+        return -1
+    ln = out_sizes[szb + idx]
+    if mp4_need(data, off, ln) == 0:
+        return -1
+    k = int(0)
+    while k < ln:
+        out.append(data[off + k])
+        k = k + 1
+    return ln
+
+def mp4_duration_ms(ts: "i32", dur: "i32") -> "i32":
+    if ts <= 0:
+        return 0
+    return dur * 1000 // ts
+
+# =========================================================
+# SELFTEST - demux file craft: boxes/tracks/samples/extract
+# =========================================================
+def mpcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def mpcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def mp4_selftest() -> "str":
+    print("== TkvUI.Mp4 selftest ==")
+    acc = [int(0), int(0)]
+    data = mp4_sample_bytes()
+    mpcheck_i(acc, "len", len(data), mp4_sample_len())
+    toff = []
+    ttag = []
+    tsz = []
+    ntop = mp4_walk(data, 0, len(data), toff, ttag, tsz)
+    mpcheck_i(acc, "top boxes", ntop, 3)
+    mpcheck_i(acc, "box0 ftyp", ttag[0], 1718909296)
+    mpcheck_i(acc, "box1 moov", ttag[1], 1836019574)
+    mpcheck_i(acc, "box2 mdat", ttag[2], 1835295092)
+    moov = mp4_find(data, 0, len(data), 1836019574)
+    moend = mp4_child_end(data, moov)
+    okmoov = 0
+    if moov >= 0:
+        okmoov = 1
+    mpcheck(acc, "moov found", okmoov)
+    tsd = []
+    okmd = mp4_mvhd_duration(data, moov, moend, tsd)
+    mpcheck_i(acc, "mvhd ok", okmd, 1)
+    mpcheck_i(acc, "movie dur ms", mp4_duration_ms(tsd[0], tsd[1]), 3000)
+    tids = []
+    hdlrs = []
+    tss = []
+    durs = []
+    codecs = []
+    whs = []
+    nsamps = []
+    sizes = []
+    szbase = []
+    runf = []
+    runn = []
+    rund = []
+    scbase = []
+    chunks = []
+    cobase = []
+    koff = []
+    ktag = []
+    ksz = []
+    nmkids = mp4_walk(data, moov + 8, moend, koff, ktag, ksz)
+    ntrk = int(0)
+    ki = int(0)
+    while ki < nmkids:
+        if ktag[ki] == 1953653099:
+            tend = koff[ki] + ksz[ki]
+            okr = mp4_parse_trak(data, koff[ki], tend, tids, hdlrs, tss, durs, codecs, whs, nsamps, sizes, szbase, runf, runn, rund, scbase, chunks, cobase)
+            mpcheck_i(acc, "trak parse", okr, 1)
+            if okr == 1:
+                ntrk = ntrk + 1
+        ki = ki + 1
+    mpcheck_i(acc, "ntracks", ntrk, 2)
+    mpcheck_i(acc, "exp ntracks", mp4_exp_ntracks(), 2)
+    mpcheck_i(acc, "tid0", tids[0], 1)
+    mpcheck_i(acc, "tid1", tids[1], 2)
+    mpcheck_i(acc, "hdlr video", hdlrs[0], 1986618469)
+    mpcheck_i(acc, "hdlr audio", hdlrs[1], 1936684398)
+    mpcheck_i(acc, "codec avc1", codecs[0], 1635148593)
+    mpcheck_i(acc, "codec mp4a", codecs[1], 1836069985)
+    mpcheck_i(acc, "video w", whs[0], 160)
+    mpcheck_i(acc, "video h", whs[1], 120)
+    mpcheck_i(acc, "v dur ms", mp4_duration_ms(tss[0], durs[0]), mp4_exp_v_dur_ms())
+    mpcheck_i(acc, "a dur ms", mp4_duration_ms(tss[1], durs[1]), mp4_exp_a_dur_ms())
+    mpcheck_i(acc, "v nsamp", nsamps[0], mp4_exp_v_nsamples())
+    mpcheck_i(acc, "a nsamp", nsamps[1], mp4_exp_a_nsamples())
+    nruns0 = scbase[1] - scbase[0]
+    nch0 = cobase[1] - cobase[0]
+    nruns1 = len(runf) - scbase[1]
+    nch1 = len(chunks) - cobase[1]
+    mpcheck_i(acc, "v size0", sizes[szbase[0]], 100)
+    mpcheck_i(acc, "v size1", sizes[szbase[0] + 1], 120)
+    mpcheck_i(acc, "a size1", sizes[szbase[1] + 1], 60)
+    exvs = mp4_exp_v_sizes()
+    samev = 1
+    q = int(0)
+    while q < 3:
+        if sizes[szbase[0] + q] != exvs[q]:
+            samev = 0
+        q = q + 1
+    mpcheck(acc, "v sizes all", samev)
+    off0 = mp4_sample_offset(sizes, szbase[0], runf, runn, scbase[0], nruns0, chunks, cobase[0], nch0, 0)
+    off2 = mp4_sample_offset(sizes, szbase[0], runf, runn, scbase[0], nruns0, chunks, cobase[0], nch0, 2)
+    offa1 = mp4_sample_offset(sizes, szbase[1], runf, runn, scbase[1], nruns1, chunks, cobase[1], nch1, 1)
+    mpcheck_i(acc, "v chunk", off0, mp4_exp_v_chunk())
+    mpcheck_i(acc, "v s2 off", off2, mp4_exp_v_s2_off())
+    mpcheck_i(acc, "a s1 off", offa1, mp4_exp_a_chunk() + 50)
+    mpcheck_i(acc, "oob", mp4_sample_offset(sizes, szbase[0], runf, runn, scbase[0], nruns0, chunks, cobase[0], nch0, 9), -1)
+    bv0 = []
+    nb0 = mp4_extract_sample(data, sizes, szbase[0], nsamps[0], runf, runn, scbase[0], nruns0, chunks, cobase[0], nch0, 0, bv0)
+    mpcheck_i(acc, "extract len", nb0, 100)
+    exv0 = mp4_exp_v_s0()
+    same0 = 1
+    q = int(0)
+    while q < 8:
+        if bv0[q] != exv0[q]:
+            same0 = 0
+        q = q + 1
+    mpcheck(acc, "extract v_s0", same0)
+    ba1 = []
+    mp4_extract_sample(data, sizes, szbase[1], nsamps[1], runf, runn, scbase[1], nruns1, chunks, cobase[1], nch1, 1, ba1)
+    exa1 = mp4_exp_a_s1()
+    same1 = 1
+    q = int(0)
+    while q < 8:
+        if ba1[q] != exa1[q]:
+            same1 = 0
+        q = q + 1
+    mpcheck(acc, "extract a_s1", same1)
+    mpcheck_i(acc, "extract oob", mp4_extract_sample(data, sizes, szbase[0], nsamps[0], runf, runn, scbase[0], nruns0, chunks, cobase[0], nch0, 7, bv0), -1)
+    bad = [255, 0, 0, 0, 0, 0, 0, 0]
+    boff = []
+    btag = []
+    bsz = []
+    mpcheck_i(acc, "walk bad-size", mp4_walk(bad, 0, 8, boff, btag, bsz), -1)
+    mpcheck_i(acc, "find miss", mp4_find(data, 0, len(data), 0), -1)
+    print("mp4: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "MP4_OK"
+    return "MP4_FAIL"

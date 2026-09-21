@@ -91,6 +91,8 @@ run_case video      TkvUI.Video.tkv video_selftest VIDEO_OK
 run_case tkvv       TkvUI.Tkvv.tkv tkvv_selftest TKVV_OK
 run_case mjpg       TkvUI.Mjpg.tkv mjpg_selftest MJPG_OK
 run_case mjpghd      TkvUI.Mjpg.tkv mjpg_hd_selftest MJHD_OK
+run_case videodemo   examples/TkvUI.VideoDemo.tkv videodemo_run VIDEODEMO_OK
+run_case mp4         TkvUI.Mp4.tkv mp4_selftest MP4_OK
 run_case nativedlg  TkvUI.NativeDlg.tkv nativedlg_selftest NATIVEDLG_OK
 run_case ime        TkvUI.Ime.tkv ime_selftest IME_OK
 run_case uia        TkvUI.Uia.tkv uia_selftest UIA_OK
