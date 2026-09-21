@@ -1,0 +1,220 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.EmojiData - baked monochrome 12x12 symbol glyphs (sinh boi tools/emoji_gen.py).
+
+Nguon: Segoe UI Symbol (glyph don sac cho BMP symbols), bake offline
+qua PIL (render 48px -> crop -> scale ve 12px -> threshold 128).
+Khong doc file luc chay (ne compiler gap file I/O, giong I18nData).
+
+Moi glyph: 12 hang x 12 bit (int 0..4095, bit cao = pixel trai).
+Ve bang emoji_blit (mask 1bpp + mau truyen vao, giong vi_draw_bits).
+"""
+__tkv_import__ = ["TkvUI.Core"]
+
+EMOJI_W = 12
+EMOJI_H = 12
+
+def emoji_count() -> "i32":
+    return 12
+
+def emoji_codepoint(seq: "str") -> "i32":
+    if seq == "☀":
+        return 9728
+    if seq == "★":
+        return 9733
+    if seq == "♥":
+        return 9829
+    if seq == "✔":
+        return 10004
+    if seq == "✖":
+        return 10006
+    if seq == "▶":
+        return 9654
+    if seq == "●":
+        return 9679
+    if seq == "■":
+        return 9632
+    if seq == "▲":
+        return 9650
+    if seq == "♪":
+        return 9834
+    if seq == "☺":
+        return 9786
+    if seq == "▼":
+        return 9660
+    return -1
+
+def emoji_slot_for(cp: "i32") -> "i32":
+    if cp == 9728:
+        return 0
+    if cp == 9733:
+        return 1
+    if cp == 9829:
+        return 2
+    if cp == 10004:
+        return 3
+    if cp == 10006:
+        return 4
+    if cp == 9654:
+        return 5
+    if cp == 9679:
+        return 6
+    if cp == 9632:
+        return 7
+    if cp == 9650:
+        return 8
+    if cp == 9834:
+        return 9
+    if cp == 9786:
+        return 10
+    if cp == 9660:
+        return 11
+    return -1
+
+def emoji_rows(slot: "i32") -> "list[i32]":
+    if slot == 0:
+        return [32, 96, 516, 244, 504, 1531, 1531, 504, 240, 772, 96, 32]
+    if slot == 1:
+        return [0, 96, 96, 96, 2046, 1020, 504, 504, 504, 408, 0, 0]
+    if slot == 2:
+        return [924, 2046, 4095, 4095, 4095, 4094, 2046, 1020, 504, 240, 96, 0]
+    if slot == 3:
+        return [6, 12, 24, 24, 48, 48, 96, 3680, 1728, 960, 896, 384]
+    if slot == 4:
+        return [1026, 3591, 1806, 924, 504, 240, 240, 504, 924, 1806, 3591, 1026]
+    if slot == 5:
+        return [2048, 3584, 3968, 4064, 4080, 4092, 4092, 4080, 4032, 3968, 3584, 2048]
+    if slot == 6:
+        return [240, 1016, 2044, 2046, 4094, 4095, 4095, 4095, 2046, 2046, 1020, 240]
+    if slot == 7:
+        return [4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095]
+    if slot == 8:
+        return [0, 0, 96, 96, 240, 504, 504, 1020, 1020, 2046, 2047, 0]
+    if slot == 9:
+        return [64, 96, 112, 88, 72, 64, 64, 64, 448, 960, 960, 384]
+    if slot == 10:
+        return [240, 516, 1026, 0, 2313, 2049, 2049, 2313, 408, 1122, 516, 240]
+    if slot == 11:
+        return [0, 2047, 2046, 1020, 1020, 504, 504, 240, 96, 96, 0, 0]
+    return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+def emoji_row_bits(slot: "i32", row: "i32") -> "i32":
+    if slot < 0 or slot >= 12:
+        return 0
+    if row < 0 or row >= 12:
+        return 0
+    rows = emoji_rows(slot)
+    return rows[row]
+
+def emoji_ink(slot: "i32") -> "i32":
+    # So pixel ink cua glyph (cho test distinct/nonzero).
+    rows = emoji_rows(slot)
+    n = int(0)
+    r = int(0)
+    while r < 12:
+        v = rows[r]
+        c = int(0)
+        while v > 0:
+            n = n + v % 2
+            v = v // 2
+        r = r + 1
+    return n
+
+def emoji_blit(buf: "list[i64]", surf: "PixelSurface", slot: "i32", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
+    # Ve 1 glyph 12x12 tai (x, y) theo mask 1bpp. Tra chieu rong 12.
+    if slot < 0 or slot >= 12:
+        return 0
+    rows = emoji_rows(slot)
+    r = int(0)
+    while r < 12:
+        bits = rows[r]
+        c = int(0)
+        while c < 12:
+            on = bits // 2048
+            bits = bits % 2048
+            bits = bits * 2
+            if on == 1:
+                surface_blend_pixel(buf, surf, x + c, y + r, color)
+            c = c + 1
+        r = r + 1
+    return 12
+
+# =========================================================
+# SELFTEST
+# =========================================================
+def emojicheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def emojicheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def emoji_selftest() -> "str":
+    print("== TkvUI.EmojiData selftest ==")
+    acc = [int(0), int(0)]
+    emojicheck_i(acc, "count", emoji_count(), 12)
+    emojicheck_i(acc, "slot U+2600", emoji_slot_for(9728), 0)
+    emojicheck_i(acc, "slot U+2605", emoji_slot_for(9733), 1)
+    emojicheck_i(acc, "slot U+2665", emoji_slot_for(9829), 2)
+    emojicheck_i(acc, "slot U+2714", emoji_slot_for(10004), 3)
+    emojicheck_i(acc, "slot U+2716", emoji_slot_for(10006), 4)
+    emojicheck_i(acc, "slot U+25B6", emoji_slot_for(9654), 5)
+    emojicheck_i(acc, "slot U+25CF", emoji_slot_for(9679), 6)
+    emojicheck_i(acc, "slot U+25A0", emoji_slot_for(9632), 7)
+    emojicheck_i(acc, "slot U+25B2", emoji_slot_for(9650), 8)
+    emojicheck_i(acc, "slot U+266A", emoji_slot_for(9834), 9)
+    emojicheck_i(acc, "slot U+263A", emoji_slot_for(9786), 10)
+    emojicheck_i(acc, "slot U+25BC", emoji_slot_for(9660), 11)
+    emojicheck_i(acc, "cp sun", emoji_codepoint("☀"), 9728)
+    emojicheck_i(acc, "cp star", emoji_codepoint("★"), 9733)
+    emojicheck_i(acc, "cp heart", emoji_codepoint("♥"), 9829)
+    emojicheck_i(acc, "cp check", emoji_codepoint("✔"), 10004)
+    emojicheck_i(acc, "cp cross", emoji_codepoint("✖"), 10006)
+    emojicheck_i(acc, "cp play", emoji_codepoint("▶"), 9654)
+    emojicheck_i(acc, "cp circle", emoji_codepoint("●"), 9679)
+    emojicheck_i(acc, "cp square", emoji_codepoint("■"), 9632)
+    emojicheck_i(acc, "cp triup", emoji_codepoint("▲"), 9650)
+    emojicheck_i(acc, "cp note", emoji_codepoint("♪"), 9834)
+    emojicheck_i(acc, "cp smile", emoji_codepoint("☺"), 9786)
+    emojicheck_i(acc, "cp tridown", emoji_codepoint("▼"), 9660)
+    emojicheck_i(acc, "cp miss", emoji_codepoint("AB"), -1)
+    emojicheck_i(acc, "slot miss", emoji_slot_for(128512), -1)
+    emojicheck_i(acc, "row oob", emoji_row_bits(0, 12), 0)
+    emojicheck_i(acc, "slot oob", emoji_row_bits(99, 0), 0)
+    i = int(0)
+    while i < 12:
+        ok = 0
+        if emoji_ink(i) > 0:
+            ok = 1
+        emojicheck(acc, "ink " + str(i), ok)
+        i = i + 1
+    a = int(0)
+    while a < 12:
+        b = a + 1
+        while b < 12:
+            same = 1
+            r = int(0)
+            while r < 12:
+                if emoji_row_bits(a, r) != emoji_row_bits(b, r):
+                    same = 0
+                r = r + 1
+            okd = 0
+            if same == 0:
+                okd = 1
+            emojicheck(acc, "distinct " + str(a) + "/" + str(b), okd)
+            b = b + 1
+        a = a + 1
+    print("emojidata: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "EMOJIDATA_OK"
+    return "EMOJIDATA_FAIL"

@@ -109,7 +109,7 @@
 
 1. **Finalize COMPETITORS.md** ✅ (đang làm)
 2. **12.3 CI Matrix** — GitHub Actions matrix
-4. **Emoji/Color font support** (11.1 extension)
+4. **Emoji/Color font support** (11.1 extension) — ✅ partial 2026-09-21: 12 BMP symbols raster thật (`TkvUI.EmojiData`, bake offline từ Segoe UI Symbol, `EMOJIDATA_OK` 107/107, fallback 37/37); còn lại: color (CPAL/COLR parse xong, chưa bake font màu), non-BMP/cmap12, ZWJ giữ E-box
 5. **Phase 11.2 Complex Script** — HarfBuzz full integration
 
 ---

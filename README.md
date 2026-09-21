@@ -1,6 +1,6 @@
 # TokenVector.UI (TkvUI)
 
-![Verify](https://img.shields.io/badge/verify-35%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
+![Verify](https://img.shields.io/badge/verify-40%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
 ![Version](https://img.shields.io/badge/version-2.9.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Binary](https://img.shields.io/badge/binary-649KB-brightgreen)
@@ -9,13 +9,23 @@ Thư viện UI đa nền tảng viết **100% bằng TokenVector (`.tkv`)**, zer
 Rasterizer, font, effects, layout, widget và cửa sổ native đều tự viết, biên dịch bằng `tkvc.exe` → IL → `.exe`.
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
-- **35 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-18)
-- **Binary 649 KB** (suite 18 module) | app ~370–430 KB
-- **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 21.8 ms** (400×54 chars) | Widget <0.001 ms/w
-- **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), PDF writer + SQLite in-memory, 16 native-look widgets, DesignerApp interactive
+- **40 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-21 — 24 module + suite 26/26 + 14 example; android/ios SKIPPED, cần thiết bị thật)
+- **~1865 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 51, …)
+- **Binary 649 KB** (suite 26 module) | app ~370–430 KB
+- **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
+- **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), **emoji bake 12 symbol 12×12** (`TkvUI.EmojiData`), PDF writer + SQLite (persist + in-memory), ~40 widget, DesignerApp interactive
 - **WASM**: interp chạy thật (wasmtime DATA_OK), browser canvas demo, AOT closed upstream
 - **A11y**: NVDA evidence (control đọc được, TkvUI vô hình) — cần UIA provider Phase 9.2
 - License: MIT (xem `LICENSE`)
+
+## Screenshots (render thật 100% bằng TkvUI, không mock)
+
+| BrowserDemo (160×90, phóng 3×) | Emoji bake 12×12 (240×48, phóng 3×) |
+|---|---|
+| ![TkvUI browser demo](docs/img/shot_browser.png) | ![TkvUI baked emoji](docs/img/shot_emoji.png) |
+
+Khung browser: title + button `Go` + progress + slider theo frame (`examples/TkvUI.BrowserDemo.tkv` → base64 RGBA → PNG).
+Dải emoji: 12 BMP symbol bake offline từ Segoe UI Symbol (`tools/emoji_gen.py` → `TkvUI.EmojiData.tkv`), vẽ qua `fb_draw_run_emoji`.
 
 ## Quickstart
 
@@ -51,9 +61,9 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `TkvUI.Widgets.tkv` | `UIElement` + **30 widget** (15 base + `DirectionalPad`/`ControlButton`/`VirtualJoystick` + **`ButtonWidget`/`TextInputWidget` (Vietnamese sequence-aware)** + 10 Ant-inspired: Tag/Badge/Avatar/Alert/Pagination/Steps/Table/Select/Rate/Spin), Spring/Tween, `InvalidationManager`, `FrameScheduler`, `RenderLoop`, `FocusManager` (Tab/Shift-Tab/key routing) |
 | `TkvUI.Media.tkv` | **10 widget media player**: `Transport` (prev/play/stop/next), `SeekBar` (progress+buffered+scrub+m:ss), `Volume` (mute + slider ngang/dọc), `Repeat`, `Shuffle`, `Speed`, `Playlist` (virtualized), `Equalizer` (N-band + preset flat/pop/rock/jazz/classical), `Spectrum` (bars + peak falloff), `ABLoop`, `media_format_time` |
 | `TkvUI.Font.tkv` | **Windows-only, optional** (không import bởi umbrella): bake font TrueType thật qua GDI (`CreateFontA`+`TextOutA` vào DIB → atlas alpha coverage), `font_measure`/`font_draw_string`; `font_selftest` 11/11 (chạy tay, cần GDI) |
-| `TokenVector.UI.tkv` | Umbrella: import 10 module + `main()` chạy toàn bộ selftest |
+| `TokenVector.UI.tkv` | Umbrella: import 26 module + `main()` chạy toàn bộ selftest |
 
-`examples/` : `Demo` (desktop Win32 thật), `DemoMobile` (phone/pad + touch), `Live` (vòng 60fps + input thật), `MediaDemo` (màn hình player ghép đủ 10 widget media, 8/8), `MediaPlayer` (app nghe nhạc đầy đủ: MCI + spectrum, mở cửa sổ thật — không headless, ngoài verify.sh), `AndroidDemo`, `IOSDemo`, **`VietDemo` (Vietnamese Button/TextInput + platform info, headless)**.
+`examples/` : `Demo` (desktop Win32 thật), `DemoMobile` (phone/pad + touch), `Live` (vòng 60fps + input thật), `MediaDemo` (màn hình player ghép đủ 10 widget media, 8/8), `MediaPlayer` (app nghe nhạc đầy đủ: MCI + spectrum, mở cửa sổ thật — không headless, ngoài verify.sh), `AndroidDemo`, `IOSDemo`, **`VietDemo` (Vietnamese Button/TextInput + platform info, headless)**, `CrudDemo`/`CrudDemoFull` (đối chứng Phase 6.4), `BenchText`/`BenchWidgets`/`CrudBench` (benchmark), `BrowserDemo` (render base64 RGBA ra `<canvas>`, 8/8), `PrintDemo`, `A11yDemo`, `Phase1Demo`, `AnimDemo`, `Designer` (+DesignerApp), `Fuzz`, `IMEDemo`.
 `docs/TkvUI.Roadmap.md` : roadmap v2/v3 + **§0 ràng buộc compiler** (đọc trước khi sửa `.tkv`) + findings từng phase.
 `docs/INTEGRATION.md` : **hướng dẫn tích hợp** — app khác import TkvUI như thế nào.
 `tkvui.pkg.json` : manifest gói (version, modules, selftest, nền tảng).
@@ -61,21 +71,35 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 `tools/pack_nupkg.ps1` + `nuget/TokenVector.UI.nuspec` : đóng gói NuGet → `dist/TokenVector.UI.<version>.nupkg` (kèm DLL).
 `DEVELOPMENT_PLAN.md` : kế hoạch v3 → parity (text shaping, GPU, a11y, tooling, mobile).
 
-## Kết quả verify (2026-09-16)
+## Kết quả verify (2026-09-21 — `TKVUI_VERIFY_OK`: 40 PASS / 0 FAIL / 2 SKIPPED)
 
 | Nhóm | Kết quả |
 |---|---|
 | `core_selftest` | 47/47 PASS |
 | `graphics_selftest` | 29/29 PASS |
-| `text_selftest` | **160/160 PASS** (bitmap/atlas cũ 46 + **Tiếng Việt 20** (`vi_strlen`, `vi_seq_len_at`, `vi_truncate`, `draw_string` sequence-aware, `draw_text_block` wrap/ellipsis) + **TTF 64**: readers, bit helpers, emit, bezier/flatten, font synthetic 314B end-to-end, metrics, atlas bake; kèm benchmark atlas ~4× + **i18n baked 18**: `utf8_seq_len`, codepoint/slot lookup, bake 10 glyph thật (times Hebrew/Arabic + msyh CJK) vào atlas, `text_atlas_draw_i18n` — alef gọn 1 cột thay vì 2 box + **fallback 12**: `font_family_resolve` ASCII/Viet/he/cjk/box, `text_draw_fallback`, space blank) |
-| `effects_selftest` | 32/32 PASS (kèm benchmark blur: sliding-window O(1)/px; **half-res blur ~2.5× nhanh hơn** full-res) |
-| `platform_selftest` | **48/48 PASS** (cũ 24 + **WinForms interop thật 10**: create/set_title/set_bounds/get_bounds roundtrip/opacity/hide/do_events/close trên Form thật, headless + **theme 8**: `theme_detect_os` stub UNKNOWN, `theme_pick` dark/light, `theme_changed` polling + **multi-window 6**: factory, create/present/close 2 cửa sổ thật) |
+| `text_selftest` | **238/238 PASS** (atlas + Việt + TTF synthetic + i18n baked + fallback, kèm benchmark atlas ~5×) |
+| `effects_selftest` | 32/32 PASS (kèm benchmark blur; **half-res blur ~2.5×**) |
+| `platform_selftest` | **82/82 PASS** (probe runtime + WinForms interop thật + theme polling + multi-window 2 cửa sổ thật) |
 | `input_selftest` | 41/41 PASS |
 | `layout_selftest` | 50/50 PASS |
-| `widget_selftest` | **101/101 PASS** (đo thật 2026-09-18; gồm Ant-widget, RenderLoop, FocusManager, IME/backspace Việt + `render_loop_pump_all` 2 checks) |
+| `widget_selftest` | **101/101 PASS** (Ant-widget, RenderLoop, FocusManager, IME/backspace Việt) |
 | `media_selftest` | **80/80 PASS** (transport/seek/volume/repeat/shuffle/speed/playlist/eq/spectrum/ablooop + format_time) |
-| `bidi_selftest` | **112/112 PASS** (UAX #9 X/W/N/I + visual order + UTF-8 split Hebrew/Arabic/CJK/emoji + `bidi_draw_visual_atlas`: milestone `"你好 🌍 שלום"` vẽ glyph thật theo đúng thứ tự RTL) |
-| `gpu_selftest` | **66/66 PASS** (abstraction + factory + pick + probe 44 + **Vulkan device flow 11** + **Shader pipeline abstraction 9** + **D3D11/Metal stubs 4**) |
+| `bidi_selftest` | **150/150 PASS** (UAX #9 + visual order + shaping + milestone `"你好 🌍 שלום"` glyph thật RTL) |
+| `gpu_selftest` | **66/66 PASS** (abstraction + factory + probe + Vulkan device flow + shader pipeline + D3D11/Metal stubs) |
+| `a11y_selftest` | 41/41 PASS |
+| `theme_selftest` | 79/79 PASS (palette/metrics + QSS-subset cascade) |
+| `native_selftest` | 164/164 PASS |
+| `data_selftest` | 76/76 PASS (model/view/delegate + sort/filter proxy) |
+| `sqlite_selftest` | 51/51 PASS (CRUD + snapshot tx + rowid-index + persist dual-slot/binary-page/WAL) |
+| `printing_selftest` | 63/63 PASS (PDF writer + shell-print) |
+| `abridge_selftest` | 94/94 PASS |
+| `fallback_selftest` | **37/37 PASS** (resolve/metrics + weighted fontconfig + **emoji raster thật**) |
+| `emoji_selftest` (`TkvUI.EmojiData`, mới) | **107/107 PASS** (12 glyph bake + distinct + bounds) |
+| `fontdisc_selftest` | 15/15 PASS (weighted matching) |
+| `shaping_selftest` | 91/91 PASS (Arabic/Thai/Indic/Bengali/Tamil + lam-alef) |
+| `nativedlg_selftest` | 39/39 PASS |
+| `ime_selftest` | 37/37 PASS (Telex/VNI + composition) |
+| `uia_selftest` / `atspi_selftest` | 33/33 + 22/22 PASS (host-driven provider + HWND mirror) |
 | `TkvUI.Live` | `TKVUI_LIVE_OK` (27/27) |
 | `TkvUI.DemoMobile` | `TKVUI_MOBILE_OK` (6/6) |
 | `TkvUI.MediaDemo` | `TKVUI_MEDIA_DEMO_OK` (8/8) |
@@ -118,7 +142,7 @@ assembly .NET của umbrella (entry `main`, chạy cả selftest) dùng được
 
 ## Giới hạn đã biết
 
-- Text: font bitmap 5x7 + atlas + wrap theo từ đã xong; **TTF parser/rasterizer đã verify trên font synthetic** (sửa 4 bug: tag `hhea`/`hmtx`/`maxp`, offset `segCountX2`, thiếu `j = j + 1`, nested list null runtime). **Chưa** có: shaper/bidi/RTL/emoji/IME, load font thật từ file (cần file-IO — compiler gap), hinting/composite glyph (Phase 1 của `DEVELOPMENT_PLAN.md`); nhãn giữ ASCII.
+- Text: font bitmap 5x7 + atlas + wrap theo từ đã xong; **TTF parser/rasterizer đã verify** (composite, kern format-0, CPAL/COLR-v0 parse+draw, CBDT blit); shaping engine thuần (Arabic/Thai/Indic, 91 check); bidi UAX#9 + fallback chain + **emoji bake 12 symbol**; nhãn giữ ASCII. **Chưa** có: HarfBuzz full (multi-char FFI kẹt compiler), emoji màu/non-BMP (cần cmap12 + bake font màu), load font thật từ file (cần file-IO), hinting.
 - WinForms: window/app-level (`create/title/bounds/opacity/hide/do_events/close`) đã nối thật + verify; control-level (`create_control/add/remove/text/font/color/dock/events`) và `Handle` còn stub — cần extern Control-typed + IntPtr (compiler gap).
 - Mobile: pixel upload lên `ANativeWindow`/`CALayer` cần host shim (compiler chưa cho pinvoke `.so`/`.dylib`), xem `docs/TkvUI.Roadmap.md §8`.
 - Accessibility tree, WebView, Video (FFmpeg), 3D: chưa có (v3 scope).

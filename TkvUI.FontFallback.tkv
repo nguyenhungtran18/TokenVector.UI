@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""TkvUI.FontFallback - chuoi font du phong (Phase 11.1 + P6 M2.4 weighted)."""
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Graphics", "TkvUI.Viet", "TkvUI.I18nData"]
+"""TkvUI.FontFallback - chuoi font du phong (Phase 11.1 + P6 M2.4 weighted + emoji raster that)."""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Graphics", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.EmojiData"]
 
 FB_TEXT = 0
 FB_VIET = 1
@@ -20,6 +20,8 @@ def fb_classify(seq: "str") -> "i32":
         return 1
     if i18n_codepoint(seq) >= 0:
         return 2
+    if emoji_codepoint(seq) >= 0:
+        return 4
     if fb_is_emoji(seq):
         return 4
     if fb_is_color_font(seq):
@@ -91,9 +93,17 @@ def fb_is_color_font(seq: "str") -> "i32":
         return 0
     return 0
 
+# NOTE (P6-emoji): khong dung `>=`/`<=` chuoi de xet range symbol BMP —
+# probe that cho thay so sanh linguistic (vi-VN), khong ordinal ("✚" >= "←"
+# tra 0 trong khi Hebrew < Arabic van dung). Chi dung literal-match
+# (emoji_codepoint) cho glyph da bake; symbol chua bake giu missing-box nhu cu.
+
 FB_BOX_BITS = 33874822719
 
 def fb_draw_run_emoji(buf: "list[i64]", surf: "PixelSurface", text: "str", start: "i32", ulen: "i32", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
+    # Emoji that: blit glyph 12x12 tu TkvUI.EmojiData (bake offline tu Segoe UI
+    # Symbol) khi co; giu E-box fallback cho emoji chua bake (ngoai BMP, ZWJ...).
+    # Advance giu 12 ca 2 duong de metrics on dinh.
     end = start + ulen
     idx = start
     cx = x
@@ -101,13 +111,15 @@ def fb_draw_run_emoji(buf: "list[i64]", surf: "PixelSurface", text: "str", start
         adv = utf8_seq_len(text, idx)
         if idx + adv > end:
             adv = end - idx
-        r = Rect2D(cx, y, 12, 12)
-        _ = fill_round_rect(buf, surf, r, 2, ColorRgba(255, 255, 255, 255))
-        draw_string(buf, surf, "E", cx + 2, y + 2, 1, ColorRgba(0, 0, 0, 255))
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
-        cx = cx + 12
+        seq = text[idx:idx + adv]
+        slot = emoji_slot_for(emoji_codepoint(seq))
+        if slot >= 0:
+            cx = cx + emoji_blit(buf, surf, slot, cx, y, color)
+        else:
+            r = Rect2D(cx, y, 12, 12)
+            _ = fill_round_rect(buf, surf, r, 2, ColorRgba(255, 255, 255, 255))
+            draw_string(buf, surf, "E", cx + 2, y + 2, 1, ColorRgba(0, 0, 0, 255))
+            cx = cx + 12
         idx = idx + adv
     return cx - x
 
@@ -481,6 +493,43 @@ def fallback_selftest() -> "str":
     fbcheck_s(acc, "wbest.seq", fb_best_family_for_seq("A", 400, 0), "Arial")
     fbcheck_s(acc, "wbase.bold", fb_family_base_local("Arial Bold"), "Arial")
     fbcheck_i(acc, "wscore.exact", fb_match_score_local("Arial", 400, 0, "Arial", 400, 0), 1000)
+    esurf = PixelSurface(48, 12, 48)
+    ebuf = []
+    e = int(0)
+    while e < 48 * 12:
+        ebuf.append(0)
+        e = e + 1
+    clear0 = ColorRgba(0, 0, 0, 0)
+    surface_clear(ebuf, esurf, clear0)
+    sun = "☀"
+    fbcheck_i(acc, "emoji.class", fb_classify(sun), 4)
+    sunslot = emoji_slot_for(9728)
+    fbcheck_i(acc, "emoji.slot", sunslot, 0)
+    ew = fb_draw_run_emoji(ebuf, esurf, sun, 0, len(sun), 0, 0, white)
+    fbcheck_i(acc, "emoji.w", ew, 12)
+    suncnt = text_count_nonzero(ebuf, 48 * 12, 0, 48 * 12)
+    fbcheck_i(acc, "emoji.px", suncnt, emoji_ink(sunslot))
+    ebuf2 = []
+    e = int(0)
+    while e < 48 * 12:
+        ebuf2.append(0)
+        e = e + 1
+    surface_clear(ebuf2, esurf, clear0)
+    boxseq = "✚"
+    fbcheck_i(acc, "emoji.otherclass", fb_classify(boxseq), 3)
+    fbcheck_i(acc, "emoji.boxslot", emoji_slot_for(emoji_codepoint(boxseq)), -1)
+    bw = fb_draw_run_emoji(ebuf2, esurf, boxseq, 0, len(boxseq), 0, 0, white)
+    fbcheck_i(acc, "emoji.boxw", bw, 12)
+    diff = int(0)
+    d = int(0)
+    while d < 48 * 12:
+        if ebuf[d] != ebuf2[d]:
+            diff = diff + 1
+        d = d + 1
+    okdiff = 0
+    if diff > 0:
+        okdiff = 1
+    fb_check(acc, "emoji.real-vs-box", okdiff)
     print("fallback: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "FALLBACK_OK"
