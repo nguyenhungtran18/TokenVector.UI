@@ -156,6 +156,18 @@ delete 7x (rowid-index) → render 2.9x (band-split raster) → P1 persistence t
 0 lên có (dual-slot crash-safe). Hạng mục còn lại:
 MEM (cần kiến trúc pixel hoặc chấp nhận floor CLR).
 
+## P3-B3 stability gate (chống flake GetTickCount quantum ~16ms)
+
+`tools/bench_stats.py` (10/10 selftest: percentile/median/extract) + driver
+`tools/bench_stable.sh` / `.ps1`: mỗi bench build 1 lần, chạy 3 lần, verdict
+`BENCH_OK` khi median đạt ngưỡng VÀ spread trong dung sai. Ngưỡng từ bảng
+trên + headroom: text atlas tổng <100ms (tol 32), widgets render <900ms
+(tol 64), crud total <20ms/rep (tol 16).
+
+Chạy 2026-09-22 (`BENCH_STABLE_OK`): text 63/46/47 → med 47 (rep đầu nhảy
+quantum nhưng median vẫn PASS — đúng giá trị của gate), widgets
+579/579/563 → med 579, crud 6/7/8 → med 7.
+
 ## P2 Typography (chức năng — Text 227/227, Bidi 150/150)
 
 - Composite glyf + kern/CPAL/COLR-v0 parse + CBDT-bitmap blit + per-slot
