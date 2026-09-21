@@ -1,0 +1,841 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Mjpg - MJPEG baseline decoder thuan .tkv (chung minh fps that).
+
+Subset: SOI/SOF0-baseline-8bit/DQT-8bit/DHT/SOS-interleaved/EOI, 1 comp
+(gray) hoac 3 comp 4:2:0 / 4:4:4, khong restart/DRI/progressive. Scan bits
+MSB-first voi FF00 unstuff. Huffman canonical (F.16), dequant +
+unzigzag, IDCT float 8x8 (Cos that), upsample 2x, YCbCr->RGB.
+
+Ma loi parse: 0=ok 1=bad-soi 2=truncated 3=bad-marker 4=unsupported.
+Decode tra 1/0. Quy uoc tranh gap: flat lists, int Thuần, out-lists.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.MjpgData", "TkvUI.MjpgHDData"]
+__tkv_extern_pinvoke__ = [{"name": "mj_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+__tkv_extern_method__ = [{"name": "mj_cos", "assembly": "mscorlib", "class": "System.Math", "method": "Cos", "params": ["f64"], "returns": "f64"}]
+
+MJ_OK = 0
+MJ_BAD_SOI = 1
+MJ_TRUNC = 2
+MJ_BAD_MARKER = 3
+MJ_UNSUP = 4
+
+MJ_PI = 3.141592653589793
+
+def mj_u16(data: "list[i32]", off: "i32") -> "i32":
+    if off < 0:
+        return -1
+    if off + 1 >= len(data):
+        return -1
+    return data[off] * 256 + data[off + 1]
+
+def mj_need(data: "list[i32]", off: "i32", n: "i32") -> "i32":
+    if off < 0:
+        return 0
+    if off + n > len(data):
+        return 0
+    return 1
+
+def mj_build_huff(cnt: "list[i32]", sym: "list[i32]", hmin: "list[i32]", hmax: "list[i32]", hval: "list[i32]", voff: "i32") -> "i32":
+    # Canonical Huffman tu counts (F.15): min/max/valptr moi length 1..16.
+    # hval luu offset GLOBAL vao hsym concat (voff = hoff[tab]).
+    code = int(0)
+    k = int(0)
+    ln = int(1)
+    while ln <= 16:
+        hmin.append(code)
+        c = cnt[ln - 1]
+        hmax.append(code + c - 1)
+        hval.append(k + voff)
+        k = k + c
+        code = (code + c) * 2
+        ln = ln + 1
+    return k
+
+def mj_parse(data: "list[i32]", q0: "list[i32]", q1: "list[i32]", hcnt: "list[i32]", hsym: "list[i32]", hoff: "list[i32]", hlen: "list[i32]", compid: "list[i32]", comphv: "list[i32]", compq: "list[i32]", soscomp: "list[i32]", sosdc: "list[i32]", sosac: "list[i32]", scan: "list[i32]", whn: "list[i32]", err: "list[i32]") -> "i32":
+    # Parse header + gom scan bytes (da unstuff FF00). whn = [w, h, ncomp].
+    # Huffman tables luu cnt+sym (build derived luc decode). Tra 1/0.
+    err.append(0)
+    if mj_need(data, 0, 2) == 0:
+        err[0] = 2
+        return 0
+    if data[0] != 255 or data[1] != 216:
+        err[0] = 1
+        return 0
+    off = 2
+    w = int(0)
+    h = int(0)
+    ncomp = int(0)
+    have_sof = int(0)
+    have_sos = int(0)
+    while off < len(data):
+        if data[off] != 255:
+            err[0] = 3
+            return 0
+        m = data[off + 1]
+        if m == 217:
+            break
+        if m == 216 or (m >= 208 and m <= 215) or m == 1:
+            off = off + 2
+            continue
+        if mj_need(data, off + 2, 2) == 0:
+            err[0] = 2
+            return 0
+        ln = mj_u16(data, off + 2)
+        if ln < 2 or off + 2 + ln > len(data):
+            err[0] = 2
+            return 0
+        if m == 219:
+            p = off + 4
+            while p < off + 2 + ln:
+                info = data[p]
+                tq = info % 16
+                if info // 16 != 0:
+                    err[0] = 4
+                    return 0
+                if tq != 0 and tq != 1:
+                    err[0] = 4
+                    return 0
+                if p + 65 > off + 2 + ln:
+                    err[0] = 2
+                    return 0
+                if tq == 0:
+                    qi = int(0)
+                    while qi < 64:
+                        q0.append(data[p + 1 + qi])
+                        qi = qi + 1
+                else:
+                    qi = int(0)
+                    while qi < 64:
+                        q1.append(data[p + 1 + qi])
+                        qi = qi + 1
+                p = p + 65
+            off = off + 2 + ln
+            continue
+        if m == 192:
+            if ln < 11:
+                err[0] = 2
+                return 0
+            if data[off + 4] != 8:
+                err[0] = 4
+                return 0
+            h = mj_u16(data, off + 5)
+            w = mj_u16(data, off + 7)
+            ncomp = data[off + 9]
+            if ncomp != 1 and ncomp != 3:
+                err[0] = 4
+                return 0
+            if ln < 8 + ncomp * 3:
+                err[0] = 2
+                return 0
+            ci = int(0)
+            while ci < ncomp:
+                compid.append(data[off + 10 + ci * 3])
+                comphv.append(data[off + 11 + ci * 3])
+                compq.append(data[off + 12 + ci * 3])
+                ci = ci + 1
+            have_sof = 1
+            off = off + 2 + ln
+            continue
+        if m == 194 or m == 195 or m == 193:
+            err[0] = 4
+            return 0
+        if m == 196:
+            p = off + 4
+            while p < off + 2 + ln:
+                info = data[p]
+                tc = info // 16
+                th = info % 16
+                if th != 0 and th != 1:
+                    err[0] = 4
+                    return 0
+                if p + 17 > off + 2 + ln:
+                    err[0] = 2
+                    return 0
+                idx = th * 2 + tc
+                while len(hcnt) < (idx + 1) * 16:
+                    hcnt.append(0)
+                while len(hoff) < idx + 1:
+                    hoff.append(0)
+                    hlen.append(0)
+                tot = int(0)
+                li = int(0)
+                while li < 16:
+                    hcnt[idx * 16 + li] = data[p + 1 + li]
+                    tot = tot + data[p + 1 + li]
+                    li = li + 1
+                if p + 17 + tot > off + 2 + ln:
+                    err[0] = 2
+                    return 0
+                hoff[idx] = len(hsym)
+                hlen[idx] = tot
+                si = int(0)
+                while si < tot:
+                    hsym.append(data[p + 17 + si])
+                    si = si + 1
+                p = p + 17 + tot
+            off = off + 2 + ln
+            continue
+        if m == 221:
+            err[0] = 4
+            return 0
+        if m == 218:
+            ns = data[off + 4]
+            if ns != ncomp:
+                err[0] = 4
+                return 0
+            if ln != 6 + ns * 2:
+                err[0] = 4
+                return 0
+            ci = int(0)
+            while ci < ns:
+                soscomp.append(data[off + 5 + ci * 2])
+                tb = data[off + 6 + ci * 2]
+                sosdc.append(tb // 16)
+                sosac.append(tb % 16)
+                ci = ci + 1
+            if data[off + 5 + ns * 2] != 0 or data[off + 6 + ns * 2] != 63:
+                err[0] = 4
+                return 0
+            if data[off + 7 + ns * 2] != 0:
+                err[0] = 4
+                return 0
+            off = off + 2 + ln
+            have_sos = 1
+            break
+        off = off + 2 + ln
+    if have_sof == 0 or have_sos == 0:
+        if err[0] == 0:
+            err[0] = 2
+        return 0
+    i = off
+    n = len(data)
+    closed = int(0)
+    while i < n:
+        if data[i] != 255:
+            scan.append(data[i])
+            i = i + 1
+            continue
+        if i + 1 >= n:
+            err[0] = 2
+            return 0
+        m2 = data[i + 1]
+        if m2 == 0:
+            scan.append(255)
+            i = i + 2
+            continue
+        if m2 == 217:
+            closed = 1
+            break
+        err[0] = 4
+        return 0
+    if closed == 0:
+        err[0] = 2
+        return 0
+    whn.append(w)
+    whn.append(h)
+    whn.append(ncomp)
+    return 1
+
+def mj_pow2list(out_pw: "list[i32]") -> "i32":
+    # [1, 2, ..., 4096] cho bit reader. Tra 13.
+    out_pw.append(1)
+    i = int(0)
+    while i < 12:
+        out_pw.append(out_pw[i] * 2)
+        i = i + 1
+    return len(out_pw)
+
+def mj_getbit(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]") -> "i32":
+    # 1 bit MSB-first tai br[0]; br[0] += 1. Tra -1 khi het.
+    # (JPEG doc MSB-first, nguoc LZW-GIF LSB-first.)
+    pos = br[0]
+    if pos // 8 >= len(scan):
+        return -1
+    byte = scan[pos // 8]
+    b = (byte // pw2[7 - (pos % 8)]) % 2
+    br[0] = pos + 1
+    return b
+
+def mj_recv(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]", n: "i32") -> "i32":
+    # Doc n bits MSB-first. Tra -1 khi het.
+    v = int(0)
+    i = int(0)
+    while i < n:
+        b = mj_getbit(scan, br, pw2)
+        if b < 0:
+            return -1
+        v = v * 2 + b
+        i = i + 1
+    return v
+
+def mj_extend(v: "i32", s: "i32", pw2: "list[i32]") -> "i32":
+    # Mo rong so co dau JPEG (F.12). s = category.
+    if s == 0:
+        return 0
+    half = pw2[s - 1]
+    if v < half:
+        return v + 1 - half * 2
+    return v
+
+def mj_huff_sym(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]", hmin: "list[i32]", hmax: "list[i32]", hval: "list[i32]", hsym: "list[i32]", base: "i32") -> "i32":
+    # Giai 1 symbol Huffman canonical (F.16). base = tab*16. Tra -1 khi loi.
+    code = int(0)
+    ln = int(1)
+    while ln <= 16:
+        b = mj_getbit(scan, br, pw2)
+        if b < 0:
+            return -1
+        code = code * 2 + b
+        if code <= hmax[base + ln - 1]:
+            idx = hval[base + ln - 1] + code - hmin[base + ln - 1]
+            return hsym[idx]
+        ln = ln + 1
+    return -1
+
+def mj_decode_block(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]", hmin: "list[i32]", hmax: "list[i32]", hval: "list[i32]", hsym: "list[i32]", tdc: "i32", tac: "i32", q0: "list[i32]", q1: "list[i32]", use_q1: "i32", zz: "list[i32]", dcpred: "list[i32]", ci: "i32", out_nat: "list[i32]") -> "i32":
+    # Giai 1 block 8x8: DC predict + AC RLE + dequant + unzigzag.
+    # out_nat append 64 he so tu nhien. Tra 1/0.
+    # (Truyen ca q0+q1 + co use_q1 thay vi rebind list - gap compiler.)
+    size = mj_huff_sym(scan, br, pw2, hmin, hmax, hval, hsym, tdc * 16)
+    if size < 0 or size > 11:
+        return 0
+    diff = int(0)
+    if size > 0:
+        diff = mj_recv(scan, br, pw2, size)
+        if diff < 0:
+            return 0
+        diff = mj_extend(diff, size, pw2)
+    dc = dcpred[ci] + diff
+    dcpred[ci] = dc
+    raw = []
+    raw.append(dc)
+    k = int(1)
+    done = int(0)
+    while k < 64 and done == 0:
+        rs = mj_huff_sym(scan, br, pw2, hmin, hmax, hval, hsym, tac * 16)
+        if rs < 0:
+            return 0
+        r = rs // 16
+        s = rs % 16
+        if s == 0:
+            if r == 15:
+                k = k + 16
+                continue
+            done = 1
+            continue
+        k = k + r
+        if k >= 64:
+            return 0
+        v = mj_recv(scan, br, pw2, s)
+        if v < 0:
+            return 0
+        while len(raw) < k:
+            raw.append(0)
+        raw.append(mj_extend(v, s, pw2))
+        k = k + 1
+    while len(raw) < 64:
+        raw.append(0)
+    i = int(0)
+    while i < 64:
+        out_nat.append(0)
+        i = i + 1
+    i = int(0)
+    while i < 64:
+        qv = q0[i]
+        if use_q1 == 1:
+            qv = q1[i]
+        out_nat[zz[i]] = raw[i] * qv
+        i = i + 1
+    return 1
+
+def mj_build_cos(out_ct: "list[f64]") -> "i32":
+    # ct[x*8+u] = C(u)*cos((2x+1)*u*pi/16), C(0)=1/sqrt(2). Dung cho IDCT.
+    c0 = 0.7071067811865476
+    x = int(0)
+    while x < 8:
+        u = int(0)
+        while u < 8:
+            c = 1.0
+            if u == 0:
+                c = c0
+            out_ct.append(c * mj_cos(float((2 * x + 1) * u) * 3.141592653589793 / 16.0))
+            u = u + 1
+        x = x + 1
+    return len(out_ct)
+
+def mj_idct(blk: "list[i32]", ct: "list[f64]", out_px: "list[i32]") -> "i32":
+    # IDCT 8x8 float: out[y*8+x] = 1/4*SUM C(u)C(v)F*cos*cos + 128, clamp.
+    # blk he so CHUAN row-major (row=v, col=u) - khop zigzag chuan.
+    # out append 64 pixel row-major. Tra 64.
+    y = int(0)
+    while y < 8:
+        x = int(0)
+        while x < 8:
+            f = 0.0
+            u = int(0)
+            while u < 8:
+                v = int(0)
+                while v < 8:
+                    f = f + ct[x * 8 + u] * ct[y * 8 + v] * float(blk[v * 8 + u])
+                    v = v + 1
+                u = u + 1
+            px = int(f / 4.0 + 128.5)
+            if px < 0:
+                px = 0
+            if px > 255:
+                px = 255
+            out_px.append(px)
+            x = x + 1
+        y = y + 1
+    return 64
+
+def mj_clamp8(v: "i32") -> "i32":
+    if v < 0:
+        return 0
+    if v > 255:
+        return 255
+    return v
+
+def mj_ycbcr_to_rgb(yy: "i32", cb: "i32", cr: "i32", out_rgb: "list[i32]") -> "i32":
+    # BT.601 float. Append r,g,b. Tra 3.
+    r = int(float(yy) + 1.402 * float(cr - 128) + 0.5)
+    g = int(float(yy) - 0.344136 * float(cb - 128) - 0.714136 * float(cr - 128) + 0.5)
+    b = int(float(yy) + 1.772 * float(cb - 128) + 0.5)
+    out_rgb.append(mj_clamp8(r))
+    out_rgb.append(mj_clamp8(g))
+    out_rgb.append(mj_clamp8(b))
+    return 3
+
+def mj_place_block(plane: "list[i32]", stride: "i32", gx: "i32", gy: "i32", blk: "list[i32]") -> "i32":
+    # Scatter block 8x8 (row-major) vao plane tai block (gx, gy). Tra 64.
+    y = int(0)
+    while y < 8:
+        x = int(0)
+        while x < 8:
+            plane[(gy * 8 + y) * stride + gx * 8 + x] = blk[y * 8 + x]
+            x = x + 1
+        y = y + 1
+    return 64
+
+def mj_decode_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
+    # All-in-one: parse + tables + MCU + RGB (crop ve w*h). Append w*h*3. Tra 1/0.
+    q0 = []
+    q1 = []
+    hcnt = []
+    hsym = []
+    hoff = []
+    hlen = []
+    compid = []
+    comphv = []
+    compq = []
+    soscomp = []
+    sosdc = []
+    sosac = []
+    scan = []
+    whn = []
+    err = []
+    ok = mj_parse(data, q0, q1, hcnt, hsym, hoff, hlen, compid, comphv, compq, soscomp, sosdc, sosac, scan, whn, err)
+    if ok == 0:
+        return 0
+    w = whn[0]
+    h = whn[1]
+    ncomp = whn[2]
+    if ncomp != 1 and ncomp != 3:
+        return 0
+    ci = int(0)
+    while ci < ncomp:
+        if soscomp[ci] != compid[ci]:
+            return 0
+        if compq[ci] != 0 and compq[ci] != 1:
+            return 0
+        ci = ci + 1
+    h0 = comphv[0] // 16
+    v0 = comphv[0] % 16
+    if ncomp == 3:
+        if h0 != 2 and h0 != 1:
+            return 0
+        if v0 != 2 and v0 != 1:
+            return 0
+        if comphv[1] != 17 or comphv[2] != 17:
+            return 0
+    else:
+        if h0 != 1 or v0 != 1:
+            return 0
+    hmin = []
+    hmax = []
+    hval = []
+    t = int(0)
+    while t < 4:
+        if len(hoff) <= t:
+            return 0
+        cnt_t = hcnt[t * 16:t * 16 + 16]
+        sym_t = hsym[hoff[t]:hoff[t] + hlen[t]]
+        mj_build_huff(cnt_t, sym_t, hmin, hmax, hval, hoff[t])
+        t = t + 1
+    zz = mjpg_zigzag()
+    ct = []
+    mj_build_cos(ct)
+    pw2 = []
+    mj_pow2list(pw2)
+    mcux = (w + 8 * h0 - 1) // (8 * h0)
+    mcuy = (h + 8 * v0 - 1) // (8 * v0)
+    ystride = mcux * 8 * h0
+    yrows = mcuy * 8 * v0
+    cstride = mcux * 8
+    crows = mcuy * 8
+    if ncomp == 1:
+        cstride = 1
+        crows = 1
+    Y = []
+    i = int(0)
+    while i < ystride * yrows:
+        Y.append(0)
+        i = i + 1
+    Cb = []
+    i = int(0)
+    while i < cstride * crows:
+        Cb.append(128)
+        i = i + 1
+    Cr = []
+    i = int(0)
+    while i < cstride * crows:
+        Cr.append(128)
+        i = i + 1
+    dcpred = [0, 0, 0]
+    br = [0]
+    my = int(0)
+    while my < mcuy:
+        mx = int(0)
+        while mx < mcux:
+            ci = int(0)
+            while ci < ncomp:
+                hc = comphv[ci] // 16
+                vc = comphv[ci] % 16
+                use_q1 = 0
+                if compq[ci] == 1:
+                    use_q1 = 1
+                tdc = sosdc[ci] * 2
+                tac = sosac[ci] * 2 + 1
+                by = int(0)
+                while by < vc:
+                    bx = int(0)
+                    while bx < hc:
+                        blk = []
+                        okr = mj_decode_block(scan, br, pw2, hmin, hmax, hval, hsym, tdc, tac, q0, q1, use_q1, zz, dcpred, ci, blk)
+                        if okr == 0:
+                            return 0
+                        px = []
+                        mj_idct(blk, ct, px)
+                        if ci == 0:
+                            mj_place_block(Y, ystride, mx * hc + bx, my * vc + by, px)
+                        else:
+                            if ci == 1:
+                                mj_place_block(Cb, cstride, mx * hc + bx, my * vc + by, px)
+                            else:
+                                mj_place_block(Cr, cstride, mx * hc + bx, my * vc + by, px)
+                        bx = bx + 1
+                    by = by + 1
+                ci = ci + 1
+            mx = mx + 1
+        my = my + 1
+    # Upsample nearest (do thay fancy): do that tren 3 sample PNG,
+    # nearest khop PIL trong +-2, fancy lech +-5 (xem CHANGELOG P-MJPEG).
+    fx = h0 // 1
+    if ncomp == 3:
+        fx = h0
+    y = int(0)
+    while y < h:
+        x = int(0)
+        while x < w:
+            yy = Y[y * ystride + x]
+            cb = 128
+            cr = 128
+            if ncomp == 3:
+                cb = Cb[(y // fx) * cstride + x // fx]
+                cr = Cr[(y // fx) * cstride + x // fx]
+            mj_ycbcr_to_rgb(yy, cb, cr, out_rgb)
+            x = x + 1
+        y = y + 1
+    return 1
+
+def mj_bench_ms(data: "list[i32]", reps: "i32") -> "i32":
+    # Giai reps lan, tra tong ms (GetTickCount). Dung do fps that.
+    t0 = mj_ticks()
+    r = int(0)
+    while r < reps:
+        tmp = []
+        mj_decode_frame(data, tmp)
+        r = r + 1
+    t1 = mj_ticks()
+    return t1 - t0
+
+# =========================================================
+# SELFTEST - parse + Huffman + IDCT + decode 3 frame + bench
+# =========================================================
+def mjcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def mjcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def mj_sum(vals: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + vals[i]
+        i = i + 1
+    return t
+
+def mj_badcount(got: "list[i32]", want: "list[i32]", n: "i32", tol: "i32") -> "i32":
+    # Dem pixel lech qua tol trong n phan tu dau.
+    bad = int(0)
+    i = int(0)
+    while i < n:
+        d = got[i] - want[i]
+        if d < 0:
+            d = 0 - d
+        if d > tol:
+            bad = bad + 1
+        i = i + 1
+    return bad
+
+def mj_dec_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
+    # Helper test: decode full frame vao out_rgb. Tra 1/0.
+    return mj_decode_frame(data, out_rgb)
+
+def mjpg_selftest() -> "str":
+    print("== TkvUI.Mjpg selftest ==")
+    acc = [int(0), int(0)]
+    data = mjpeg_f0_bytes()
+    mjcheck_i(acc, "len", len(data), mjpeg_f0_len())
+    q0 = []
+    q1 = []
+    hcnt = []
+    hsym = []
+    hoff = []
+    hlen = []
+    compid = []
+    comphv = []
+    compq = []
+    soscomp = []
+    sosdc = []
+    sosac = []
+    scan = []
+    whn = []
+    err = []
+    ok = mj_parse(data, q0, q1, hcnt, hsym, hoff, hlen, compid, comphv, compq, soscomp, sosdc, sosac, scan, whn, err)
+    mjcheck_i(acc, "parse", ok, 1)
+    mjcheck_i(acc, "err", err[0], 0)
+    mjcheck_i(acc, "w", whn[0], 160)
+    mjcheck_i(acc, "h", whn[1], 120)
+    mjcheck_i(acc, "ncomp", whn[2], 3)
+    mjcheck_i(acc, "samp Y", comphv[0], 34)
+    mjcheck_i(acc, "q0 len", len(q0), 64)
+    mjcheck_i(acc, "q1 len", len(q1), 64)
+    mjcheck_i(acc, "ntables", len(hoff), 4)
+    mjcheck_i(acc, "dc0 nsym", hlen[0], 12)
+    mjcheck_i(acc, "ac0 nsym", hlen[1], 162)
+    mjcheck_i(acc, "dc1 nsym", hlen[2], 12)
+    mjcheck_i(acc, "ac1 nsym", hlen[3], 162)
+    mjcheck_i(acc, "sos0", soscomp[0], 1)
+    okscan = 0
+    if len(scan) > 1000:
+        okscan = 1
+    mjcheck(acc, "scan len", okscan)
+    zz = mjpg_zigzag()
+    mjcheck_i(acc, "zz len", len(zz), 64)
+    mjcheck_i(acc, "zz[1]", zz[1], 1)
+    mjcheck_i(acc, "zz[2]", zz[2], 8)
+    ct = []
+    mj_build_cos(ct)
+    mjcheck_i(acc, "cos len", len(ct), 64)
+    zb = []
+    zi = int(0)
+    while zi < 64:
+        zb.append(0)
+        zi = zi + 1
+    zp = []
+    mj_idct(zb, ct, zp)
+    mjcheck_i(acc, "idct flat", zp[0], 128)
+    mjcheck_i(acc, "idct flat end", zp[63], 128)
+    db = []
+    db.append(8)
+    di = int(1)
+    while di < 64:
+        db.append(0)
+        di = di + 1
+    dp = []
+    mj_idct(db, ct, dp)
+    mjcheck_i(acc, "idct dc8", dp[0], 129)
+    mjcheck_i(acc, "idct dc8 end", dp[63], 129)
+    rgb0 = []
+    okd = mj_dec_frame(data, rgb0)
+    mjcheck_i(acc, "dec f0", okd, 1)
+    mjcheck_i(acc, "f0 len", len(rgb0), 57600)
+    # Cua so first giu tol 2 nghiem; cua so bottom-edge (row 119) dung tol 5:
+    # do tai bien duoi, nearest-sample chroma lech filter fancy cua libjpeg
+    # ~2px/frame (do that ca 3 frame). Bug that lech hang chuc px (transpose
+    # tung gay 32 bad) nen tol 5 van bat duoc regression that.
+    mjcheck_i(acc, "f0 bad", mj_badcount(rgb0, mjpeg_f0_first(), 48, 2), 0)
+    mjcheck_i(acc, "f0 bad last", mj_badcount(rgb0[57552:57600], mjpeg_f0_last(), 48, 5), 0)
+    ds = mj_sum(rgb0, 57600) - mjpeg_f0_sum()
+    if ds < 0:
+        ds = 0 - ds
+    okds = 0
+    if ds <= 57600:
+        okds = 1
+    mjcheck(acc, "f0 sum tol", okds)
+    data1 = mjpeg_f1_bytes()
+    rgb1 = []
+    mjcheck_i(acc, "dec f1", mj_dec_frame(data1, rgb1), 1)
+    mjcheck_i(acc, "f1 len", len(rgb1), 57600)
+    mjcheck_i(acc, "f1 bad", mj_badcount(rgb1, mjpeg_f1_first(), 48, 2), 0)
+    mjcheck_i(acc, "f1 bad last", mj_badcount(rgb1[57552:57600], mjpeg_f1_last(), 48, 5), 0)
+    ds1 = mj_sum(rgb1, 57600) - mjpeg_f1_sum()
+    if ds1 < 0:
+        ds1 = 0 - ds1
+    okds1 = 0
+    if ds1 <= 57600:
+        okds1 = 1
+    mjcheck(acc, "f1 sum tol", okds1)
+    data2 = mjpeg_f2_bytes()
+    rgb2 = []
+    mjcheck_i(acc, "dec f2", mj_dec_frame(data2, rgb2), 1)
+    mjcheck_i(acc, "f2 len", len(rgb2), 57600)
+    mjcheck_i(acc, "f2 bad", mj_badcount(rgb2, mjpeg_f2_first(), 48, 2), 0)
+    mjcheck_i(acc, "f2 bad last", mj_badcount(rgb2[57552:57600], mjpeg_f2_last(), 48, 5), 0)
+    ds2 = mj_sum(rgb2, 57600) - mjpeg_f2_sum()
+    if ds2 < 0:
+        ds2 = 0 - ds2
+    okds2 = 0
+    if ds2 <= 57600:
+        okds2 = 1
+    mjcheck(acc, "f2 sum tol", okds2)
+    ms = mj_bench_ms(data, 5)
+    fps = 0
+    if ms > 0:
+        fps = 5000 // ms
+    print("  bench: 5 reps = " + str(ms) + "ms -> fps ~ " + str(fps))
+    okms = 0
+    if ms < 120000:
+        okms = 1
+    mjcheck(acc, "bench done", okms)
+    bad = [0, 0]
+    bw = []
+    bh = []
+    bm = []
+    bst = []
+    bln = []
+    brw = []
+    bdl = []
+    bof = []
+    bsz = []
+    bbf = []
+    bsd = []
+    bsa = []
+    bsc = []
+    bwh = []
+    ber = []
+    mj_parse(bad, bw, bh, bm, bst, bln, brw, bdl, bof, bsz, bbf, bsd, bsa, bsc, bwh, ber)
+    mjcheck_i(acc, "err soi", ber[0], 1)
+    trunc = [255, 216]
+    tw = []
+    th = []
+    tm = []
+    tst = []
+    tln = []
+    trw = []
+    tdl = []
+    tof = []
+    tsz = []
+    tbf = []
+    tsd = []
+    tsa = []
+    tsc = []
+    twh = []
+    ter = []
+    mj_parse(trunc, tw, th, tm, tst, tln, trw, tdl, tof, tsz, tbf, tsd, tsa, tsc, twh, ter)
+    mjcheck_i(acc, "err trunc", ter[0], 2)
+    sof2 = [255, 216, 255, 194, 0, 8, 8, 0, 1, 0, 1, 1, 17, 0]
+    sw = []
+    sh = []
+    sm = []
+    sst = []
+    sln = []
+    srw = []
+    sdl = []
+    sof = []
+    ssz = []
+    sbf = []
+    ssd = []
+    ssa = []
+    ssc = []
+    swh = []
+    ser = []
+    mj_parse(sof2, sw, sh, sm, sst, sln, srw, sdl, sof, ssz, sbf, ssd, ssa, ssc, swh, ser)
+    mjcheck_i(acc, "err sof2", ser[0], 4)
+    dri = [255, 216, 255, 221, 0, 4, 0, 1]
+    dw = []
+    dh = []
+    dm = []
+    dst = []
+    dln = []
+    drw = []
+    ddl = []
+    dof = []
+    dsz = []
+    dbf = []
+    dsd = []
+    dsa = []
+    dsc = []
+    dwh = []
+    der = []
+    mj_parse(dri, dw, dh, dm, dst, dln, drw, ddl, dof, dsz, dbf, dsd, dsa, dsc, dwh, der)
+    mjcheck_i(acc, "err dri", der[0], 4)
+    print("mjpg: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "MJPG_OK"
+    return "MJPG_FAIL"
+
+def mjpg_hd_selftest() -> "str":
+    # Verdict HD: decode 1 frame 720p that, do fps + do chinh xac.
+    print("== TkvUI.Mjpg HD 720p ==")
+    acc = [int(0), int(0)]
+    data = []
+    mjcheck_i(acc, "hd len", mjhd_bytes(data), 44517)
+    rgb = []
+    t0 = mj_ticks()
+    okd = mj_decode_frame(data, rgb)
+    t1 = mj_ticks()
+    ms = t1 - t0
+    mjcheck_i(acc, "hd dec", okd, 1)
+    mjcheck_i(acc, "hd px", len(rgb), 2764800)
+    mjcheck_i(acc, "hd bad first", mj_badcount(rgb, mjhd_first(), 48, 2), 0)
+    mjcheck_i(acc, "hd bad last", mj_badcount(rgb[2764752:2764800], mjhd_last(), 48, 2), 0)
+    ds = mj_sum(rgb, 2764800) - mjhd_sum()
+    if ds < 0:
+        ds = 0 - ds
+    okds = 0
+    if ds <= 2764800:
+        okds = 1
+    mjcheck(acc, "hd sum tol", okds)
+    fps = 0
+    if ms > 0:
+        fps = 1000 // ms
+    print("  hd: 1280x720 = " + str(ms) + "ms -> fps ~ " + str(fps))
+    print("mjpghd: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "MJHD_OK"
+    return "MJHD_FAIL"

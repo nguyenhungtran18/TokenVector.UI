@@ -157,7 +157,6 @@ delete 7x (rowid-index) → render 2.9x (band-split raster) → P1 persistence t
 MEM (cần kiến trúc pixel hoặc chấp nhận floor CLR).
 
 ## P3-B3 stability gate (chống flake GetTickCount quantum ~16ms)
-
 `tools/bench_stats.py` (10/10 selftest: percentile/median/extract) + driver
 `tools/bench_stable.sh` / `.ps1`: mỗi bench build 1 lần, chạy 3 lần, verdict
 `BENCH_OK` khi median đạt ngưỡng VÀ spread trong dung sai. Ngưỡng từ bảng
@@ -167,6 +166,20 @@ trên + headroom: text atlas tổng <100ms (tol 32), widgets render <900ms
 Chạy 2026-09-22 (`BENCH_STABLE_OK`): text 63/46/47 → med 47 (rep đầu nhảy
 quantum nhưng median vẫn PASS — đúng giá trị của gate), widgets
 579/579/563 → med 579, crud 6/7/8 → med 7.
+
+## Verdict HD video (MJPEG thuần .tkv, 2026-09-22)
+
+| Case | Số đo thật | Kết luận |
+|---|---|---|
+| 160×120 baseline | 5 reps = 47ms → **~106fps** | Thừa realtime cho preview/thumbnail |
+| 1280×720 (bake 8 chunk 44.5KB) | 453ms → **~2fps**, đúng pixel (first/last ±2, sum ±1 avg) | Đúng nhưng không realtime |
+| Profile 160×120 | Huffman ~9% (~1ms), IDCT float ~60% (~7ms), còn lại ~30% | IDCT là nút cổ chai |
+
+Ngoại suy tuyến tính: 320×240 ~25fps, 640×480 ~6fps. Kể cả optimize hết
+(AAN + reuse + lookahead ≈ 2.5×) cũng chỉ ~5fps@720p. Realtime HD cần
+bitwise (`>>`/`&` thay `//`/`%`, nhanh 10–50× cho bit-reader) và/hoặc SIMD
+từ compiler — gap số 1 cho codec, đã ghi trong `docs/COMPILER_GAPS.md`.
+Đường TKVV custom (không Huffman/IDCT) mới là ứng viên realtime — để tiếp.
 
 ## P2 Typography (chức năng — Text 227/227, Bidi 150/150)
 

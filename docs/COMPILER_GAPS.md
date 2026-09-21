@@ -65,8 +65,12 @@
 - **Workaround:** helpers `bit1/bit2/bit4/bit8/bit16/bit32`
   (`v % 2`, `//` + `%`), `get_bit_mask(col)`. Đã đo: `//`/`%` chi phối
   nhưng atlas vẫn đạt 9.4ms/rep (thắng PyQt6 1.9×).
+- **Đo mới 2026-09-22 (MJPEG):** bit-reader `//`+`%` + vòng lặp Huffman/IDCT
+  thuần khiến 720p decode mất 453ms (~2fps; profile: Huffman ~9%, IDCT
+  float ~60%). Kể cả optimize hết (AAN + reuse + lookahead ≈ 2.5×) cũng
+  chỉ ~5fps@720p — realtime HD cần bitwise/SIMD, không có đường vòng.
 - **Đề xuất upstream:** `&`, `|`, `>>`, `<<`, mask operators
-  (kỳ vọng blur/blend nhanh thêm ~1.5–2×).
+  (kỳ vọng blur/blend nhanh thêm ~1.5–2×; codec nhanh ~10×).
 
 ### B2. `chr()` không tồn tại
 - **Triệu chứng:** `SyntaxError: ham 'chr' khong ton tai`.

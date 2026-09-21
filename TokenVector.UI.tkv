@@ -4,7 +4,7 @@
 Entry mac dinh 'main' = chay toan bo selftest cua thu vien (headless, khong mo cua so):
   tkvc.exe build TokenVector.UI.tkv --out build/tkvui_suite.exe && build/tkvui_suite.exe
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Theme", "TkvUI.Widgets", "TkvUI.Widgets.Native", "TkvUI.Media", "TkvUI.Bidi", "TkvUI.Gpu", "TkvUI.A11y", "TkvUI.A11yBridge", "TkvUI.Data", "TkvUI.SQLite", "TkvUI.Printing", "TkvUI.FontFallback", "TkvUI.NativeDlg", "TkvUI.Ime", "TkvUI.Uia", "TkvUI.Atspi", "TkvUI.Shaping", "TkvUI.FontDiscovery", "TkvUI.EmojiData", "TkvUI.KitTest"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Theme", "TkvUI.Widgets", "TkvUI.Widgets.Native", "TkvUI.Media", "TkvUI.Bidi", "TkvUI.Gpu", "TkvUI.A11y", "TkvUI.A11yBridge", "TkvUI.Data", "TkvUI.SQLite", "TkvUI.Printing", "TkvUI.FontFallback", "TkvUI.NativeDlg", "TkvUI.Ime", "TkvUI.Uia", "TkvUI.Atspi", "TkvUI.Shaping", "TkvUI.FontDiscovery", "TkvUI.EmojiData", "TkvUI.KitTest", "TkvUI.VideoGifData", "TkvUI.Video", "TkvUI.TkvvData", "TkvUI.Tkvv", "TkvUI.MjpgData", "TkvUI.Mjpg", "TkvUI.MjpgHDData"]
 
 def tkvui_version() -> "str":
     return "2.9.0"
@@ -40,7 +40,11 @@ def tkvui_selftest() -> "str":
     r25 = fd_selftest()
     r26 = emoji_selftest()
     r27 = kittest_selftest()
-    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " / " + r9 + " / " + r10 + " / " + r11 + " / " + r12 + " / " + r13 + " / " + r14 + " / " + r15 + " / " + r16 + " / " + r17 + " / " + r18 + " / " + r19 + " / " + r20 + " / " + r21 + " / " + r22 + " / " + r23 + " / " + r24 + " / " + r25 + " / " + r26 + " / " + r27 + " ===")
+    r28 = video_selftest()
+    r29 = tkvv_selftest()
+    r30 = mjpg_selftest()
+    r31 = mjpg_hd_selftest()
+    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " / " + r9 + " / " + r10 + " / " + r11 + " / " + r12 + " / " + r13 + " / " + r14 + " / " + r15 + " / " + r16 + " / " + r17 + " / " + r18 + " / " + r19 + " / " + r20 + " / " + r21 + " / " + r22 + " / " + r23 + " / " + r24 + " / " + r25 + " / " + r26 + " / " + r27 + " / " + r28 + " / " + r29 + " / " + r30 + " / " + r31 + " ===")
     bad = int(0)
     if r1 != "CORE_OK":
         bad = bad + 1
@@ -95,6 +99,14 @@ def tkvui_selftest() -> "str":
     if r26 != "EMOJIDATA_OK":
         bad = bad + 1
     if r27 != "KITTEST_OK":
+        bad = bad + 1
+    if r28 != "VIDEO_OK":
+        bad = bad + 1
+    if r29 != "TKVV_OK":
+        bad = bad + 1
+    if r30 != "MJPG_OK":
+        bad = bad + 1
+    if r31 != "MJHD_OK":
         bad = bad + 1
     if bad == 0:
         print("TKVUI_OK")

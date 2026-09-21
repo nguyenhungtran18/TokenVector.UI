@@ -1,0 +1,590 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Video - media decode thuan .tkv, bat dau tu GIF89a subset (M4 media).
+
+Tai sao GIF truoc ffmpeg: ffmpeg can DLL + marshal out-struct (gap compiler,
+cung ho voi GPU device/X11) -> stub chet. GIF89a decode thuan arithmetic
+(//, %) chay that headless, bake bytes offline (ne gap file I/O).
+
+Subset v1 (du cho sample + player clock):
+- Header GIF87a/89a, LSD, GCT skip, GCE delay parse, skip extension la
+  (comment/app/plain-text) qua sub-blocks, image descriptor full-frame,
+  LCT: parse + dung lam palette frame (khong chi skip), LZW min 2..8,
+  tang width early-change (nxt >= 2^W - phan xu thuc nghiem: gradient
+  64x64 decode dung 4096/4096, late-change dung o 592).
+- NGOAI subset (err 6): interlace, descriptor lech full-frame (left/top/w/h
+  khac LSD). Disposal/transparency compositing: hoan v2 (decode index tho).
+
+Ma loi parse (err[0]): 0=ok 1=bad-header 2=truncated 3=bad-block
+6=outside-subset. LZW tra 1/0 (0964? chi tiet trong selftest).
+
+Quy uoc tranh gap: flat parallel lists (khong list[Record]); int Thuần.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.VideoGifData"]
+
+VID_OK = 0
+VID_BAD_HEADER = 1
+VID_TRUNC = 2
+VID_BAD_BLOCK = 3
+VID_NO_FRAMES = 4
+VID_LZW = 5
+VID_SUBSET = 6
+
+def gif_u16(data: "list[i32]", off: "i32") -> "i32":
+    if off < 0:
+        return -1
+    if off + 1 >= len(data):
+        return -1
+    return data[off] + data[off + 1] * 256
+
+def gif_need(data: "list[i32]", off: "i32", n: "i32") -> "i32":
+    if off < 0:
+        return 0
+    if off + n > len(data):
+        return 0
+    return 1
+
+def gif_check_header(data: "list[i32]") -> "i32":
+    # "GIF" + "8" + "7"/"9" + "a".
+    if gif_need(data, 0, 6) == 0:
+        return 0
+    if data[0] != 71:
+        return 0
+    if data[1] != 73:
+        return 0
+    if data[2] != 70:
+        return 0
+    if data[3] != 56:
+        return 0
+    if data[4] != 55 and data[4] != 57:
+        return 0
+    if data[5] != 97:
+        return 0
+    return 1
+
+def gif_pow2(n: "i32", out_pw: "list[i32]") -> "i32":
+    # out_pw = [1, 2, ..., 2^n]. Tra 2^n.
+    out_pw.append(1)
+    v = int(1)
+    i = int(0)
+    while i < n:
+        v = v * 2
+        out_pw.append(v)
+        i = i + 1
+    return v
+
+def gif_skip_subblocks(data: "list[i32]", off: "i32") -> "i32":
+    # Bo qua chuoi sub-block. Tra offset sau terminator, -1 neu truncated.
+    i = off
+    while True:
+        if i >= len(data):
+            return -1
+        n = data[i]
+        i = i + 1
+        if n == 0:
+            return i
+        i = i + n
+    return -1
+
+def gif_collect_subblocks(data: "list[i32]", off: "i32", out_raw: "list[i32]") -> "i32":
+    # Gom bytes image-data vao out_raw. Tra offset sau terminator, -1 neu loi.
+    i = off
+    while True:
+        if i >= len(data):
+            return -1
+        n = data[i]
+        i = i + 1
+        if n == 0:
+            return i
+        if i + n > len(data):
+            return -1
+        k = int(0)
+        while k < n:
+            out_raw.append(data[i + k])
+            k = k + 1
+        i = i + n
+    return -1
+
+def gif_parse(data: "list[i32]", fws: "list[i32]", fhs: "list[i32]", fmins: "list[i32]", fstarts: "list[i32]", flens: "list[i32]", fraw: "list[i32]", fdelays: "list[i32]", paloff: "list[i32]", palsz: "list[i32]", palbuf: "list[i32]", err: "list[i32]") -> "i32":
+    # Parse toan bo GIF. Palette hieu dung moi frame (LCT neu co, khong thi
+    # GCT) duoc COPY vao palbuf; paloff/palsz chi vung 3-byte RGB.
+    # LZW bytes cac frame gom chung vao fraw; fstarts/flens la offset/len
+    # TUONG DOI trong fraw (vi record cam chua list).
+    # Tra so frame; err[0] = ma loi (append 1 phan tu).
+    err.append(0)
+    if gif_check_header(data) == 0:
+        err[0] = 1
+        return 0
+    if gif_need(data, 6, 7) == 0:
+        err[0] = 2
+        return 0
+    lw = gif_u16(data, 6)
+    lh = gif_u16(data, 8)
+    packed = data[10]
+    off = 13
+    gctn = 0
+    if packed >= 128:
+        gctn = 2
+        rem = packed % 128
+        b = int(0)
+        while b < rem % 8:
+            gctn = gctn * 2
+            b = b + 1
+    if gif_need(data, off, gctn * 3) == 0:
+        err[0] = 2
+        return 0
+    gctoff = len(palbuf)
+    gi = int(0)
+    while gi < gctn * 3:
+        palbuf.append(data[off + gi])
+        gi = gi + 1
+    off = off + gctn * 3
+    delay = int(0)
+    nfr = int(0)
+    while off < len(data):
+        b = data[off]
+        if b == 59:
+            break
+        if b == 33:
+            if off + 1 >= len(data):
+                err[0] = 2
+                return nfr
+            lab = data[off + 1]
+            if lab == 249:
+                if gif_need(data, off + 2, 6) == 0:
+                    err[0] = 2
+                    return nfr
+                delay = data[off + 4] + data[off + 5] * 256
+                off = off + 8
+                continue
+            noff = gif_skip_subblocks(data, off + 2)
+            if noff < 0:
+                err[0] = 2
+                return nfr
+            off = noff
+            continue
+        if b == 44:
+            if gif_need(data, off + 1, 9) == 0:
+                err[0] = 2
+                return nfr
+            left = gif_u16(data, off + 1)
+            top = gif_u16(data, off + 3)
+            fw = gif_u16(data, off + 5)
+            fh = gif_u16(data, off + 7)
+            pk = data[off + 9]
+            if left != 0 or top != 0 or fw != lw or fh != lh:
+                err[0] = 6
+                return nfr
+            if pk >= 64 and pk % 128 >= 64:
+                err[0] = 6
+                return nfr
+            off = off + 10
+            poff = len(palbuf)
+            psz = gctn
+            if pk >= 128:
+                ln = 2
+                rr = pk % 128
+                bb = int(0)
+                while bb < rr % 8:
+                    ln = ln * 2
+                    bb = bb + 1
+                if gif_need(data, off, ln * 3) == 0:
+                    err[0] = 2
+                    return nfr
+                li = int(0)
+                while li < ln * 3:
+                    palbuf.append(data[off + li])
+                    li = li + 1
+                off = off + ln * 3
+                psz = ln
+            else:
+                poff = gctoff
+            if off >= len(data):
+                err[0] = 2
+                return nfr
+            mincode = data[off]
+            if mincode < 2 or mincode > 8:
+                err[0] = 6
+                return nfr
+            start = len(fraw)
+            noff2 = gif_collect_subblocks(data, off + 1, fraw)
+            if noff2 < 0:
+                err[0] = 2
+                return nfr
+            off = noff2
+            fws.append(fw)
+            fhs.append(fh)
+            fmins.append(mincode)
+            fstarts.append(start)
+            flens.append(len(fraw) - start)
+            fdelays.append(delay)
+            paloff.append(poff)
+            palsz.append(psz)
+            delay = 0
+            nfr = nfr + 1
+            continue
+        err[0] = 3
+        return nfr
+    if nfr == 0 and err[0] == 0:
+        err[0] = 4
+    return nfr
+
+def gif_lzw_decode(fraw: "list[i32]", start: "i32", dlen: "i32", mincode: "i32", npix: "i32", out_px: "list[i32]") -> "i32":
+    # LZW GIF early-change: tang width khi nxt >= 2^W sau add. Flat dict
+    # dpre/dsuf (4096). Tra 1 neu decode du npix roi gap EOI/hit gioi han.
+    clear = 1
+    i = int(0)
+    while i < mincode:
+        clear = clear * 2
+        i = i + 1
+    eoi = clear + 1
+    width = mincode + 1
+    cap = clear * 2
+    pw = []
+    gif_pow2(12, pw)
+    dpre = []
+    dsuf = []
+    k = int(0)
+    while k < 4100:
+        dpre.append(-1)
+        dsuf.append(k)
+        k = k + 1
+    nxt = eoi + 1
+    bitpos = int(0)
+    nbits = dlen * 8
+    v = int(0)
+    kk = int(0)
+    while kk < width:
+        if bitpos + kk >= nbits:
+            return 0
+        byte = fraw[start + (bitpos + kk) // 8]
+        bit = (byte // pw[(bitpos + kk) % 8]) % 2
+        v = v + bit * pw[kk]
+        kk = kk + 1
+    bitpos = bitpos + width
+    if v != clear:
+        return 0
+    v = int(0)
+    kk = int(0)
+    while kk < width:
+        if bitpos + kk >= nbits:
+            return 0
+        byte = fraw[start + (bitpos + kk) // 8]
+        bit = (byte // pw[(bitpos + kk) % 8]) % 2
+        v = v + bit * pw[kk]
+        kk = kk + 1
+    bitpos = bitpos + width
+    if v == clear or v == eoi:
+        return 0
+    st = []
+    c = v
+    while c >= 0:
+        st.append(dsuf[c])
+        c = dpre[c]
+    j = len(st) - 1
+    while j >= 0:
+        out_px.append(st[j])
+        j = j - 1
+    prev = v
+    while len(out_px) < npix:
+        v = int(0)
+        kk = int(0)
+        while kk < width:
+            if bitpos + kk >= nbits:
+                return 0
+            byte = fraw[start + (bitpos + kk) // 8]
+            bit = (byte // pw[(bitpos + kk) % 8]) % 2
+            v = v + bit * pw[kk]
+            kk = kk + 1
+        bitpos = bitpos + width
+        if v == clear:
+            width = mincode + 1
+            cap = clear * 2
+            nxt = eoi + 1
+            v = int(0)
+            kk = int(0)
+            while kk < width:
+                if bitpos + kk >= nbits:
+                    return 0
+                byte = fraw[start + (bitpos + kk) // 8]
+                bit = (byte // pw[(bitpos + kk) % 8]) % 2
+                v = v + bit * pw[kk]
+                kk = kk + 1
+            bitpos = bitpos + width
+            if v == eoi:
+                break
+            st = []
+            c = v
+            while c >= 0:
+                st.append(dsuf[c])
+                c = dpre[c]
+            j = len(st) - 1
+            while j >= 0 and len(out_px) < npix:
+                out_px.append(st[j])
+                j = j - 1
+            prev = v
+            continue
+        if v == eoi:
+            break
+        st = []
+        if v < nxt:
+            c = v
+            while c >= 0:
+                st.append(dsuf[c])
+                c = dpre[c]
+        else:
+            if v != nxt:
+                return 0
+            c = prev
+            while c >= 0:
+                st.append(dsuf[c])
+                c = dpre[c]
+            st.append(st[len(st) - 1])
+        j = len(st) - 1
+        while j >= 0 and len(out_px) < npix:
+            out_px.append(st[j])
+            j = j - 1
+        dpre[nxt] = prev
+        fch = st[len(st) - 1]
+        dsuf[nxt] = fch
+        nxt = nxt + 1
+        if width < 12 and nxt >= cap:
+            width = width + 1
+            cap = cap * 2
+        prev = v
+    if len(out_px) != npix:
+        return 0
+    return 1
+
+def gif_frame_rgb(palbuf: "list[i32]", poff: "i32", px: "list[i32]", npix: "i32", out_rgb: "list[i32]") -> "i32":
+    # Index -> RGB qua palette frame. Tra so pixel.
+    i = int(0)
+    while i < npix:
+        idx = px[i]
+        base = poff + idx * 3
+        out_rgb.append(palbuf[base])
+        out_rgb.append(palbuf[base + 1])
+        out_rgb.append(palbuf[base + 2])
+        i = i + 1
+    return npix
+
+def vid_total_cs(delays: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + delays[i]
+        i = i + 1
+    return t
+
+def vid_frame_at(delays: "list[i32]", n: "i32", t: "i32") -> "i32":
+    # Clock loop: frame hien tai tai t (cs). Tra index.
+    total = vid_total_cs(delays, n)
+    if total <= 0:
+        return 0
+    tt = t - (t // total) * total
+    acc = int(0)
+    i = int(0)
+    while i < n:
+        acc = acc + delays[i]
+        if tt < acc:
+            return i
+        i = i + 1
+    return 0
+
+def vid_seek_cs(total: "i32", promille: "i32") -> "i32":
+    # Scrub 0..1000 -> time cs.
+    if total <= 0:
+        return 0
+    if promille < 0:
+        promille = 0
+    if promille > 1000:
+        promille = 1000
+    return total * promille // 1000
+
+# =========================================================
+# SELFTEST - decode that 2 sample + clock + error paths
+# =========================================================
+def vidcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def vidcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def vidcheck_rgb(acc: "list[i32]", name: "str", got: "list[i32]", want: "list[i32]", n: "i32") -> "i32":
+    # So sanh n phan tu dau. Dung cho first/last ground truth.
+    same = 1
+    i = int(0)
+    while i < n:
+        if got[i] != want[i]:
+            same = 0
+        i = i + 1
+    acc[1] = acc[1] + 1
+    if same == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def vid_sum(vals: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + vals[i]
+        i = i + 1
+    return t
+
+def video_selftest() -> "str":
+    print("== TkvUI.Video selftest ==")
+    acc = [int(0), int(0)]
+    data = gif_s1_bytes()
+    vidcheck_i(acc, "s1 len", len(data), gif_s1_len())
+    fws = []
+    fhs = []
+    fmins = []
+    fstarts = []
+    flens = []
+    fraw = []
+    fdelays = []
+    paloff = []
+    palsz = []
+    palbuf = []
+    err = []
+    nfr = gif_parse(data, fws, fhs, fmins, fstarts, flens, fraw, fdelays, paloff, palsz, palbuf, err)
+    vidcheck_i(acc, "s1 err", err[0], 0)
+    vidcheck_i(acc, "s1 nframes", nfr, 2)
+    vidcheck_i(acc, "s1 w", fws[0], 8)
+    vidcheck_i(acc, "s1 h", fhs[0], 8)
+    vidcheck_i(acc, "s1 delay0", fdelays[0], 10)
+    vidcheck_i(acc, "s1 delay1", fdelays[1], 20)
+    px0 = []
+    ok0 = gif_lzw_decode(fraw, fstarts[0], flens[0], fmins[0], 64, px0)
+    vidcheck_i(acc, "s1 dec0", ok0, 1)
+    vidcheck_i(acc, "s1 px0 len", len(px0), 64)
+    vidcheck_i(acc, "s1 px0 sum", vid_sum(px0, 64), 0)
+    px1 = []
+    ok1 = gif_lzw_decode(fraw, fstarts[1], flens[1], fmins[1], 64, px1)
+    vidcheck_i(acc, "s1 dec1", ok1, 1)
+    vidcheck_i(acc, "s1 px1 sum", vid_sum(px1, 64), 0)
+    vidcheck_i(acc, "s1 pal0 n", palsz[0], 4)
+    vidcheck_i(acc, "s1 pal1 n", palsz[1], 4)
+    rgb0 = []
+    gif_frame_rgb(palbuf, paloff[0], px0, 64, rgb0)
+    vidcheck_i(acc, "s1 rgb0 sum", vid_sum(rgb0, 192), gif_s1_f0_sum())
+    vidcheck_rgb(acc, "s1 rgb0 first", rgb0, gif_s1_f0_first(), 48)
+    vidcheck_rgb(acc, "s1 rgb0 last", rgb0[144:192], gif_s1_f0_last(), 48)
+    rgb1 = []
+    gif_frame_rgb(palbuf, paloff[1], px1, 64, rgb1)
+    vidcheck_i(acc, "s1 rgb1 sum", vid_sum(rgb1, 192), gif_s1_f1_sum())
+    vidcheck_rgb(acc, "s1 rgb1 first", rgb1, gif_s1_f1_first(), 48)
+    vidcheck_rgb(acc, "s1 rgb1 last", rgb1[144:192], gif_s1_f1_last(), 48)
+    total = vid_total_cs(fdelays, nfr)
+    vidcheck_i(acc, "clock total", total, 30)
+    vidcheck_i(acc, "at 0", vid_frame_at(fdelays, nfr, 0), 0)
+    vidcheck_i(acc, "at 9", vid_frame_at(fdelays, nfr, 9), 0)
+    vidcheck_i(acc, "at 10", vid_frame_at(fdelays, nfr, 10), 1)
+    vidcheck_i(acc, "at 29", vid_frame_at(fdelays, nfr, 29), 1)
+    vidcheck_i(acc, "at 30 loop", vid_frame_at(fdelays, nfr, 30), 0)
+    vidcheck_i(acc, "at 45", vid_frame_at(fdelays, nfr, 45), 1)
+    vidcheck_i(acc, "seek 0", vid_seek_cs(total, 0), 0)
+    vidcheck_i(acc, "seek half", vid_seek_cs(total, 500), 15)
+    vidcheck_i(acc, "seek full", vid_seek_cs(total, 1000), 30)
+    vidcheck_i(acc, "seek over", vid_seek_cs(total, 2000), 30)
+    # --- sample 2: stress width transition (64x64) ---
+    data2 = gif_s2_bytes()
+    fws2 = []
+    fhs2 = []
+    fmins2 = []
+    fstarts2 = []
+    flens2 = []
+    fraw2 = []
+    fdelays2 = []
+    paloff2 = []
+    palsz2 = []
+    palbuf2 = []
+    err2 = []
+    nfr2 = gif_parse(data2, fws2, fhs2, fmins2, fstarts2, flens2, fraw2, fdelays2, paloff2, palsz2, palbuf2, err2)
+    vidcheck_i(acc, "s2 err", err2[0], 0)
+    vidcheck_i(acc, "s2 nframes", nfr2, 1)
+    vidcheck_i(acc, "s2 w", fws2[0], 64)
+    px2 = []
+    ok2 = gif_lzw_decode(fraw2, fstarts2[0], flens2[0], fmins2[0], 4096, px2)
+    vidcheck_i(acc, "s2 dec", ok2, 1)
+    vidcheck_i(acc, "s2 len", len(px2), 4096)
+    rgb2 = []
+    gif_frame_rgb(palbuf2, paloff2[0], px2, 4096, rgb2)
+    vidcheck_i(acc, "s2 rgb sum", vid_sum(rgb2, 12288), gif_s2_f0_sum())
+    vidcheck_rgb(acc, "s2 first", rgb2, gif_s2_f0_first(), 48)
+    vidcheck_rgb(acc, "s2 last", rgb2[12240:12288], gif_s2_f0_last(), 48)
+    # --- error paths ---
+    bad = [1, 2, 3]
+    ews = []
+    ehs = []
+    emi = []
+    est = []
+    eln = []
+    erw = []
+    edl = []
+    eof = []
+    esz = []
+    ebf = []
+    eer = []
+    vidcheck_i(acc, "err header", gif_parse(bad, ews, ehs, emi, est, eln, erw, edl, eof, esz, ebf, eer), 0)
+    vidcheck_i(acc, "err header code", eer[0], 1)
+    trunc = [71, 73, 70, 56, 57, 97]
+    tws = []
+    ths = []
+    tmi = []
+    tst = []
+    tln = []
+    trw = []
+    tdl = []
+    tof = []
+    tsz = []
+    tbf = []
+    ter = []
+    gif_parse(trunc, tws, ths, tmi, tst, tln, trw, tdl, tof, tsz, tbf, ter)
+    vidcheck_i(acc, "err trunc", ter[0], 2)
+    badblk = [71, 73, 70, 56, 57, 97, 8, 0, 8, 0, 0, 0, 0, 255]
+    bws = []
+    bhs = []
+    bmi = []
+    bst = []
+    bln = []
+    brw = []
+    bdl = []
+    bof = []
+    bsz = []
+    bbf = []
+    ber = []
+    gif_parse(badblk, bws, bhs, bmi, bst, bln, brw, bdl, bof, bsz, bbf, ber)
+    vidcheck_i(acc, "err badblock", ber[0], 3)
+    inter = [71, 73, 70, 56, 57, 97, 8, 0, 8, 0, 0, 0, 0, 44, 0, 0, 0, 0, 8, 0, 8, 0, 64]
+    iws = []
+    ihs = []
+    imi = []
+    ist = []
+    iln = []
+    irw = []
+    idl = []
+    iof = []
+    isz = []
+    ibf = []
+    ier = []
+    gif_parse(inter, iws, ihs, imi, ist, iln, irw, idl, iof, isz, ibf, ier)
+    vidcheck_i(acc, "err interlace", ier[0], 6)
+    print("video: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "VIDEO_OK"
+    return "VIDEO_FAIL"

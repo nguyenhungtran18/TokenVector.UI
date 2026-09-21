@@ -43,7 +43,14 @@
     { "name": "TkvUI.Shaping", "file": "TkvUI.Shaping.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Viet","TkvUI.I18nData"], "summary": "Shaping engine thuan .tkv (M2.2): Arabic joining/forms, Thai clusters, Indic/Bengali/Tamil clusters, lam-alef ligature runs", "selftest": "shaping_selftest" },
     { "name": "TkvUI.FontDiscovery", "file": "TkvUI.FontDiscovery.tkv", "imports": ["TkvUI.Core","TkvUI.Platform"], "summary": "Fontconfig-lite (M2.4): well-known font dirs + registry stub + weighted family matching (fd_find_best/fd_match_score)", "selftest": "fd_selftest" },
     { "name": "TkvUI.EmojiData", "file": "TkvUI.EmojiData.tkv", "imports": ["TkvUI.Core"], "summary": "Baked monochrome 12x12 symbol glyphs (12 BMP: sun/star/heart/check/cross/play/circle/square/triup/note/smile/tridown, offline from Segoe UI Symbol) + emoji_blit; wired into FontFallback emoji path", "selftest": "emoji_selftest" },
-    { "name": "TkvUI.KitTest", "file": "TkvUI.KitTest.tkv", "imports": ["TkvUI.Core","TkvUI.Events","TkvUI.Input","TkvUI.A11yBridge","TkvUI.Widgets.Native"], "summary": "kittest-style GUI test qua cay a11y (P3-B2, copy egui): query (role,label) + hit_test that + act tren widget that + rebuild cay + assert; 9 case headless", "selftest": "kittest_selftest" }
+    { "name": "TkvUI.KitTest", "file": "TkvUI.KitTest.tkv", "imports": ["TkvUI.Core","TkvUI.Events","TkvUI.Input","TkvUI.A11yBridge","TkvUI.Widgets.Native"], "summary": "kittest-style GUI test qua cay a11y (P3-B2, copy egui): query (role,label) + hit_test that + act tren widget that + rebuild cay + assert; 9 case headless", "selftest": "kittest_selftest" },
+    { "name": "TkvUI.VideoGifData", "file": "TkvUI.VideoGifData.tkv", "imports": ["TkvUI.Core"], "summary": "Sample GIF bake san (s1: 8x8 2-frame delays 100/200ms; s2: 64x64 gradient) + ground truth PIL; khong doc file luc chay", "selftest": null },
+    { "name": "TkvUI.Video", "file": "TkvUI.Video.tkv", "imports": ["TkvUI.Core","TkvUI.VideoGifData"], "summary": "Media decode thuan .tkv (M4): GIF89a subset parse (GCE delay, skip ext, LCT palette) + LZW early-change flat-dict + player clock (frame_at/seek); tra ma loi ro", "selftest": "video_selftest" },
+    { "name": "TkvUI.TkvvData", "file": "TkvUI.TkvvData.tkv", "imports": ["TkvUI.Core"], "summary": "Sample TKVV bake san (32x24 ball, 6 frames I+Ps, delays 10cs) + ground truth (sum/center/first/last); khong doc file luc chay", "selftest": null },
+    { "name": "TkvUI.Tkvv", "file": "TkvUI.Tkvv.tkv", "imports": ["TkvUI.Core","TkvUI.TkvvData","TkvUI.Video"], "summary": "Decoder TKVV custom (giong TKVA audio): chunk+profile I/P + O(1) seek + tile-diff reconstruct + clock/Media clock reuse; tra ma loi ro", "selftest": "tkvv_selftest" },
+    { "name": "TkvUI.MjpgData", "file": "TkvUI.MjpgData.tkv", "imports": ["TkvUI.Core"], "summary": "3 frame MJPEG baseline 160x120 bake san (PIL q50, 4:2:0) + ground truth RGB (sum/first/last, tol +-2) + zigzag; khong doc file luc chay", "selftest": null },
+    { "name": "TkvUI.Mjpg", "file": "TkvUI.Mjpg.tkv", "imports": ["TkvUI.Core","TkvUI.MjpgData","TkvUI.MjpgHDData"], "summary": "MJPEG baseline decoder thuan .tkv: SOF0/DQT/DHT/SOS + Huffman canonical + dequant/unzigzag + IDCT float + nearest upsample + YCbCr-RGB + bench fps (~106fps 160x120, HD 720p ~2fps); HD entry rieng", "selftest": "mjpg_selftest" },
+    { "name": "TkvUI.MjpgHDData", "file": "TkvUI.MjpgHDData.tkv", "imports": ["TkvUI.Core"], "summary": "1 frame 720p bake 8 chunk (44.5KB) + ground truth RGB (sum/first/last); dung cho verdict HD", "selftest": null }
   ],
   "umbrella": {
     "file": "TokenVector.UI.tkv",
@@ -54,7 +61,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "41 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 25 module cases incl. +kittest, suite TKVUI_OK 27/27, 14 examples; android/ios no device; KitTest 16/16 kittest-style P3-B2)"
+    "last_result": "45 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 29 module cases incl. +mjpghd, suite TKVUI_OK 31/31, 14 examples; android/ios no device; MjpgHD 6/6, 720p 453ms ~2fps)"
   },
   "package": {
     "script": "tools/package.sh",

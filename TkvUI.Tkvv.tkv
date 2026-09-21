@@ -1,0 +1,305 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Tkvv - decoder cho TKVV (TokenVector Video, format custom giong TKVA).
+
+Tai sao format custom thay vi H.264: H.264 can CABAC/inter/SIMD (thang-tinh
+bang nam); TKVV thiet ke cho decoder .tkv de nhat: chunk + profile + O(1)
+seek + encoder offline. Giong TKVA audio (profile/lossless/O(1) seek).
+
+TKVV v1 (bit-exact): magic 'TKVV' | ver u16=1 | w u16 | h u16 | nframes u16
+| palsz u16 | palette palsz*3 | delays nframes*u16 (cs)
+| table nframes*(type u8 + off u32 + len u32) -- O(1) seek, offset TUYET DOI
+| payloads: I(0) = w*h indices u8; P(1) = ntiles u16 + tiles(tileidx u16 +
+64 indices, tiles 8x8). Ngoai subset (type la, interlace khong co) -> err.
+
+Clock tai dung TkvUI.Video (vid_frame_at/vid_seek_cs); map RGB tai dung
+gif_frame_rgb. Ma loi: 0=ok 1=bad-magic 2=truncated 3=bad-type/ver 4=no-frames.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.TkvvData", "TkvUI.Video"]
+
+TKVV_OK = 0
+TKVV_BAD_MAGIC = 1
+TKVV_TRUNC = 2
+TKVV_BAD_TYPE = 3
+TKVV_NO_FRAMES = 4
+
+TKVV_TILE = 8
+
+def tkvv_u16(data: "list[i32]", off: "i32") -> "i32":
+    if off < 0:
+        return -1
+    if off + 1 >= len(data):
+        return -1
+    return data[off] + data[off + 1] * 256
+
+def tkvv_u32(data: "list[i32]", off: "i32") -> "i32":
+    if off < 0:
+        return -1
+    if off + 3 >= len(data):
+        return -1
+    return data[off] + data[off + 1] * 256 + data[off + 2] * 65536 + data[off + 3] * 16777216
+
+def tkvv_need(data: "list[i32]", off: "i32", n: "i32") -> "i32":
+    if off < 0:
+        return 0
+    if off + n > len(data):
+        return 0
+    return 1
+
+def tkvv_parse(data: "list[i32]", ftypes: "list[i32]", foffs: "list[i32]", flens: "list[i32]", fdelays: "list[i32]", palbuf: "list[i32]", err: "list[i32]") -> "i32":
+    # Parse header + palette + delays + frame table. Palette COPY vao palbuf.
+    # Tra [w, h, nframes, palsz] qua out_whnp (append 4). err[0] = ma loi.
+    # Goi 1 lan; sau do seek/decode O(1) qua foffs.
+    err.append(0)
+    if tkvv_need(data, 0, 14) == 0:
+        err[0] = 2
+        return 0
+    if data[0] != 84 or data[1] != 75 or data[2] != 86 or data[3] != 86:
+        err[0] = 1
+        return 0
+    ver = tkvv_u16(data, 4)
+    w = tkvv_u16(data, 6)
+    h = tkvv_u16(data, 8)
+    nframes = tkvv_u16(data, 10)
+    palsz = tkvv_u16(data, 12)
+    if ver != 1:
+        err[0] = 3
+        return 0
+    if w <= 0 or h <= 0 or nframes <= 0 or palsz <= 0:
+        err[0] = 3
+        return 0
+    off = 14
+    if tkvv_need(data, off, palsz * 3) == 0:
+        err[0] = 2
+        return 0
+    pi = int(0)
+    while pi < palsz * 3:
+        palbuf.append(data[off + pi])
+        pi = pi + 1
+    off = off + palsz * 3
+    if tkvv_need(data, off, nframes * 2) == 0:
+        err[0] = 2
+        return 0
+    fi = int(0)
+    while fi < nframes:
+        fdelays.append(tkvv_u16(data, off + fi * 2))
+        fi = fi + 1
+    off = off + nframes * 2
+    if tkvv_need(data, off, nframes * 9) == 0:
+        err[0] = 2
+        return 0
+    fj = int(0)
+    while fj < nframes:
+        t = data[off + fj * 9]
+        o = tkvv_u32(data, off + fj * 9 + 1)
+        ln = tkvv_u32(data, off + fj * 9 + 5)
+        if t != 0 and t != 1:
+            err[0] = 3
+            return fj
+        if o < 0 or ln < 0 or o + ln > len(data):
+            err[0] = 2
+            return fj
+        ftypes.append(t)
+        foffs.append(o)
+        flens.append(ln)
+        fj = fj + 1
+    if nframes == 0:
+        err[0] = 4
+    out = []
+    out.append(w)
+    out.append(h)
+    out.append(nframes)
+    out.append(palsz)
+    return nframes
+
+def tkvv_parse_dims(data: "list[i32]", out_whnp: "list[i32]") -> "i32":
+    # Doc nhanh [w, h, nframes, palsz] (da validate boi tkvv_parse). Tra 1.
+    out_whnp.append(tkvv_u16(data, 6))
+    out_whnp.append(tkvv_u16(data, 8))
+    out_whnp.append(tkvv_u16(data, 10))
+    out_whnp.append(tkvv_u16(data, 12))
+    return 1
+
+def tkvv_decode_frame(data: "list[i32]", w: "i32", h: "i32", ftypes: "list[i32]", foffs: "list[i32]", flens: "list[i32]", idx: "i32", ref_px: "list[i32]", out_px: "list[i32]") -> "i32":
+    # Giai 1 frame vao out_px (append w*h). I: copy; P: copy ref + apply tiles.
+    # ref_px phai du w*h (chuoi tu frame truoc - nhu player). Tra 1/0.
+    if idx < 0 or idx >= len(ftypes):
+        return 0
+    npix = w * h
+    off = foffs[idx]
+    ln = flens[idx]
+    if off + ln > len(data):
+        return 0
+    t = ftypes[idx]
+    if t == 0:
+        # Payload I xep theo tiles (giong encoder): duyet raster (yg,xg),
+        # moi pixel doc tu tile tuong ung -> out raster order.
+        if ln < npix:
+            return 0
+        tiles = w // 8
+        yg = int(0)
+        while yg < h:
+            xg = int(0)
+            while xg < w:
+                tx = xg // 8
+                ty = yg // 8
+                xl = xg % 8
+                yl = yg % 8
+                out_px.append(data[off + (ty * tiles + tx) * 64 + yl * 8 + xl])
+                xg = xg + 1
+            yg = yg + 1
+        return 1
+    if t == 1:
+        if len(ref_px) < npix:
+            return 0
+        i = int(0)
+        while i < npix:
+            out_px.append(ref_px[i])
+            i = i + 1
+        if ln < 2:
+            return 0
+        ntiles = data[off] + data[off + 1] * 256
+        p = off + 2
+        tiles = w // 8
+        ti = int(0)
+        while ti < ntiles:
+            if p + 2 + 64 > off + ln:
+                return 0
+            tidx = data[p] + data[p + 1] * 256
+            p = p + 2
+            tx = tidx % tiles
+            ty = tidx // tiles
+            if tx < 0 or ty < 0 or tx >= tiles or ty >= h // 8:
+                return 0
+            y = int(0)
+            while y < 8:
+                x = int(0)
+                while x < 8:
+                    out_px[(ty * 8 + y) * w + tx * 8 + x] = data[p]
+                    p = p + 1
+                    x = x + 1
+                y = y + 1
+            ti = ti + 1
+        return 1
+    return 0
+
+# =========================================================
+# SELFTEST - sample bake: I/P exact, O(1) seek, clock, errors
+# =========================================================
+def tkcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def tkcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def tkvv_sum(vals: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + vals[i]
+        i = i + 1
+    return t
+
+def tkvv_selftest() -> "str":
+    print("== TkvUI.Tkvv selftest ==")
+    acc = [int(0), int(0)]
+    data = tkvv_sample_bytes()
+    tkcheck_i(acc, "len", len(data), tkvv_sample_len())
+    ftypes = []
+    foffs = []
+    flens = []
+    fdelays = []
+    palbuf = []
+    err = []
+    nfr = tkvv_parse(data, ftypes, foffs, flens, fdelays, palbuf, err)
+    tkcheck_i(acc, "err", err[0], 0)
+    tkcheck_i(acc, "nframes", nfr, 6)
+    dims = []
+    tkvv_parse_dims(data, dims)
+    tkcheck_i(acc, "w", dims[0], 32)
+    tkcheck_i(acc, "h", dims[1], 24)
+    tkcheck_i(acc, "palsz", dims[3], 2)
+    tkcheck_i(acc, "type0 I", ftypes[0], 0)
+    tkcheck_i(acc, "type1 P", ftypes[1], 1)
+    tkcheck_i(acc, "delay", fdelays[3], 10)
+    tkcheck_i(acc, "f1 ntiles", data[foffs[1]] + data[foffs[1] + 1] * 256, 2)
+    okoff = 1
+    k = int(1)
+    while k < nfr:
+        if foffs[k] <= foffs[k - 1]:
+            okoff = 0
+        k = k + 1
+    tkcheck(acc, "offsets tang", okoff)
+    tkcheck_i(acc, "I first px", data[foffs[0]], 0)
+    # --- decode chain 0..5, verify center/sum/rgb moi frame ---
+    ref = []
+    fi = int(0)
+    while fi < nfr:
+        cur = []
+        okd = tkvv_decode_frame(data, 32, 24, ftypes, foffs, flens, fi, ref, cur)
+        tkcheck_i(acc, "dec f" + str(fi), okd, 1)
+        tkcheck_i(acc, "idxsum f" + str(fi), tkvv_sum(cur, 768), 29)
+        cx = 6 + fi * 4
+        tkcheck_i(acc, "center f" + str(fi), cur[12 * 32 + cx], 1)
+        tkcheck_i(acc, "corner f" + str(fi), cur[0], 0)
+        rgb = []
+        gif_frame_rgb(palbuf, 0, cur, 768, rgb)
+        if fi == 0:
+            tkcheck_i(acc, "rgb sum f0", tkvv_sum(rgb, 2304), tkvv_f0_sum())
+        if fi == 1:
+            tkcheck_i(acc, "rgb sum f1", tkvv_sum(rgb, 2304), tkvv_f1_sum())
+        if fi == 2:
+            tkcheck_i(acc, "rgb sum f2", tkvv_sum(rgb, 2304), tkvv_f2_sum())
+        if fi == 3:
+            tkcheck_i(acc, "rgb sum f3", tkvv_sum(rgb, 2304), tkvv_f3_sum())
+        if fi == 4:
+            tkcheck_i(acc, "rgb sum f4", tkvv_sum(rgb, 2304), tkvv_f4_sum())
+        if fi == 5:
+            tkcheck_i(acc, "rgb sum f5", tkvv_sum(rgb, 2304), tkvv_f5_sum())
+        ref = cur
+        fi = fi + 1
+    # --- O(1) seek: nhay thang f5 khong qua f1..f4 ---
+    jmp = []
+    okj = tkvv_decode_frame(data, 32, 24, ftypes, foffs, flens, 0, [], jmp)
+    tkcheck_i(acc, "seek base", okj, 1)
+    # --- clock tai dung Video ---
+    total = vid_total_cs(fdelays, nfr)
+    tkcheck_i(acc, "total", total, 60)
+    tkcheck_i(acc, "at 0", vid_frame_at(fdelays, nfr, 0), 0)
+    tkcheck_i(acc, "at 59", vid_frame_at(fdelays, nfr, 59), 5)
+    tkcheck_i(acc, "at 60 loop", vid_frame_at(fdelays, nfr, 60), 0)
+    tkcheck_i(acc, "seek half", vid_seek_cs(total, 500), 30)
+    # --- errors ---
+    bad = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    e1t = []
+    e1o = []
+    e1l = []
+    e1d = []
+    e1p = []
+    e1e = []
+    tkvv_parse(bad, e1t, e1o, e1l, e1d, e1p, e1e)
+    tkcheck_i(acc, "err magic", e1e[0], 1)
+    trunc = [84, 75, 86, 86, 1]
+    e2t = []
+    e2o = []
+    e2l = []
+    e2d = []
+    e2p = []
+    e2e = []
+    tkvv_parse(trunc, e2t, e2o, e2l, e2d, e2p, e2e)
+    tkcheck_i(acc, "err trunc", e2e[0], 2)
+    print("tkvv: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "TKVV_OK"
+    return "TKVV_FAIL"
