@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>TKVV capture harness — MP4 -&gt; PNG frames (cho tools/tkvv_import.py)</title>
+</head>
+<body>
+<h3>MP4 -&gt; PNG frames (dùng decoder H.264 có sẵn của Chrome/Edge)</h3>
+<p>1. Chạy Chrome headless mở file này + file MP4 cùng thư mục.
+2. Bấm <b>Capture</b>: video seek từng frame, vẽ ra &lt;canvas&gt;,
+tải từng PNG về (frame_000.png ...). 3. Nạp PNG vào
+<code>tools/tkvv_import.py</code> để ra <code>.tkvv</code> phát realtime.</p>
+<video id="v" width="320" muted playsinline></video><br>
+<canvas id="c" width="320" height="240" style="border:1px solid #888"></canvas><br>
+<input id="f" type="file" accept="video/mp4">
+<button id="go">Capture</button>
+<pre id="log"></pre>
+<script>
+const v = document.getElementById('v');
+const c = document.getElementById('c');
+const ctx = c.getContext('2d', {willReadFrequently: true});
+const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+document.getElementById('f').onchange = (e) => {
+  v.src = URL.createObjectURL(e.target.files[0]);
+  v.onloadedmetadata = () => {
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    log('video ' + v.videoWidth + 'x' + v.videoHeight + ' dur=' + v.duration + 's');
+  };
+};
+function shot(i, t) {
+  return new Promise((res) => {
+    v.currentTime = t;
+    v.onseeked = () => {
+      ctx.drawImage(v, 0, 0);
+      const a = document.createElement('a');
+      a.download = 'frame_' + String(i).padStart(3, '0') + '.png';
+      a.href = c.toDataURL('image/png');
+      a.click();
+      res();
+    };
+  });
+}
+document.getElementById('go').onclick = async () => {
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    await shot(i, (v.duration / N) * i);
+    log('saved frame ' + i);
+  }
+  log('DONE — chay: python3 tools/tkvv_import.py --frames "frame_*.png" --out TkvUI.TkvvClip2.tkv --prefix tkvvd --colors 16');
+};
+</script>
+</body>
+</html>
