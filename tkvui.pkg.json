@@ -42,7 +42,8 @@
     { "name": "TkvUI.Atspi", "file": "TkvUI.Atspi.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Platform","TkvUI.A11y"], "summary": "AT-SPI provider kieu host-driven: D-Bus envelope + event outbox + tree JSON; SIM cho D-Bus/.so that (upstream)", "selftest": "atspi_selftest" },
     { "name": "TkvUI.Shaping", "file": "TkvUI.Shaping.tkv", "imports": ["TkvUI.Core","TkvUI.Text","TkvUI.Viet","TkvUI.I18nData"], "summary": "Shaping engine thuan .tkv (M2.2): Arabic joining/forms, Thai clusters, Indic/Bengali/Tamil clusters, lam-alef ligature runs", "selftest": "shaping_selftest" },
     { "name": "TkvUI.FontDiscovery", "file": "TkvUI.FontDiscovery.tkv", "imports": ["TkvUI.Core","TkvUI.Platform"], "summary": "Fontconfig-lite (M2.4): well-known font dirs + registry stub + weighted family matching (fd_find_best/fd_match_score)", "selftest": "fd_selftest" },
-    { "name": "TkvUI.EmojiData", "file": "TkvUI.EmojiData.tkv", "imports": ["TkvUI.Core"], "summary": "Baked monochrome 12x12 symbol glyphs (12 BMP: sun/star/heart/check/cross/play/circle/square/triup/note/smile/tridown, offline from Segoe UI Symbol) + emoji_blit; wired into FontFallback emoji path", "selftest": "emoji_selftest" }
+    { "name": "TkvUI.EmojiData", "file": "TkvUI.EmojiData.tkv", "imports": ["TkvUI.Core"], "summary": "Baked monochrome 12x12 symbol glyphs (12 BMP: sun/star/heart/check/cross/play/circle/square/triup/note/smile/tridown, offline from Segoe UI Symbol) + emoji_blit; wired into FontFallback emoji path", "selftest": "emoji_selftest" },
+    { "name": "TkvUI.KitTest", "file": "TkvUI.KitTest.tkv", "imports": ["TkvUI.Core","TkvUI.Events","TkvUI.Input","TkvUI.A11yBridge","TkvUI.Widgets.Native"], "summary": "kittest-style GUI test qua cay a11y (P3-B2, copy egui): query (role,label) + hit_test that + act tren widget that + rebuild cay + assert; 9 case headless", "selftest": "kittest_selftest" }
   ],
   "umbrella": {
     "file": "TokenVector.UI.tkv",
@@ -53,7 +54,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "40 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-21, full tools/verify.sh: 24 module cases incl. +gpu/a11y/shaping/fontdisc/emoji, suite TKVUI_OK 26/26, 14 examples; android/ios SKIPPED no device; EmojiData 107/107, Fallback 37/37)"
+    "last_result": "41 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 25 module cases incl. +kittest, suite TKVUI_OK 27/27, 14 examples; android/ios no device; KitTest 16/16 kittest-style P3-B2)"
   },
   "package": {
     "script": "tools/package.sh",

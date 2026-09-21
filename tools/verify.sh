@@ -86,6 +86,7 @@ run_case printing   TkvUI.Printing.tkv printing_selftest PRINTING_OK
 run_case abridge    TkvUI.A11yBridge.tkv abridge_selftest ABRIDGE_OK
 run_case font       TkvUI.FontFallback.tkv fallback_selftest FALLBACK_OK
 run_case emoji      TkvUI.EmojiData.tkv emoji_selftest EMOJIDATA_OK
+run_case kittest    TkvUI.KitTest.tkv kittest_selftest KITTEST_OK
 run_case nativedlg  TkvUI.NativeDlg.tkv nativedlg_selftest NATIVEDLG_OK
 run_case ime        TkvUI.Ime.tkv ime_selftest IME_OK
 run_case uia        TkvUI.Uia.tkv uia_selftest UIA_OK

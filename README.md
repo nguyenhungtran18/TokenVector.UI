@@ -1,6 +1,6 @@
 # TokenVector.UI (TkvUI)
 
-![Verify](https://img.shields.io/badge/verify-40%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
+![Verify](https://img.shields.io/badge/verify-41%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
 ![Version](https://img.shields.io/badge/version-2.9.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Binary](https://img.shields.io/badge/binary-649KB-brightgreen)
@@ -9,7 +9,7 @@ Thư viện UI đa nền tảng viết **100% bằng TokenVector (`.tkv`)**, zer
 Rasterizer, font, effects, layout, widget và cửa sổ native đều tự viết, biên dịch bằng `tkvc.exe` → IL → `.exe`.
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
-- **40 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-21 — 24 module + suite 26/26 + 14 example; android/ios SKIPPED, cần thiết bị thật)
+- **41 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 25 module + suite 27/27 + 14 example; android/ios SKIPPED, cần thiết bị thật)
 - **~1865 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 51, …)
 - **Binary 649 KB** (suite 26 module) | app ~370–430 KB
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
@@ -71,7 +71,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 `tools/pack_nupkg.ps1` + `nuget/TokenVector.UI.nuspec` : đóng gói NuGet → `dist/TokenVector.UI.<version>.nupkg` (kèm DLL).
 `DEVELOPMENT_PLAN.md` : kế hoạch v3 → parity (text shaping, GPU, a11y, tooling, mobile).
 
-## Kết quả verify (2026-09-21 — `TKVUI_VERIFY_OK`: 40 PASS / 0 FAIL / 2 SKIPPED)
+## Kết quả verify (2026-09-22 — `TKVUI_VERIFY_OK`: 41 PASS / 0 FAIL / 2 SKIPPED)
 
 | Nhóm | Kết quả |
 |---|---|
@@ -100,6 +100,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `nativedlg_selftest` | 39/39 PASS |
 | `ime_selftest` | 37/37 PASS (Telex/VNI + composition) |
 | `uia_selftest` / `atspi_selftest` | 33/33 + 22/22 PASS (host-driven provider + HWND mirror) |
+| `kittest_selftest` (`TkvUI.KitTest`, mới) | **16/16 PASS** (query role/label + hit-test + act trên widget thật + rebuild + assert, 9 case headless) |
 | `TkvUI.Live` | `TKVUI_LIVE_OK` (27/27) |
 | `TkvUI.DemoMobile` | `TKVUI_MOBILE_OK` (6/6) |
 | `TkvUI.MediaDemo` | `TKVUI_MEDIA_DEMO_OK` (8/8) |

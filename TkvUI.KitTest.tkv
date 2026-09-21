@@ -1,0 +1,298 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.KitTest - kittest-style GUI test qua cay a11y (P3-B2, copy egui).
+
+Khac voi selftest dem pixel: test tuong tac voi widget THAT (NativeButton,
+NativeLineEdit, NativeSlider, NativeListView, NativeComboBox) THONG QUA cay
+a11y - query node theo (role, label), route click bang hit_test_tree that,
+doi action len widget, REBUILD cay (nhu RenderLoop commit sau layout) roi
+query lai de assert. Headless, khong can OS/screen-reader.
+
+Quy uoc ( tranh gap compiler da biet):
+- Cay = parallel lists (ids/roles/parents/labels/values/xs/ys/ws/hs +
+  enableds/focuseds/selecteds/checkeds), tai dung ab_add_* builders.
+- Khong truyen list[Record] qua module (vo umbrella o P6); widget record
+  don le lam param thi on (mau A11yBridge).
+- Role ids = so literal (3=button, 5=textbox, 8=list, 9=listitem,
+  10=slider, 11=checkbox), co alias KT_ROLE_* de doc duoc.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Events", "TkvUI.Input", "TkvUI.A11yBridge", "TkvUI.Widgets.Native"]
+
+KT_ROLE_BUTTON = 3
+KT_ROLE_TEXTBOX = 5
+KT_ROLE_LIST = 8
+KT_ROLE_LISTITEM = 9
+KT_ROLE_SLIDER = 10
+KT_ROLE_CHECKBOX = 11
+
+KT_EV_CLICK = 1
+KT_EV_TYPE = 2
+KT_EV_TOGGLE = 3
+KT_EV_SELECT = 4
+KT_EV_SLIDE = 5
+
+def kt_find(ids: "list[i32]", roles: "list[i32]", labels: "list[str]", role: "i32", label: "str") -> "i32":
+    # Tim nid dau tien co (role, label). Tra -1 neu khong thay (nhu kittest query).
+    i = int(0)
+    while i < len(ids):
+        if roles[i] == role:
+            if labels[i] == label:
+                return ids[i]
+        i = i + 1
+    return -1
+
+def kt_pos(ids: "list[i32]", nid: "i32") -> "i32":
+    # Vi tri cua nid trong lists song song. Tra -1 neu khong thay.
+    i = int(0)
+    while i < len(ids):
+        if ids[i] == nid:
+            return i
+        i = i + 1
+    return -1
+
+def kt_center(xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", pos: "i32", out_xy: "list[f64]") -> "i32":
+    # Tam node -> out_xy [cx, cy]. Tra 0 neu pos le.
+    if pos < 0:
+        return 0
+    if pos >= len(xs):
+        return 0
+    out_xy.append(xs[pos] + ws[pos] / 2.0)
+    out_xy.append(ys[pos] + hs[pos] / 2.0)
+    return 1
+
+def kt_flags(n: "i32", out_flags: "list[i32]") -> "i32":
+    # Tat ca node hittable (flag 0 = test, theo hit_test_tree). Tra n.
+    i = int(0)
+    while i < n:
+        out_flags.append(0)
+        i = i + 1
+    return n
+
+def kt_hit(ids: "list[i32]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", flags: "list[i32]", n: "i32", x: "f64", y: "f64") -> "i32":
+    # Route diem (x, y) qua hit_test_tree that. Tra nid hoac -1.
+    r = hit_test_tree(x, y, ids, xs, ys, ws, hs, flags, n)
+    if r.found == 1:
+        return r.target_id
+    return -1
+
+def kt_emit(kinds: "list[i32]", payloads: "list[str]", kind: "i32", payload: "str") -> "i32":
+    # Log event kittest (mau uia_outbox). Tra so event.
+    kinds.append(kind)
+    payloads.append(payload)
+    return len(kinds)
+
+def kt_build_form(ids: "list[i32]", roles: "list[i32]", parents: "list[i32]", labels: "list[str]", values: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", enableds: "list[i32]", focuseds: "list[i32]", selecteds: "list[i32]", checkeds: "list[i32]", b: "NativeButton", e: "NativeLineEdit", s: "NativeSlider", lv: "NativeListView", items: "list[str]", nitems: "i32", chk: "NativeButton") -> "i32":
+    # Dung form test: window + button + lineedit + slider + listview + checkbox.
+    # Tra window nid (mirror RenderLoop commit: widget -> cay).
+    win = ab_add_window(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, "KitApp", 320.0, 200.0)
+    ab_add_button(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, win)
+    ab_add_lineedit(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, e, win)
+    ab_add_slider(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, s, win)
+    ab_add_listview(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, lv, items, nitems, win)
+    ab_add_node(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, 11, win, "Agree", "", chk.bx, chk.by, chk.bw, chk.bh, chk.enabled, 0, 0, chk.checked)
+    return win
+
+# =========================================================
+# SELFTEST - 9 case kittest qua cay (P3-B2: >= 5 case)
+# =========================================================
+def ktcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def ktcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + str(got))
+        return 1
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    return 0
+
+def ktcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    acc[1] = acc[1] + 1
+    if got == want:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name + " = " + got)
+        return 1
+    print("  FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+def kittest_selftest() -> "str":
+    print("== TkvUI.KitTest selftest ==")
+    acc = [int(0), int(0)]
+    b = make_native_button(8.0, 30.0, 70.0, 20.0, "OK")
+    e = make_native_lineedit(8.0, 56.0, 144.0, "Name")
+    s = make_native_slider(8.0, 84.0, 144.0, 20.0)
+    lv = make_native_listview(8.0, 112.0, 144.0, 60.0, 3)
+    chk = make_native_check(8.0, 178.0, 100.0, 16.0, "Agree")
+    c = make_native_combo(160.0, 30.0, 120.0)
+    items = ["One", "Two", "Three"]
+    options = ["Red", "Green", "Blue"]
+    kinds = []
+    payloads = []
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    # --- case 1: query + click button qua cay ---
+    win = kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    nid = kt_find(ids, roles, labels, 3, "OK")
+    ktcheck_i(acc, "find button", nid, 2)
+    pos = kt_pos(ids, nid)
+    xy = []
+    kt_center(xs, ys, ws, hs, pos, xy)
+    flags = []
+    kt_flags(len(ids), flags)
+    hit = kt_hit(ids, xs, ys, ws, hs, flags, len(ids), xy[0], xy[1])
+    ktcheck_i(acc, "hit button", hit, nid)
+    clicked = b.click()
+    ktcheck_i(acc, "click ret", clicked, 1)
+    kt_emit(kinds, payloads, 1, "click:OK")
+    ktcheck_i(acc, "events", len(kinds), 1)
+    # --- case 2: disabled button khong click ---
+    b2 = make_native_button(200.0, 30.0, 70.0, 20.0, "Nope")
+    b2.enabled = 0
+    clicked2 = b2.click()
+    ktcheck_i(acc, "disabled click", clicked2, 0)
+    ktcheck_i(acc, "no event", len(kinds), 1)
+    # --- case 3: checkbox toggle qua 2 rebuild ---
+    chk.click()
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    cpos = kt_pos(ids, kt_find(ids, roles, labels, 11, "Agree"))
+    ktcheck_i(acc, "check on", checkeds[cpos], 1)
+    chk.click()
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    cpos2 = kt_pos(ids, kt_find(ids, roles, labels, 11, "Agree"))
+    ktcheck_i(acc, "check off", checkeds[cpos2], 0)
+    # --- case 4: lineedit type + backspace, verify qua values ---
+    e.type_char("H")
+    e.type_char("i")
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    epos = kt_pos(ids, kt_find(ids, roles, labels, 5, "Name"))
+    ktcheck_s(acc, "typed", values[epos], "Hi")
+    kt_emit(kinds, payloads, 2, "type:Hi")
+    e.backspace()
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    epos2 = kt_pos(ids, kt_find(ids, roles, labels, 5, "Name"))
+    ktcheck_s(acc, "backspaced", values[epos2], "H")
+    # --- case 5: slider set qua cay ---
+    s.set_value(75.0)
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    spos = kt_pos(ids, kt_find(ids, roles, labels, 10, "slider"))
+    ktcheck_s(acc, "slider val", values[spos], str(s.value))
+    kt_emit(kinds, payloads, 5, "slide:75")
+    # --- case 6: listview select, item duoc chon trong cay ---
+    lv.select(1)
+    ids = []
+    roles = []
+    parents = []
+    labels = []
+    values = []
+    xs = []
+    ys = []
+    ws = []
+    hs = []
+    enableds = []
+    focuseds = []
+    selecteds = []
+    checkeds = []
+    kt_build_form(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, b, e, s, lv, items, 3, chk)
+    ipos = kt_pos(ids, kt_find(ids, roles, labels, 9, "Two"))
+    ktcheck_i(acc, "item selected", selecteds[ipos], 1)
+    ipos0 = kt_pos(ids, kt_find(ids, roles, labels, 9, "One"))
+    ktcheck_i(acc, "item other not", selecteds[ipos0], 0)
+    kt_emit(kinds, payloads, 4, "select:Two")
+    # --- case 7: query khong thay ---
+    ktcheck_i(acc, "find miss", kt_find(ids, roles, labels, 3, "Ghost"), -1)
+    # --- case 8: hit phan biet window vs button ---
+    flags2 = []
+    kt_flags(len(ids), flags2)
+    hitw = kt_hit(ids, xs, ys, ws, hs, flags2, len(ids), 300.0, 190.0)
+    ktcheck_i(acc, "hit window", hitw, win)
+    # --- case 9: combo choose qua cay ---
+    c.choose(2, 3)
+    ab_add_combo(ids, roles, parents, labels, values, xs, ys, ws, hs, enableds, focuseds, selecteds, checkeds, c, options, win)
+    copos = kt_pos(ids, kt_find(ids, roles, labels, 5, "combo"))
+    ktcheck_s(acc, "combo val", values[copos], "Blue")
+    print("kittest: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "KITTEST_OK"
+    return "KITTEST_FAIL"

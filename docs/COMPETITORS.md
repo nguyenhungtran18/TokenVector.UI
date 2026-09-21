@@ -51,9 +51,9 @@
 |---|---|---|---|
 | 1 | **CONTRIBUTING.md + issue/PR templates** | Rẻ (1 buổi) | ✅ DONE |
 | 2 | **API reference index** | Vừa | ✅ DONE (`docs/API.md` auto-gen) |
-| 3 | **Screenshots/GIF trong README** | Rẻ | 🔄 Pending |
+| 3 | **Screenshots/GIF trong README** | Rẻ | ✅ DONE (`docs/img/shot_browser.png` + `shot_emoji.png`, render thật) |
 | 4 | **Badges + releases có changelog theo tag** | Rẻ | ✅ DONE |
-| 5 | **kittest-style test** (test qua cây a11y) | Vừa | ⏳ Pending (Phase 9.2) |
+| 5 | **kittest-style test** (test qua cây a11y) | Vừa | ✅ DONE (`TkvUI.KitTest`, 16/16: query role/label + hit-test + act trên widget thật + rebuild + assert, 9 case headless) |
 | 6 | **Benchmark suite 1 lệnh** | Vừa | ✅ DONE (`tools/bench_all.sh` + `.ps1`) |
 | 7 | **Vietnamese-first + PDF/SQL built-in** → đưa lên đầu README | Rẻ | ✅ Done (README updated) |
 
