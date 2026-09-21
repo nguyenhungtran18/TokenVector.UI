@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TkvUI.FontFallback - chuoi font du phong (Phase 11.1)."""
+"""TkvUI.FontFallback - chuoi font du phong (Phase 11.1 + P6 M2.4 weighted)."""
 __tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Graphics", "TkvUI.Viet", "TkvUI.I18nData"]
 
 FB_TEXT = 0
@@ -319,6 +319,99 @@ def fb_candidates() -> "list[str]":
     out.append("€")
     return out
 
+def fb_want_family(font: "i32") -> "str":
+    if font == 2:
+        return "Times New Roman"
+    if font == 4:
+        return "Segoe UI Emoji"
+    if font == 5:
+        return "Segoe UI Emoji"
+    return "Arial"
+
+def fb_family_base_local(name: "str") -> "str":
+    base = name
+    i = int(0)
+    cut = len(base)
+    while i < len(base):
+        if base[i] == "(":
+            cut = i
+            break
+        i = i + 1
+    if cut < len(base):
+        base = base[0:cut]
+    while len(base) > 0:
+        if base[len(base) - 1] == " ":
+            base = base[0:len(base) - 1]
+        else:
+            break
+    if len(base) > 5:
+        if base[len(base) - 5:len(base)] == " Bold":
+            base = base[0:len(base) - 5]
+            return base
+    if len(base) > 7:
+        if base[len(base) - 7:len(base)] == " Italic":
+            base = base[0:len(base) - 7]
+            return base
+    return base
+
+def fb_prefix_score_local(a: "str", b: "str") -> "i32":
+    if len(a) == 0 or len(b) == 0:
+        return 0
+    if len(a) <= len(b):
+        if b[0:len(a)] == a:
+            return 500
+    else:
+        if a[0:len(b)] == b:
+            return 500
+    return 0
+
+def fb_match_score_local(name_want: "str", weight_want: "i32", style_want: "i32", name_got: "str", weight_got: "i32", style_got: "i32") -> "i32":
+    score = int(0)
+    if fb_family_base_local(name_got) == fb_family_base_local(name_want):
+        score = score + 1000
+    else:
+        score = score + fb_prefix_score_local(name_want, name_got)
+    dw = weight_want - weight_got
+    if dw < 0:
+        dw = 0 - dw
+    score = score - dw // 100
+    if style_want != style_got:
+        score = score - 50
+    return score
+
+def fb_pool_name(idx: "i32") -> "str":
+    if idx == 1:
+        return "Arial Bold"
+    if idx == 2:
+        return "Times New Roman"
+    if idx == 3:
+        return "Segoe UI Emoji"
+    return "Arial"
+
+def fb_pool_weight(idx: "i32") -> "i32":
+    if idx == 1:
+        return 700
+    return 400
+
+def fb_best_family_for_font(font: "i32", weight: "i32", style: "i32") -> "str":
+    want = fb_want_family(font)
+    best_name = "Arial"
+    best_score = 0 - 1000000
+    i = int(0)
+    while i < 4:
+        nm = fb_pool_name(i)
+        wt = fb_pool_weight(i)
+        s = fb_match_score_local(want, weight, style, nm, wt, 0)
+        if s > best_score:
+            best_score = s
+            best_name = nm
+        i = i + 1
+    return best_name
+
+def fb_best_family_for_seq(seq: "str", weight: "i32", style: "i32") -> "str":
+    font = fb_classify(seq)
+    return fb_best_family_for_font(font, weight, style)
+
 def fallback_selftest() -> "str":
     print("== TkvUI.FontFallback selftest ==")
     acc = [int(0), int(0)]
@@ -380,6 +473,14 @@ def fallback_selftest() -> "str":
     if cnt > 20:
         okpx = 1
     fb_check(acc, "draw.px", okpx)
+    fbcheck_s(acc, "wfamily.text", fb_want_family(0), "Arial")
+    fbcheck_s(acc, "wfamily.i18n", fb_want_family(2), "Times New Roman")
+    fbcheck_s(acc, "wfamily.emoji", fb_want_family(4), "Segoe UI Emoji")
+    fbcheck_s(acc, "wbest.400", fb_best_family_for_font(0, 400, 0), "Arial")
+    fbcheck_s(acc, "wbest.700", fb_best_family_for_font(0, 700, 0), "Arial Bold")
+    fbcheck_s(acc, "wbest.seq", fb_best_family_for_seq("A", 400, 0), "Arial")
+    fbcheck_s(acc, "wbase.bold", fb_family_base_local("Arial Bold"), "Arial")
+    fbcheck_i(acc, "wscore.exact", fb_match_score_local("Arial", 400, 0, "Arial", 400, 0), 1000)
     print("fallback: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "FALLBACK_OK"

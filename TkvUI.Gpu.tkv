@@ -303,12 +303,14 @@ VK_QUEUE_TRANSFER_BIT = 4
 
 # Result codes
 VK_SUCCESS = 0
-VK_ERROR_OUT_OF_HOST_MEMORY = 0 - 1
+# NOTE: Vulkan error codes are negative (e.g. VK_ERROR_OUT_OF_HOST_MEMORY = -1).
+# Module-level expression `0 - 1` is rejected by tkvc (constants must be literals),
+# so callers must use `0 - 1` inline in function scope. Constant removed (was unused).
 
 def vk_physical_device_get_queue_family(pdevice: "i64", flags: "i32") -> "i32":
     # Tim queue family co flag Graphics (bit 0). Tra index, -1 neu khong tim thay.
     # Can doc struct VkQueueFamilyProperties - gap compiler out-buffer.
-    # Stub tra 0 (thuong la graphics queue family 0).
+    # Stub: null pdevice -> -1 (not found); pdevice that -> 0 (family 0).
     if pdevice == 0:
         return -1
     return 0
@@ -327,16 +329,16 @@ def vk_instance_create(app_name: "str", engine_name: "str", api_version: "i32") 
         1,
         api_version
     )
-    # Build VkInstanceCreateInfo
+    # Build VkInstanceCreateInfo (pointers passed as 0 - compiler gap)
     create_info = VkInstanceCreateInfo(
         VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         0,
         0,
-        0,  # p_application_info - compiler gap, pass 0
-        0,  # enabled_layer_count
-        0,  # pp_enabled_layer_names
-        0,  # enabled_extension_count
-        0   # pp_enabled_extension_names
+        0,
+        0,
+        0,
+        0,
+        0
     )
     # Call vkCreateInstance - returns instance in out-param (compiler gap: returns 0)
     # On real GPU host with proper DLL, this would return the instance handle
@@ -365,7 +367,7 @@ def vk_device_create(pdevice: "i64", queue_family: "i32") -> "i64":
     # Tao logical device voi queue family da chon.
     if pdevice == 0:
         return 0
-    # Build VkDeviceQueueCreateInfo
+    # Build VkDeviceQueueCreateInfo (p_queue_priorities passed as 0 - compiler gap)
     priority = []
     priority.append(1.0)
     queue_info = VkDeviceQueueCreateInfo(
@@ -374,20 +376,20 @@ def vk_device_create(pdevice: "i64", queue_family: "i32") -> "i64":
         0,
         queue_family,
         1,
-        0  # p_queue_priorities - compiler gap
+        0
     )
-    # Build VkDeviceCreateInfo
+    # Build VkDeviceCreateInfo (pointers passed as 0 - compiler gap)
     create_info = VkDeviceCreateInfo(
         VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         0,
         0,
         1,
-        0,  # p_queue_create_infos - compiler gap
-        0,  # enabled_layer_count
-        0,  # pp_enabled_layer_names
-        0,  # enabled_extension_count
-        0,  # pp_enabled_extension_names
-        0   # p_enabled_features
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
     )
     # Call vkCreateDevice - returns device in out-param (compiler gap: returns 0)
     return 0
@@ -495,7 +497,7 @@ def shader_module_destroy(device: "i64", backend: "i32", sm: "ShaderModule") -> 
         return 0
     if backend == GPU_BACKEND_VULKAN:
         # vkDestroyShaderModule(device, sm.handle, 0)
-        pass
+        noop = 0
     return 1
 
 def pipeline_layout_create(device: "i64", backend: "i32", desc: "i64") -> "PipelineLayout":
@@ -503,7 +505,7 @@ def pipeline_layout_create(device: "i64", backend: "i32", desc: "i64") -> "Pipel
         return PipelineLayout(0)
     if backend == GPU_BACKEND_VULKAN:
         # VkPipelineLayoutCreateInfo with push constants, descriptor set layouts
-        pass
+        noop = 0
     return PipelineLayout(0)
 
 def pipeline_layout_destroy(device: "i64", backend: "i32", pl: "PipelineLayout") -> "i32":
@@ -511,7 +513,7 @@ def pipeline_layout_destroy(device: "i64", backend: "i32", pl: "PipelineLayout")
         return 0
     if backend == GPU_BACKEND_VULKAN:
         # vkDestroyPipelineLayout(device, pl.handle, 0)
-        pass
+        noop = 0
     return 1
 
 def graphics_pipeline_create(device: "i64", backend: "i32", desc: "i64", layout: "PipelineLayout", render_pass: "i64") -> "GraphicsPipeline":
@@ -519,7 +521,7 @@ def graphics_pipeline_create(device: "i64", backend: "i32", desc: "i64", layout:
         return GraphicsPipeline(0)
     if backend == GPU_BACKEND_VULKAN:
         # VkGraphicsPipelineCreateInfo with vertex/fragment shaders, vertex input, rasterizer, etc.
-        pass
+        noop = 0
     return GraphicsPipeline(0)
 
 def graphics_pipeline_destroy(device: "i64", backend: "i32", gp: "GraphicsPipeline") -> "i32":
@@ -527,7 +529,7 @@ def graphics_pipeline_destroy(device: "i64", backend: "i32", gp: "GraphicsPipeli
         return 0
     if backend == GPU_BACKEND_VULKAN:
         # vkDestroyPipeline(device, gp.handle, 0)
-        pass
+        noop = 0
     return 1
 
 def compute_pipeline_create(device: "i64", backend: "i32", cs: "ShaderModule", layout: "PipelineLayout") -> "ComputePipeline":
@@ -535,7 +537,7 @@ def compute_pipeline_create(device: "i64", backend: "i32", cs: "ShaderModule", l
         return ComputePipeline(0)
     if backend == GPU_BACKEND_VULKAN:
         # VkComputePipelineCreateInfo with compute shader
-        pass
+        noop = 0
     return ComputePipeline(0)
 
 def compute_pipeline_destroy(device: "i64", backend: "i32", cp: "ComputePipeline") -> "i32":
@@ -543,7 +545,7 @@ def compute_pipeline_destroy(device: "i64", backend: "i32", cp: "ComputePipeline
         return 0
     if backend == GPU_BACKEND_VULKAN:
         # vkDestroyPipeline(device, cp.handle, 0)
-        pass
+        noop = 0
     return 1
 
 # =========================================================
@@ -583,13 +585,9 @@ class DXGI_SWAP_CHAIN_DESC:
 def d3d11_device_create(adapter: "i64", driver_type: "i32", flags: "i32", feature_levels: "i64", sdk_version: "i32", device: "i64", feature_level: "i64", context: "i64") -> "i32":
     # D3D11CreateDevice with feature level array
     if feature_levels == 0:
-        # Default feature levels
-        fl = []
-        fl.append(D3D_FEATURE_LEVEL_11_1)
-        fl.append(D3D_FEATURE_LEVEL_11_0)
-        fl.append(D3D_FEATURE_LEVEL_10_1)
-        fl.append(D3D_FEATURE_LEVEL_10_0)
-        feature_levels = 0  # Compiler gap - can't pass array directly
+        # Default feature levels would be 11_1/11_0/10_1/10_0.
+        # Compiler gap - can't pass array directly, keep 0.
+        feature_levels = 0
     result = d3d11_create_device(adapter, driver_type, 0, flags, feature_levels, 4, sdk_version, device, feature_level, context)
     if result >= 0:
         return 1
@@ -711,7 +709,7 @@ def gpu_selftest() -> "str":
     text_check_i(acc, "vk instance create (stub)", inst, 0)
     vk_instance_destroy(inst)
     qfam = vk_physical_device_get_queue_family(0, 1)
-    text_check_i(acc, "vk queue family stub", qfam, 0)
+    text_check_i(acc, "vk queue family null -> -1", qfam, -1)
     pdev = vk_physical_device_select(0)
     text_check_i(acc, "vk physical select null instance", pdev, 0)
     dev = vk_device_create(0, 0)

@@ -74,6 +74,10 @@ run_case layout     TkvUI.Layout.tkv   layout_selftest   LAYOUT_OK
 run_case widgets    TkvUI.Widgets.tkv  widget_selftest   WIDGETS_OK
 run_case media      TkvUI.Media.tkv    media_selftest     MEDIA_OK
 run_case bidi       TkvUI.Bidi.tkv     bidi_selftest     BIDI_OK
+run_case gpu        TkvUI.Gpu.tkv      gpu_selftest      GPU_OK
+run_case a11y       TkvUI.A11y.tkv     a11y_selftest     A11Y_OK
+run_case shaping    TkvUI.Shaping.tkv  shaping_selftest  SHAPING_OK
+run_case fontdisc   TkvUI.FontDiscovery.tkv fd_selftest  FONTDISCOVERY_OK
 run_case theme      TkvUI.Theme.tkv    theme_selftest    THEME_OK
 run_case native     TkvUI.Widgets.Native.tkv native_selftest NATIVE_OK
 run_case data       TkvUI.Data.tkv     data_selftest     DATA_OK
