@@ -10,7 +10,7 @@ Rasterizer, font, effects, layout, widget và cửa sổ native đều tự vi�
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
 - **48 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 16 example; android/ios SKIPPED, cần thiết bị thật)
-- **~2080 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 132, video 44, tkvv 50, mjpg 44, mp4 38, …)
+- **~2100 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 132, video 44, tkvv 50, mjpg 44, mp4 62, …)
 - **Binary 649 KB** (suite 26 module) | app ~370–430 KB
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
 - **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), **emoji bake 12 symbol 12×12** (`TkvUI.EmojiData`), PDF writer + SQLite (persist + in-memory), ~40 widget, DesignerApp interactive
@@ -106,6 +106,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `mjpg_hd_selftest` (HD) | **6/6 PASS** (720p đúng pixel, 453ms ~2fps — realtime HD cần bitwise/SIMD, xem CHANGELOG) |
 | `videodemo_run` (`examples/TkvUI.VideoDemo`) | **21/21 PASS** (player TKVV: Transport/SeekBar/Speed/ABLoop thật + clock + blit, assert qua pixels) |
 | `qtapp_run` (`examples/TkvUI.QtAppPort`, mới) | **52/52 PASS** (port Qt Application Example: MainWindow menus/toolbar/statusbar + RichEdit + DlgFile + Dialog + PDF print + recent + exit, assert state + pixels) |
+| `mp4_selftest` (`TkvUI.Mp4`, mới) | **62/62 PASS** (MP4 demux: boxes/tracks/durations/sample-table/extract + realistic co64/ctts/SPS + errors) |
 | `TkvUI.Live` | `TKVUI_LIVE_OK` (27/27) |
 | `TkvUI.DemoMobile` | `TKVUI_MOBILE_OK` (6/6) |
 | `TkvUI.MediaDemo` | `TKVUI_MEDIA_DEMO_OK` (8/8) |

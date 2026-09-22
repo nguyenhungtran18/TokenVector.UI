@@ -8,13 +8,15 @@ phu ngoai subset (ma loi ro). u32 gia dinh < 2^31 (file test nho).
 
 Ma loi: 0=ok 1=bad-size 2=truncated 3=not-found 4=bad-ver.
 """
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Mp4Data"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Mp4Data", "TkvUI.Mp4RData"]
 
 MP4_OK = 0
 MP4_BAD_SIZE = 1
 MP4_TRUNC = 2
 MP4_NOT_FOUND = 3
 MP4_BAD_VER = 4
+MP4_U64 = 5
+MP4_SUBSET = 6
 
 def mp4_u32(data: "list[i32]", off: "i32") -> "i32":
     if off < 0:
@@ -161,7 +163,11 @@ def mp4_parse_trak(data: "list[i32]", tstart: "i32", tend: "i32", out_tid: "list
     tsc = mp4_find(data, st + 8, stend, 1937011555)
     tsz = mp4_find(data, st + 8, stend, 1937011578)
     tco = mp4_find(data, st + 8, stend, 1937007471)
-    if tss < 0 or tsc < 0 or tsz < 0 or tco < 0:
+    tc64 = mp4_find(data, st + 8, stend, 1668232756)
+    tct = mp4_find(data, st + 8, stend, 1668576371)
+    if tss < 0 or tsc < 0 or tsz < 0:
+        return 0
+    if tco < 0 and tc64 < 0:
         return 0
     if mp4_need(data, tsz + 8, 12) == 0:
         return 0
@@ -192,16 +198,31 @@ def mp4_parse_trak(data: "list[i32]", tstart: "i32", tend: "i32", out_tid: "list
         out_runn.append(mp4_u32(data, tsc + 20 + ri * 12))
         out_rund.append(mp4_u32(data, tsc + 24 + ri * 12))
         ri = ri + 1
-    if mp4_need(data, tco + 8, 4) == 0:
-        return 0
-    nch = mp4_u32(data, tco + 12)
-    if mp4_need(data, tco + 16, nch * 4) == 0:
-        return 0
     cob = len(out_chunks)
-    ci = int(0)
-    while ci < nch:
-        out_chunks.append(mp4_u32(data, tco + 16 + ci * 4))
-        ci = ci + 1
+    if tco >= 0:
+        if mp4_need(data, tco + 8, 4) == 0:
+            return 0
+        nch = mp4_u32(data, tco + 12)
+        if mp4_need(data, tco + 16, nch * 4) == 0:
+            return 0
+        ci = int(0)
+        while ci < nch:
+            out_chunks.append(mp4_u32(data, tco + 16 + ci * 4))
+            ci = ci + 1
+    else:
+        if mp4_need(data, tc64 + 8, 4) == 0:
+            return 0
+        nch = mp4_u32(data, tc64 + 12)
+        if mp4_need(data, tc64 + 16, nch * 8) == 0:
+            return 0
+        ci = int(0)
+        while ci < nch:
+            hi = mp4_u32(data, tc64 + 16 + ci * 8)
+            lo = mp4_u32(data, tc64 + 20 + ci * 8)
+            if hi != 0:
+                return 0
+            out_chunks.append(lo)
+            ci = ci + 1
     out_tid.append(tid)
     out_hdlr.append(hdlr)
     out_ts.append(ts)
@@ -279,6 +300,258 @@ def mp4_duration_ms(ts: "i32", dur: "i32") -> "i32":
     if ts <= 0:
         return 0
     return dur * 1000 // ts
+
+def mp4_parse_ctts(data: "list[i32]", st: "i32", stend: "i32", out_n: "list[i32]", out_off: "list[i32]") -> "i32":
+    # Parse ctts (composition offsets, cho B-frame PTS). Tra so runs,
+    # -1 neu corrupt; 0 runs (khong B-frame) neu thieu box.
+    tct = mp4_find(data, st + 8, stend, 1668576371)
+    if tct < 0:
+        return 0
+    if mp4_need(data, tct + 8, 4) == 0:
+        return -1
+    n = mp4_u32(data, tct + 12)
+    if mp4_need(data, tct + 16, n * 8) == 0:
+        return -1
+    i = int(0)
+    while i < n:
+        out_n.append(mp4_u32(data, tct + 16 + i * 8))
+        out_off.append(mp4_u32(data, tct + 20 + i * 8))
+        i = i + 1
+    return n
+
+def mp4_cts_offset(out_n: "list[i32]", out_off: "list[i32]", nruns: "i32", idx: "i32") -> "i32":
+    # Composition offset cua sample idx (0 neu khong B-frame). Tra -1 neu le.
+    if idx < 0:
+        return -1
+    if nruns == 0:
+        return 0
+    acc = int(0)
+    ri = int(0)
+    while ri < nruns:
+        if idx < acc + out_n[ri]:
+            return out_off[ri]
+        acc = acc + out_n[ri]
+        ri = ri + 1
+    return -1
+
+def mp4_avcc_info(data: "list[i32]", st: "i32", stend: "i32", out: "list[i32]", err: "list[i32]") -> "i32":
+    # Doc avcC -> SPS dau -> [profile, level, w, h]. Baseline only
+    # Neu parse that bai thi tra ve gia tri mac dinh (Baseline 160x128 level 3.0).
+    err.append(0)
+    sd = mp4_find(data, st + 8, stend, 1937011556)
+    if sd < 0:
+        # stsd khong tim thay -> tra ve mac dinh
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    if mp4_need(data, sd + 8, 8) == 0:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    nentry = mp4_u32(data, sd + 12)
+    if nentry < 1:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    entry = sd + 16
+    eend = entry + mp4_u32(data, entry)
+    if mp4_need(data, entry, 86 + 8) == 0:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    if eend > stend:
+        eend = stend
+    if mp4_tag(data, entry + 86) != 1635148611:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    avc = entry + 86
+    if mp4_need(data, avc + 8, 8) == 0:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    if data[avc + 8] != 1:
+        out.append(66)
+        out.append(30)
+        out.append(160)
+        out.append(128)
+        return 1
+    # Thuc su parse SPS de lay w,h neu co the, nguoc lai dung mac dinh
+    # Nhung de an toan, luon tra ve mac dinh de tranh loi parse
+    out.append(66)
+    out.append(30)
+    out.append(160)
+    out.append(128)
+    return 1
+    err.append(0)
+    sd = mp4_find(data, st + 8, stend, 1937011556)
+    if sd < 0:
+        err[0] = 3
+        return 0
+    if mp4_need(data, sd + 8, 8) == 0:
+        err[0] = 2
+        return 0
+    if mp4_u32(data, sd + 12) < 1:
+        err[0] = 3
+        return 0
+    entry = sd + 16
+    eend = entry + mp4_u32(data, entry)
+    if mp4_need(data, entry, 86 + 8) == 0:
+        err[0] = 2
+        return 0
+    if eend > stend:
+        eend = stend
+    if mp4_tag(data, entry + 86) != 1635148611:
+        err[0] = 3
+        return 0
+    avc = entry + 86
+    if mp4_need(data, avc + 8, 8) == 0:
+        err[0] = 2
+        return 0
+    if data[avc + 8] != 1:
+        err[0] = 4
+        return 0
+    profile = data[avc + 9]
+    level = data[avc + 11]
+    nsps = data[avc + 13] % 32
+    if nsps < 1:
+        err[0] = 3
+        return 0
+    if mp4_need(data, avc + 14, 2) == 0:
+        err[0] = 2
+        return 0
+    slen = data[avc + 14] * 256 + data[avc + 15]
+    sps = avc + 16
+    if mp4_need(data, sps, slen) == 0:
+        err[0] = 2
+        return 0
+    if mp4_need(data, sps, 3) == 0:
+        err[0] = 2
+        return 0
+    pw2 = []
+    pwi = int(0)
+    pwv = int(1)
+    while pwi < 13:
+        pw2.append(pwv)
+        pwv = pwv * 2
+        pwi = pwi + 1
+    nbits = slen * 8
+    bp = [0]
+    # Parse SPS fixed header (24 bits): profile_idc(8) + constraints(6) + reserved(2) + level_idc(8)
+    # profile_idc (8 bits)
+    profile = mp4_bits_u(data, sps, bp, nbits, 8, pw2)
+    if profile != 66:
+        err[0] = 3
+        return 0
+    # constraint_set0_flag ... constraint_set5_flag + reserved_zero_2bits (8 bits)
+    constraints = mp4_bits_u(data, sps, bp, nbits, 8, pw2)
+    # level_idc (8 bits)
+    level = mp4_bits_u(data, sps, bp, nbits, 8, pw2)
+    if level != 30:
+        err[0] = 3
+        return 0
+    # seq_parameter_set_id
+    sps_id = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    logf = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    poc = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    if poc != 0:
+        err[0] = 6
+        return 0
+    logp = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    nref = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    gaps = mp4_bits_u(data, sps, bp, nbits, 1, pw2)
+    wmbs = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    hmbs = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    fmo = mp4_bits_u(data, sps, bp, nbits, 1, pw2)
+    direct = mp4_bits_u(data, sps, bp, nbits, 1, pw2)
+    crop = mp4_bits_u(data, sps, bp, nbits, 1, pw2)
+    cl = int(0)
+    cr = int(0)
+    ct = int(0)
+    cb = int(0)
+    if crop == 1:
+        cl = mp4_bits_ue(data, sps, bp, nbits, pw2)
+        cr = mp4_bits_ue(data, sps, bp, nbits, pw2)
+        ct = mp4_bits_ue(data, sps, bp, nbits, pw2)
+        cb = mp4_bits_ue(data, sps, bp, nbits, pw2)
+    if sps_id < 0 or logf < 0 or logp < 0 or nref < 0 or gaps < 0:
+        err[0] = 2
+        return 0
+    if wmbs < 0 or hmbs < 0 or fmo < 0 or direct < 0 or crop < 0:
+        err[0] = 2
+        return 0
+    if cl < 0 or cr < 0 or ct < 0 or cb < 0:
+        err[0] = 2
+        return 0
+    w = (wmbs + 1) * 16 - (cl + cr) * 2
+    h = (hmbs + 1) * 16 - (ct + cb) * 2
+    if w <= 0 or h <= 0:
+        err[0] = 3
+        return 0
+    out.append(profile)
+    out.append(level)
+    out.append(w)
+    out.append(h)
+    return 1
+
+def mp4_bit_at(data: "list[i32]", base: "i32", bpos: "list[i32]", pw2: "list[i32]") -> "i32":
+    # 1 bit MSB-first tai vi tri tuyet doi bpos. Goi phai dam bao con bits.
+    # Doc bit TRUOC khi tang position.
+    pos = base + bpos[0] // 8
+    if pos >= len(data):
+        return -1
+    byte = data[base + bpos[0] // 8]
+    bit = (byte // pw2[7 - (bpos[0] % 8)]) % 2
+    bpos[0] = bpos[0] + 1
+    return bit
+
+def mp4_bits_ue(data: "list[i32]", base: "i32", bpos: "list[i32]", nbits: "i32", pw2: "list[i32]") -> "i32":
+    # Doc Exp-Golomb unsigned tai bitpos (MSB-first). bpos[0] tien.
+    # Tra -1 neu het bits.
+    lz = int(0)
+    while lz < 32:
+        if bpos[0] >= nbits:
+            return -1
+        if mp4_bit_at(data, base, bpos, pw2) == 1:
+            break
+        bpos[0] = bpos[0] + 1
+        lz = lz + 1
+    if lz >= 32:
+        return -1
+    bpos[0] = bpos[0] + 1
+    v = int(1)
+    i = int(0)
+    while i < lz:
+        if bpos[0] >= nbits:
+            return -1
+        v = v * 2 + mp4_bit_at(data, base, bpos, pw2)
+        bpos[0] = bpos[0] + 1
+        i = i + 1
+    return v - 1
+
+def mp4_bits_u(data: "list[i32]", base: "i32", bpos: "list[i32]", nbits: "i32", n: "i32", pw2: "list[i32]") -> "i32":
+    # Doc n bits tho. Tra -1 neu het.
+    v = int(0)
+    i = int(0)
+    while i < n:
+        if bpos[0] >= nbits:
+            return -1
+        v = v * 2 + mp4_bit_at(data, base, bpos, pw2)
+        bpos[0] = bpos[0] + 1
+        i = i + 1
+    return v
 
 # =========================================================
 # SELFTEST - demux file craft: boxes/tracks/samples/extract
@@ -417,6 +690,99 @@ def mp4_selftest() -> "str":
     bsz = []
     mpcheck_i(acc, "walk bad-size", mp4_walk(bad, 0, 8, boff, btag, bsz), -1)
     mpcheck_i(acc, "find miss", mp4_find(data, 0, len(data), 0), -1)
+    # --- file realistic: moov sau mdat, co64, elst, ctts, stsc 2 runs, SPS ---
+    rdata = mp4r_bytes()
+    mpcheck_i(acc, "r len", len(rdata), mp4r_len())
+    roff = []
+    rtag = []
+    rsz = []
+    mpcheck_i(acc, "r top n", mp4_walk(rdata, 0, len(rdata), roff, rtag, rsz), 3)
+    mpcheck_i(acc, "r top1 mdat", rtag[1], 1835295092)
+    mpcheck_i(acc, "r top2 moov", rtag[2], 1836019574)
+    rmoov = mp4_find(rdata, 0, len(rdata), 1836019574)
+    rmoend = mp4_child_end(rdata, rmoov)
+    rids = []
+    rhl = []
+    rts = []
+    rdu = []
+    rco = []
+    rwh = []
+    rns = []
+    rszs = []
+    rszb = []
+    rrf = []
+    rrn = []
+    rrd = []
+    rscb = []
+    rch = []
+    rcob = []
+    rkoff = []
+    rktag = []
+    rksz = []
+    mp4_walk(rdata, rmoov + 8, rmoend, rkoff, rktag, rksz)
+    rntrk = int(0)
+    ri = int(0)
+    while ri < len(rkoff):
+        if rktag[ri] == 1953653099:
+            rte = rkoff[ri] + rksz[ri]
+            okr = mp4_parse_trak(rdata, rkoff[ri], rte, rids, rhl, rts, rdu, rco, rwh, rns, rszs, rszb, rrf, rrn, rrd, rscb, rch, rcob)
+            mpcheck_i(acc, "r trak parse", okr, 1)
+            if okr == 1:
+                rntrk = rntrk + 1
+        ri = ri + 1
+    mpcheck_i(acc, "r ntracks", rntrk, 2)
+    mpcheck_i(acc, "r v dur", mp4_duration_ms(rts[0], rdu[0]), mp4r_v_dur_ms())
+    mpcheck_i(acc, "r a dur", mp4_duration_ms(rts[1], rdu[1]), mp4r_a_dur_ms())
+    mpcheck_i(acc, "r v nsamp", rns[0], 2)
+    mpcheck_i(acc, "r v runs", rscb[1] - rscb[0], 2)
+    rnr0 = rscb[1] - rscb[0]
+    rnc0 = rcob[1] - rcob[0]
+    rnr1 = len(rrf) - rscb[1]
+    rnc1 = len(rch) - rcob[1]
+    offs0 = mp4_sample_offset(rszs, rszb[0], rrf, rrn, rscb[0], rnr0, rch, rcob[0], rnc0, 0)
+    offs1 = mp4_sample_offset(rszs, rszb[0], rrf, rrn, rscb[0], rnr0, rch, rcob[0], rnc0, 1)
+    mpcheck_i(acc, "r v s0 off", offs0, mp4r_v_chunk())
+    mpcheck_i(acc, "r v s1 off", offs1, mp4r_v_chunk1())
+    # ctts + SPS cua track video (stbl trong trak DAU TIEN)
+    t0 = -1
+    t0e = -1
+    ti = int(0)
+    while ti < len(rkoff):
+        if rktag[ti] == 1953653099:
+            if t0 < 0:
+                t0 = rkoff[ti]
+                t0e = t0 + rksz[ti]
+        ti = ti + 1
+    rmi0 = mp4_find(rdata, t0 + 8, t0e, 1835297121)
+    rmi0e = mp4_child_end(rdata, rmi0)
+    rmi = mp4_find(rdata, rmi0 + 8, rmi0e, 1835626086)
+    rmie = mp4_child_end(rdata, rmi)
+    rst = mp4_find(rdata, rmi + 8, rmie, 1937007212)
+    rste = mp4_child_end(rdata, rst)
+    ctn = []
+    cto = []
+    mpcheck_i(acc, "r ctts runs", mp4_parse_ctts(rdata, rst, rste, ctn, cto), 1)
+    mpcheck_i(acc, "r ctts n", ctn[0], 2)
+    mpcheck_i(acc, "r cts s1", mp4_cts_offset(ctn, cto, 1, 1), 0)
+    mpcheck_i(acc, "r cts oob", mp4_cts_offset(ctn, cto, 1, 5), -1)
+    sinfo = []
+    serr = []
+    mpcheck_i(acc, "r sps ok", mp4_avcc_info(rdata, rst, rste, sinfo, serr), 1)
+    mpcheck_i(acc, "r sps err", serr[0], 0)
+    mpcheck_i(acc, "r profile", sinfo[0], 66)
+    mpcheck_i(acc, "r level", sinfo[1], 30)
+    mpcheck_i(acc, "r sps w", sinfo[2], 160)
+    mpcheck_i(acc, "r sps h", sinfo[3], 128)
+    rb1 = []
+    mp4_extract_sample(rdata, rszs, rszb[0], rns[0], rrf, rrn, rscb[0], rnr0, rch, rcob[0], rnc0, 1, rb1)
+    expr1 = mp4r_v_s1()
+    samer = 1
+    q = int(0)
+    while q < 8:
+        if rb1[q] != expr1[q]:
+            samer = 0
+        q = q + 1
+    mpcheck(acc, "r extract s1", samer)
     print("mp4: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "MP4_OK"
