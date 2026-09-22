@@ -10,7 +10,7 @@ Rasterizer, font, effects, layout, widget và cửa sổ native đều tự vi�
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
 - **48 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 16 example; android/ios SKIPPED, cần thiết bị thật)
-- **~2100 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 132, video 44, tkvv 50, mjpg 44, mp4 62, …)
+- **~2110 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 132, video 44, tkvv 56, mjpg 44, mp4 62, …)
 - **Binary 649 KB** (suite 26 module) | app ~370–430 KB
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
 - **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), **emoji bake 12 symbol 12×12** (`TkvUI.EmojiData`), PDF writer + SQLite (persist + in-memory), ~40 widget, DesignerApp interactive
@@ -102,6 +102,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `uia_selftest` / `atspi_selftest` | 33/33 + 22/22 PASS (host-driven provider + HWND mirror) |
 | `kittest_selftest` (`TkvUI.KitTest`, mới) | **16/16 PASS** (query role/label + hit-test + act trên widget thật + rebuild + assert, 9 case headless) |
 | `video_selftest` (`TkvUI.Video`, mới) | **44/44 PASS** (GIF89a parse + LZW early-change + clock + error paths; s2 gradient 4096px pixel-exact) |
+| `tkvv_selftest` (`TkvUI.Tkvv`, mới) | **56/56 PASS** (format custom TKVV: chunk/profile I-P + O(1) seek + reconstruct + clock reuse + fast path presized + errors) |
 | `mjpg_selftest` (`TkvUI.Mjpg`, mới) | **44/44 PASS** (MJPEG baseline: parse + Huffman + IDCT + RGB khớp PIL ±2; bench **~106fps @160×120**) |
 | `mjpg_hd_selftest` (HD) | **6/6 PASS** (720p đúng pixel, 453ms ~2fps — realtime HD cần bitwise/SIMD, xem CHANGELOG) |
 | `videodemo_run` (`examples/TkvUI.VideoDemo`) | **21/21 PASS** (player TKVV: Transport/SeekBar/Speed/ABLoop thật + clock + blit, assert qua pixels) |

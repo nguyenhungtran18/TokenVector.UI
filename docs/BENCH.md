@@ -181,6 +181,23 @@ bitwise (`>>`/`&` thay `//`/`%`, nhanh 10–50× cho bit-reader) và/hoặc SIMD
 từ compiler — gap số 1 cho codec, đã ghi trong `docs/COMPILER_GAPS.md`.
 Đường TKVV custom (không Huffman/IDCT) mới là ứng viên realtime — để tiếp.
 
+## Verdict HD realtime (TKVV fast path, 2026-09-22)
+
+Presized buffers + RGB trực tiếp (0 append): đo 200-400 reps —
+I-decode 0.70ms, P-decode 0.20ms, render 0.55ms @320×240 (76.8k px),
+tuyến tính đã kiểm (32×24 cho cùng ~9ns/px). Ngoại suy tuyến tính:
+
+| Khung hình | I-frame | P-frame + render (typical) | Kết luận |
+|---|---|---|---|
+| 320×240 | ~0.7ms | ~0.75ms | đo trực tiếp |
+| 1280×720 (×12) | ~8.4ms | ~9ms | **~100fps, realtime dư headroom 4×** |
+| 1920×1080 (×27) | ~19ms | ~20ms | ~50fps chiếu theo tuyến tính |
+
+Content đo: `tools/tkvv_hd_gen.py` (320×240 ball+square, I 76.8KB + P ~7KB,
+200-400 reps, GetTickCount). Chạy lại: `tkvc.exe build
+examples/TkvUI.TkvvBench.tkv --entry tkvvbench_run --out build/tkvvbench.exe`
+(asset `TkvUI.TkvvHD.tkv`, ngoài verify.sh để suite gọn nhẹ).
+
 ## P2 Typography (chức năng — Text 227/227, Bidi 150/150)
 
 - Composite glyf + kern/CPAL/COLR-v0 parse + CBDT-bitmap blit + per-slot

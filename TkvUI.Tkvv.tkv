@@ -280,6 +280,55 @@ def tkvv_selftest() -> "str":
     tkcheck_i(acc, "at 59", vid_frame_at(fdelays, nfr, 59), 5)
     tkcheck_i(acc, "at 60 loop", vid_frame_at(fdelays, nfr, 60), 0)
     tkcheck_i(acc, "seek half", vid_seek_cs(total, 500), 30)
+    # --- fast path == slow path (presized, indexed, khong append) ---
+    fa = []
+    fb = []
+    tkvv_zeros(fa, 768)
+    tkvv_zeros(fb, 768)
+    frgb = []
+    tkvv_zeros(frgb, 2304)
+    tkcheck_i(acc, "fast I", tkvv_decode_idx(data, 32, 24, ftypes, foffs, flens, 0, fa, fb), 1)
+    ref2 = []
+    cur0 = []
+    tkvv_decode_frame(data, 32, 24, ftypes, foffs, flens, 0, ref2, cur0)
+    same = 1
+    q = int(0)
+    while q < 768:
+        if fb[q] != cur0[q]:
+            same = 0
+        q = q + 1
+    tkcheck(acc, "fast==slow I", same)
+    tkcheck_i(acc, "render", tkvv_render_rgb(palbuf, fb, 768, frgb), 768)
+    rgb0b = []
+    gif_frame_rgb(palbuf, 0, cur0, 768, rgb0b)
+    samer = 1
+    q = int(0)
+    while q < 2304:
+        if frgb[q] != rgb0b[q]:
+            samer = 0
+        q = q + 1
+    tkcheck(acc, "render==slow", samer)
+    sref = []
+    scur = []
+    tkvv_decode_frame(data, 32, 24, ftypes, foffs, flens, 0, sref, scur)
+    fref = []
+    tkvv_zeros(fref, 768)
+    cp = int(0)
+    while cp < 768:
+        fref[cp] = scur[cp]
+        cp = cp + 1
+    ff1 = []
+    tkvv_zeros(ff1, 768)
+    tkcheck_i(acc, "fast P", tkvv_decode_idx(data, 32, 24, ftypes, foffs, flens, 1, fref, ff1), 1)
+    scur1 = []
+    tkvv_decode_frame(data, 32, 24, ftypes, foffs, flens, 1, scur, scur1)
+    samep = 1
+    q = int(0)
+    while q < 768:
+        if ff1[q] != scur1[q]:
+            samep = 0
+        q = q + 1
+    tkcheck(acc, "fast==slow P", samep)
     # --- errors ---
     bad = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     e1t = []
@@ -303,3 +352,87 @@ def tkvv_selftest() -> "str":
     if acc[0] == acc[1]:
         return "TKVV_OK"
     return "TKVV_FAIL"
+
+# =========================================================
+# FAST PATH - presized buffers (khong append), cho realtime
+# =========================================================
+def tkvv_zeros(buf: "list[i32]", n: "i32") -> "i32":
+    # Presize buf ve n (append 0) de ghi indexed. Tra n.
+    while len(buf) < n:
+        buf.append(0)
+    return n
+
+def tkvv_decode_idx(data: "list[i32]", w: "i32", h: "i32", ftypes: "list[i32]", foffs: "list[i32]", flens: "list[i32]", idx: "i32", ref_idx: "list[i32]", out_idx: "list[i32]") -> "i32":
+    # Giai frame vao out_idx presized (ghi indexed, khong append).
+    # I: raster loop doc tu tiles; P: copy ref + apply tiles. Tra 1/0.
+    if idx < 0 or idx >= len(ftypes):
+        return 0
+    npix = w * h
+    if len(out_idx) < npix:
+        return 0
+    off = foffs[idx]
+    ln = flens[idx]
+    if off + ln > len(data):
+        return 0
+    t = ftypes[idx]
+    tiles = w // 8
+    if t == 0:
+        if ln < npix:
+            return 0
+        yg = int(0)
+        while yg < h:
+            xg = int(0)
+            while xg < w:
+                tx = xg // 8
+                ty = yg // 8
+                xl = xg % 8
+                yl = yg % 8
+                out_idx[yg * w + xg] = data[off + (ty * tiles + tx) * 64 + yl * 8 + xl]
+                xg = xg + 1
+            yg = yg + 1
+        return 1
+    if t == 1:
+        if len(ref_idx) < npix:
+            return 0
+        i = int(0)
+        while i < npix:
+            out_idx[i] = ref_idx[i]
+            i = i + 1
+        if ln < 2:
+            return 0
+        ntiles = data[off] + data[off + 1] * 256
+        p = off + 2
+        ti = int(0)
+        while ti < ntiles:
+            if p + 2 + 64 > off + ln:
+                return 0
+            tidx = data[p] + data[p + 1] * 256
+            p = p + 2
+            tx = tidx % tiles
+            ty = tidx // tiles
+            if tx < 0 or ty < 0 or tx >= tiles or ty >= h // 8:
+                return 0
+            y = int(0)
+            while y < 8:
+                x = int(0)
+                while x < 8:
+                    out_idx[(ty * 8 + y) * w + tx * 8 + x] = data[p]
+                    p = p + 1
+                    x = x + 1
+                y = y + 1
+            ti = ti + 1
+        return 1
+    return 0
+
+def tkvv_render_rgb(palbuf: "list[i32]", idx_buf: "list[i32]", npix: "i32", rgb_buf: "list[i32]") -> "i32":
+    # Index -> RGB888 vao rgb_buf presized (3*npix). Tra npix.
+    if len(rgb_buf) < npix * 3:
+        return 0
+    i = int(0)
+    while i < npix:
+        base = idx_buf[i] * 3
+        rgb_buf[i * 3] = palbuf[base]
+        rgb_buf[i * 3 + 1] = palbuf[base + 1]
+        rgb_buf[i * 3 + 2] = palbuf[base + 2]
+        i = i + 1
+    return npix

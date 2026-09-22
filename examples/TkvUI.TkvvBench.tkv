@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.TkvvBench - do toc fast-path TKVV (bench asset, ngoai verify.sh).
+
+320x240 ball+square: I/P/render timing + assert dung (sum). Chay:
+  tkvc.exe build examples/TkvUI.TkvvBench.tkv --entry tkvvbench_run --out build/tkvvbench.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.TkvvData", "../TkvUI.Video", "../TkvUI.Tkvv", "../TkvUI.TkvvHD"]
+__tkv_extern_pinvoke__ = [{"name": "pb_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+
+def mysum(vals: "list[i32]", n: "i32") -> "i32":
+    t = int(0)
+    i = int(0)
+    while i < n:
+        t = t + vals[i]
+        i = i + 1
+    return t
+
+def tkvvbench_run() -> "str":
+    data = []
+    tkhd_bytes(data)
+    ftypes = []
+    foffs = []
+    flens = []
+    fdelays = []
+    palbuf = []
+    err = []
+    nfr = tkvv_parse(data, ftypes, foffs, flens, fdelays, palbuf, err)
+    print("nfr=" + str(nfr) + " err=" + str(err[0]))
+    npix = 320 * 240
+    a = []
+    tkvv_zeros(a, npix)
+    b = []
+    tkvv_zeros(b, npix)
+    rgb = []
+    tkvv_zeros(rgb, npix * 3)
+    t0 = pb_ticks()
+    r = int(0)
+    while r < 200:
+        tkvv_decode_idx(data, 320, 240, ftypes, foffs, flens, 0, a, b)
+        r = r + 1
+    t1 = pb_ticks()
+    print("I-decode 200x = " + str(t1 - t0) + "ms")
+    t2 = pb_ticks()
+    r = int(0)
+    while r < 200:
+        tkvv_decode_idx(data, 320, 240, ftypes, foffs, flens, 1, b, a)
+        tkvv_decode_idx(data, 320, 240, ftypes, foffs, flens, 2, a, b)
+        r = r + 1
+    t3 = pb_ticks()
+    print("P-decode 400x = " + str(t3 - t2) + "ms")
+    t4 = pb_ticks()
+    r = int(0)
+    while r < 200:
+        tkvv_render_rgb(palbuf, b, npix, rgb)
+        r = r + 1
+    t5 = pb_ticks()
+    print("render 200x = " + str(t5 - t4) + "ms")
+    print("f2 rgb sum=" + str(mysum(rgb, npix * 3)) + " want=" + str(tkhd_f2_sum()))
+    sdata = tkvv_sample_bytes()
+    sft = []
+    sfo = []
+    sfl = []
+    sfd = []
+    spal = []
+    serr = []
+    snfr = tkvv_parse(sdata, sft, sfo, sfl, sfd, spal, serr)
+    sa = []
+    tkvv_zeros(sa, 768)
+    sb = []
+    tkvv_zeros(sb, 768)
+    t6 = pb_ticks()
+    r = int(0)
+    while r < 2000:
+        tkvv_decode_idx(sdata, 32, 24, sft, sfo, sfl, 0, sa, sb)
+        r = r + 1
+    t7 = pb_ticks()
+    print("small-I 2000x = " + str(t7 - t6) + "ms")
+    return "TKVV_BENCH_OK"
