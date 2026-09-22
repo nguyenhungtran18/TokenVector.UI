@@ -9,7 +9,7 @@ Thư viện UI đa nền tảng viết **100% bằng TokenVector (`.tkv`)**, zer
 Rasterizer, font, effects, layout, widget và cửa sổ native đều tự viết, biên dịch bằng `tkvc.exe` → IL → `.exe`.
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
-- **47 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 15 example; android/ios SKIPPED, cần thiết bị thật)
+- **48 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 16 example; android/ios SKIPPED, cần thiết bị thật)
 - **~2080 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 164, emoji 107, shaping 91, sqlite 132, video 44, tkvv 50, mjpg 44, mp4 38, …)
 - **Binary 649 KB** (suite 26 module) | app ~370–430 KB
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
@@ -63,7 +63,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `TkvUI.Font.tkv` | **Windows-only, optional** (không import bởi umbrella): bake font TrueType thật qua GDI (`CreateFontA`+`TextOutA` vào DIB → atlas alpha coverage), `font_measure`/`font_draw_string`; `font_selftest` 11/11 (chạy tay, cần GDI) |
 | `TokenVector.UI.tkv` | Umbrella: import 26 module + `main()` chạy toàn bộ selftest |
 
-`examples/` : `Demo` (desktop Win32 thật), `DemoMobile` (phone/pad + touch), `Live` (vòng 60fps + input thật), `MediaDemo` (màn hình player ghép đủ 10 widget media, 8/8), `MediaPlayer` (app nghe nhạc đầy đủ: MCI + spectrum, mở cửa sổ thật — không headless, ngoài verify.sh), `AndroidDemo`, `IOSDemo`, **`VietDemo` (Vietnamese Button/TextInput + platform info, headless)**, `CrudDemo`/`CrudDemoFull` (đối chứng Phase 6.4), `BenchText`/`BenchWidgets`/`CrudBench` (benchmark), `TkvvBench` (đo fps fast-path TKVV), `BrowserDemo` (render base64 RGBA ra `<canvas>`, 8/8), `PrintDemo`, `A11yDemo`, `Phase1Demo`, `AnimDemo`, `Designer` (+DesignerApp), `Fuzz`, `IMEDemo`, `VideoDemo` (player TKVV 21/21).
+`examples/` : `Demo` (desktop Win32 thật), `DemoMobile` (phone/pad + touch), `Live` (vòng 60fps + input thật), `MediaDemo` (màn hình player ghép đủ 10 widget media, 8/8), `MediaPlayer` (app nghe nhạc đầy đủ: MCI + spectrum, mở cửa sổ thật — không headless, ngoài verify.sh), `AndroidDemo`, `IOSDemo`, **`VietDemo` (Vietnamese Button/TextInput + platform info, headless)**, `CrudDemo`/`CrudDemoFull` (đối chứng Phase 6.4), `BenchText`/`BenchWidgets`/`CrudBench` (benchmark), `TkvvBench` (đo fps fast-path TKVV), `BrowserDemo` (render base64 RGBA ra `<canvas>`, 8/8), `PrintDemo`, `A11yDemo`, `Phase1Demo`, `AnimDemo`, `Designer` (+DesignerApp), `Fuzz`, `IMEDemo`, `VideoDemo` (player TKVV 21/21), `QtAppPort` (port Qt Application Example 52/52).
 `docs/TkvUI.Roadmap.md` : roadmap v2/v3 + **§0 ràng buộc compiler** (đọc trước khi sửa `.tkv`) + findings từng phase.
 `docs/INTEGRATION.md` : **hướng dẫn tích hợp** — app khác import TkvUI như thế nào.
 `tkvui.pkg.json` : manifest gói (version, modules, selftest, nền tảng).
@@ -102,11 +102,10 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `uia_selftest` / `atspi_selftest` | 33/33 + 22/22 PASS (host-driven provider + HWND mirror) |
 | `kittest_selftest` (`TkvUI.KitTest`, mới) | **16/16 PASS** (query role/label + hit-test + act trên widget thật + rebuild + assert, 9 case headless) |
 | `video_selftest` (`TkvUI.Video`, mới) | **44/44 PASS** (GIF89a parse + LZW early-change + clock + error paths; s2 gradient 4096px pixel-exact) |
-| `tkvv_selftest` (`TkvUI.Tkvv`, mới) | **50/50 PASS** (format custom TKVV: chunk/profile I-P + O(1) seek + reconstruct + clock reuse + errors) |
 | `mjpg_selftest` (`TkvUI.Mjpg`, mới) | **44/44 PASS** (MJPEG baseline: parse + Huffman + IDCT + RGB khớp PIL ±2; bench **~106fps @160×120**) |
 | `mjpg_hd_selftest` (HD) | **6/6 PASS** (720p đúng pixel, 453ms ~2fps — realtime HD cần bitwise/SIMD, xem CHANGELOG) |
 | `videodemo_run` (`examples/TkvUI.VideoDemo`) | **21/21 PASS** (player TKVV: Transport/SeekBar/Speed/ABLoop thật + clock + blit, assert qua pixels) |
-| `mp4_selftest` (`TkvUI.Mp4`, mới) | **38/38 PASS** (MP4 demux: boxes/tracks/durations/sample-table/extract + errors) |
+| `qtapp_run` (`examples/TkvUI.QtAppPort`, mới) | **52/52 PASS** (port Qt Application Example: MainWindow menus/toolbar/statusbar + RichEdit + DlgFile + Dialog + PDF print + recent + exit, assert state + pixels) |
 | `TkvUI.Live` | `TKVUI_LIVE_OK` (27/27) |
 | `TkvUI.DemoMobile` | `TKVUI_MOBILE_OK` (6/6) |
 | `TkvUI.MediaDemo` | `TKVUI_MEDIA_DEMO_OK` (8/8) |

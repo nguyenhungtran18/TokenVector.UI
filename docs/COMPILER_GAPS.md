@@ -192,6 +192,22 @@
   module khác). Chưa isolate dứt điểm; workaround hiện tại (typed buffer)
   đã xanh nên hạ ưu tiên.
 
+### D6. Method trùng tên BCL resolve sai trong vòng lặp (ĐÃ ISOLATE 2026-09-22)
+- **Vấn đề:** gọi `record.insert(...)` (trùng `List<T>.Insert`) khi receiver
+  và arg đều là param, đặt TRONG thân `while`, compiler emit IL `callvirt
+  ... NativeRichEdit::Insert(int32, !0)` → `MissingMethodException` lúc chạy.
+  Cùng call ở straight-line (param hay local đều được) emit đúng
+  `'insert'(List<string>, string)`.
+- **Case đã chứng minh:** probe tạm (đã xóa sau isolate): straight-line đúng
+  cả 3 biến thể (literal/var/slice); while-loop sai cả 3 biến thể (if/else,
+  sequential-if, literal) — đọc IL trực tiếp. `newline` (không trùng tên BCL)
+  trong cùng loop vẫn đúng → trigger là trùng tên BCL + trong loop.
+- **Workaround:** wrapper gọi thẳng-hàng (`qa_put1` bind receiver sang local
+  rồi gọi `ed.insert`), loop gọi wrapper. Đã xanh 52/52 ở
+  `examples/TkvUI.QtAppPort.tkv`.
+- **Liên quan D5:** có thể cùng họ dispatch-theo-tên, nhưng D6 đã isolate dứt
+  điểm và có workaround chắc chắn (không cần chờ upstream).
+
 ---
 
 ## Nhóm E — Tooling/packaging (ngoài compiler core)

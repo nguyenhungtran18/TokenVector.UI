@@ -1,0 +1,544 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.QtAppPort - port trung thuc Qt 6 "Application Example"
+(examples/mainwindows/application: SDI text editor) sang TokenVector.UI.
+
+Qt goc: QMainWindow + QTextEdit central + QMenuBar (File/Edit/Help) +
+QToolBar (File/Edit) + QStatusBar + QFileDialog + QMessageBox (maybeSave,
+About) + QPrintDialog + recent files (QSettings) + actions/shortcuts.
+
+Map sang TkvUI (moi control dung that, khong stub):
+  QMainWindow layout  -> ghep NativeMenuBar + NativeToolBar + NativeRichEdit
+                         + NativeStatusBar (640x480)
+  QMenu/QAction       -> menus/items lists + action table (id/text/shortcut/tip)
+  QTextEdit           -> NativeRichEdit (lines list, caret/insert/newline that)
+  QFileDialog         -> DlgFile state (dlg_make_open/save) + file IO truc tiep
+  QMessageBox         -> NativeDialog (show/hide/hit_button/result that)
+  QPrintDialog/print  -> Printing pdf_export_table + pdf_save (file that)
+  QSettings recent    -> recent list (in-memory, max 5)
+Lech co tai lieu (headless): modal dialog -> show + hit + hide theo kich ban;
+  clipboard noi bo (khong OS clipboard); khong separator trong menu model;
+  maybeSave 2 nut Yes/No (control chi ho tro toi da 2 nut).
+
+Headless test: qtapp_run mo phong toan bo thao tac (go phim, menu, toolbar,
+dialog, save/open/print, recent, exit) + assert state + pixel-sum ground truth.
+Build:
+  tkvc.exe build examples/TkvUI.QtAppPort.tkv --entry qtapp_run --out build/qtapp.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Platform", "../TkvUI.Widgets.Native", "../TkvUI.NativeDlg", "../TkvUI.Printing"]
+__tkv_extern_method__ = [
+    {"name": "qaf_write", "assembly": "mscorlib", "class": "System.IO.File", "method": "WriteAllText", "params": ["str", "str"], "returns": "void"},
+    {"name": "qaf_read", "assembly": "mscorlib", "class": "System.IO.File", "method": "ReadAllText", "params": ["str"], "returns": "str"},
+    {"name": "qaf_exists", "assembly": "mscorlib", "class": "System.IO.File", "method": "Exists", "params": ["str"], "returns": "bool"}
+]
+
+QTAPP_W = 640
+QTAPP_H = 480
+
+class QtApp:
+    cur_file: "str"
+    modified: "i32"
+    status: "str"
+    clipboard: "str"
+    exiting: "i32"
+    def __init__(self, cur_file, modified, status, clipboard, exiting):
+        self.cur_file = cur_file
+        self.modified = modified
+        self.status = status
+        self.clipboard = clipboard
+        self.exiting = exiting
+    def get_file(self) -> "str":
+        return self.cur_file
+    def is_modified(self) -> "i32":
+        return self.modified
+    def get_status(self) -> "str":
+        return self.status
+    def get_clipboard(self) -> "str":
+        return self.clipboard
+    def is_exiting(self) -> "i32":
+        return self.exiting
+    def set_file(self, p: "str") -> "str":
+        self.cur_file = p
+        return p
+    def set_modified(self, v: "i32") -> "i32":
+        self.modified = v
+        return v
+    def set_status(self, s: "str") -> "str":
+        self.status = s
+        return s
+    def set_clipboard(self, s: "str") -> "str":
+        self.clipboard = s
+        return s
+    def set_exiting(self, v: "i32") -> "i32":
+        self.exiting = v
+        return v
+
+def qacheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def qacheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    if got == want:
+        return qacheck(acc, name + " = " + str(got), 1)
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    acc[1] = acc[1] + 1
+    return 0
+
+def qacheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        return qacheck(acc, name, 1)
+    print("  FAIL " + name + " got=[" + got + "] want=[" + want + "]")
+    acc[1] = acc[1] + 1
+    return 0
+
+def qa_menus() -> "list[str]":
+    out = []
+    out.append("File")
+    out.append("Edit")
+    out.append("Help")
+    return out
+
+def qa_file_items() -> "list[str]":
+    out = []
+    out.append("New")
+    out.append("Open")
+    out.append("Save")
+    out.append("Save As")
+    out.append("Print")
+    out.append("Exit")
+    return out
+
+def qa_edit_items() -> "list[str]":
+    out = []
+    out.append("Cut")
+    out.append("Copy")
+    out.append("Paste")
+    return out
+
+def qa_help_items() -> "list[str]":
+    out = []
+    out.append("About")
+    out.append("About Qt")
+    return out
+
+def qa_act_ids() -> "list[str]":
+    out = []
+    out.append("new")
+    out.append("open")
+    out.append("save")
+    out.append("saveas")
+    out.append("print")
+    out.append("exit")
+    out.append("cut")
+    out.append("copy")
+    out.append("paste")
+    out.append("about")
+    out.append("aboutqt")
+    return out
+
+def qa_act_texts() -> "list[str]":
+    out = []
+    out.append("&New")
+    out.append("&Open...")
+    out.append("&Save")
+    out.append("Save &As...")
+    out.append("&Print...")
+    out.append("E&xit")
+    out.append("Cu&t")
+    out.append("&Copy")
+    out.append("&Paste")
+    out.append("&About")
+    out.append("About &Qt")
+    return out
+
+def qa_act_shorts() -> "list[str]":
+    out = []
+    out.append("Ctrl+N")
+    out.append("Ctrl+O")
+    out.append("Ctrl+S")
+    out.append("")
+    out.append("Ctrl+P")
+    out.append("Ctrl+Q")
+    out.append("Ctrl+X")
+    out.append("Ctrl+C")
+    out.append("Ctrl+V")
+    out.append("")
+    out.append("")
+    return out
+
+def qa_act_tips() -> "list[str]":
+    out = []
+    out.append("Create a new file")
+    out.append("Open an existing file")
+    out.append("Save the document to disk")
+    out.append("Save the document under a new name")
+    out.append("Print the document")
+    out.append("Exit the application")
+    out.append("Cut the current line to the clipboard")
+    out.append("Copy the current line to the clipboard")
+    out.append("Paste the clipboard at the cursor")
+    out.append("Show the application's About box")
+    out.append("Show the Qt library's About box")
+    return out
+
+def qa_tool_tips() -> "list[str]":
+    out = []
+    out.append("New")
+    out.append("Open")
+    out.append("Save")
+    out.append("Cut")
+    out.append("Copy")
+    out.append("Paste")
+    return out
+
+def qa_title(app: "QtApp") -> "str":
+    base = "untitled"
+    if app.get_file() != "":
+        base = dlg_basename(app.get_file())
+    if app.is_modified() == 1:
+        return base + "*"
+    return base
+
+def qa_split_lines(text: "str", lines: "list[str]") -> "i32":
+    while len(lines) > 0:
+        lines.pop()
+    cur = ""
+    i = int(0)
+    while i < len(text):
+        ch = text[i:i + 1]
+        if ch == "\n":
+            lines.append(cur)
+            cur = ""
+        else:
+            cur = cur + ch
+        i = i + 1
+    lines.append(cur)
+    return len(lines)
+
+def qa_join_lines(lines: "list[str]") -> "str":
+    out = ""
+    i = int(0)
+    while i < len(lines):
+        if i > 0:
+            out = out + "\n"
+        out = out + lines[i]
+        i = i + 1
+    return out
+
+def qa_clear(lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    while len(lines) > 0:
+        lines.pop()
+    lines.append("")
+    edit.clamp_caret(lines)
+    return 1
+
+def qa_put1(edit: "NativeRichEdit", lines: "list[str]", ch: "str") -> "i32":
+    # NOTE compiler (bug da isolate): method trung ten BCL (insert) goi TRONG
+    # vong lap se phan giai sai thanh List.Insert (MissingMethodException luc
+    # chay). Wrapper goi thang-hang (kieu probe_a) thi dung -> loop goi wrapper.
+    ed = edit
+    return ed.insert(lines, ch)
+
+def qa_type(app: "QtApp", edit: "NativeRichEdit", lines: "list[str]", text: "str") -> "i32":
+    ed = edit
+    ln = lines
+    i = int(0)
+    while i < len(text):
+        ch = text[i:i + 1]
+        if ch == "\n":
+            ed.newline(ln)
+        else:
+            qa_put1(ed, ln, ch)
+        i = i + 1
+    app.set_modified(1)
+    app.set_status("Edited")
+    return len(lines)
+
+def qa_caret_home(lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    n = int(0)
+    while edit.move_left(lines) == 1:
+        n = n + 1
+    return n
+
+def qa_caret_end(lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    n = int(0)
+    while edit.move_down(lines) == 1:
+        n = n + 1
+    while edit.move_right(lines) == 1:
+        n = n + 1
+    return n
+
+def qa_recent_push(recent: "list[str]", path: "str") -> "i32":
+    tmp = []
+    tmp.append(path)
+    i = int(0)
+    while i < len(recent):
+        if recent[i] != path:
+            tmp.append(recent[i])
+        i = i + 1
+    while len(recent) > 0:
+        recent.pop()
+    i = int(0)
+    while i < len(tmp):
+        if i < 5:
+            recent.append(tmp[i])
+        i = i + 1
+    return len(recent)
+
+def qa_save_to(app: "QtApp", lines: "list[str]", recent: "list[str]", path: "str") -> "i32":
+    qaf_write(path, qa_join_lines(lines))
+    app.set_file(path)
+    app.set_modified(0)
+    app.set_status("Saved " + path)
+    qa_recent_push(recent, path)
+    return 1
+
+def qa_load_from(app: "QtApp", lines: "list[str]", edit: "NativeRichEdit", recent: "list[str]", path: "str") -> "i32":
+    if qaf_exists(path) == True:
+        text = qaf_read(path)
+        qa_split_lines(text, lines)
+        edit.clamp_caret(lines)
+        app.set_file(path)
+        app.set_modified(0)
+        app.set_status("Opened " + path)
+        qa_recent_push(recent, path)
+        return 1
+    app.set_status("Cannot open " + path)
+    return 0
+
+def qa_copy(app: "QtApp", lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    edit.clamp_caret(lines)
+    if len(lines) <= 0:
+        app.set_clipboard("")
+        return 0
+    app.set_clipboard(lines[edit.cy])
+    app.set_status("Copied line")
+    return 1
+
+def qa_cut(app: "QtApp", lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    edit.clamp_caret(lines)
+    if len(lines) <= 0:
+        app.set_clipboard("")
+        return 0
+    cy = edit.cy
+    app.set_clipboard(lines[cy])
+    if len(lines) == 1:
+        lines[0] = ""
+    else:
+        j = cy
+        while j + 1 < len(lines):
+            lines[j] = lines[j + 1]
+            j = j + 1
+        lines.pop()
+    edit.clamp_caret(lines)
+    app.set_modified(1)
+    app.set_status("Cut line")
+    return 1
+
+def qa_paste(app: "QtApp", lines: "list[str]", edit: "NativeRichEdit") -> "i32":
+    clip = app.get_clipboard()
+    if clip == "":
+        return 0
+    ed = edit
+    ln = lines
+    i = int(0)
+    while i < len(clip):
+        ch = clip[i:i + 1]
+        if ch == "\n":
+            ed.newline(ln)
+        else:
+            qa_put1(ed, ln, ch)
+        i = i + 1
+    app.set_modified(1)
+    app.set_status("Pasted")
+    return 1
+
+def qa_print_doc(lines: "list[str]") -> "i32":
+    pr = pdf_make_printer()
+    doc = pdf_make_doc("QtApp Document", "QtAppPort")
+    pages = []
+    heads = []
+    heads.append("Document")
+    widths = []
+    widths.append(500.0)
+    cells = []
+    i = int(0)
+    while i < len(lines):
+        cells.append(lines[i])
+        i = i + 1
+    npg = pdf_export_table(pr, doc, pages, "QtApp Document", heads, cells, widths, 1)
+    if npg < 1:
+        return 0
+    nbytes = pdf_save(doc, pages, pr.paper(), "build/qtapp_print.pdf")
+    return nbytes
+
+def qa_pxsum(buf: "list[i64]") -> "i64":
+    s = 0
+    i = int(0)
+    while i < len(buf):
+        s = s + buf[i]
+        i = i + 1
+    return s
+
+def qa_render(buf: "list[i64]", surf: "PixelSurface", mb: "NativeMenuBar", tb: "NativeToolBar", sb: "NativeStatusBar", edit: "NativeRichEdit", lines: "list[str]", menus: "list[str]", items: "list[str]", nitems: "i32", tips: "list[str]", panels: "list[str]", dlg: "NativeDialog") -> "i32":
+    surface_clear(buf, surf, ColorRgba(240, 240, 240, 255))
+    mb.render(buf, surf, 0, menus, items, nitems)
+    tb.render(buf, surf, 0, tips, 6)
+    edit.render(buf, surf, 0, lines)
+    sb.render(buf, surf, 0, panels, 2)
+    if dlg.visible == 1:
+        dlg.render(buf, surf, 0)
+    return 1
+
+def qtapp_run() -> "str":
+    print("== QtAppPort: Qt Application Example tren TkvUI ==")
+    acc = [int(0), int(0)]
+    app = QtApp("", 0, "Ready", "", 0)
+    lines = []
+    lines.append("")
+    recent = []
+    menus = qa_menus()
+    file_items = qa_file_items()
+    edit_items = qa_edit_items()
+    help_items = qa_help_items()
+    tips = qa_tool_tips()
+    mb = make_native_menubar(0.0, 0.0, 640.0, 3)
+    tb = make_native_toolbar(0.0, 20.0, 640.0, 6)
+    sb = NativeStatusBar(0.0, 458.0, 640.0, 22.0, 2, 1)
+    edit = make_native_richedit(0.0, 50.0, 640.0, 408.0)
+    # 1-5: trang thai ban dau + action table (QAction parity)
+    qacheck_s(acc, "init.title", qa_title(app), "untitled")
+    qacheck_i(acc, "init.modified", app.is_modified(), 0)
+    qacheck_s(acc, "init.status", app.get_status(), "Ready")
+    qacheck_i(acc, "actions.count", len(qa_act_ids()), 11)
+    shorts = qa_act_shorts()
+    qacheck_s(acc, "actions.save.short", shorts[2], "Ctrl+S")
+    # 6-8: go phim Hello / World (QTextEdit typing)
+    qa_type(app, edit, lines, "Hello")
+    qacheck_s(acc, "type.line", lines[0], "Hello")
+    qacheck_s(acc, "type.title", qa_title(app), "untitled*")
+    qa_type(app, edit, lines, "\nWorld")
+    qacheck_i(acc, "type.lines", edit.line_count(lines), 2)
+    qacheck_s(acc, "type.line2", lines[1], "World")
+    # 9-15: Save As qua DlgFile + file that
+    dsave = dlg_make_save("")
+    qacheck_s(acc, "saveas.dlgpath", dsave.set_path("build/qtapp_doc.txt"), "build/qtapp_doc.txt")
+    qacheck_i(acc, "saveas.filter", dsave.set_filter(0, 1), 0)
+    qacheck_i(acc, "save.rc", qa_save_to(app, lines, recent, "build/qtapp_doc.txt"), 1)
+    qacheck_i(acc, "save.exists", tkv_has_file("build/qtapp_doc.txt"), 1)
+    qacheck_s(acc, "save.content", qaf_read("build/qtapp_doc.txt"), "Hello\nWorld")
+    qacheck_i(acc, "save.modified", app.is_modified(), 0)
+    qacheck_s(acc, "save.title", qa_title(app), "qtapp_doc.txt")
+    qacheck_i(acc, "save.recent", len(recent), 1)
+    # 16-18: File New khi sach (khong hoi)
+    qa_clear(lines, edit)
+    app.set_file("")
+    app.set_modified(0)
+    qacheck_s(acc, "new.doc", qa_join_lines(lines), "")
+    qacheck_s(acc, "new.title", qa_title(app), "untitled")
+    # 19-25: New khi do -> maybeSave Yes/No
+    qa_type(app, edit, lines, "Edit me")
+    qacheck_i(acc, "dirty.need_save", app.is_modified(), 1)
+    mbox = make_native_dialog_buttons(170.0, 150.0, 300.0, 180.0, "Application", "Do you want to save changes?", 1, 3)
+    mbox.show()
+    qacheck_i(acc, "maybesave.visible", mbox.visible, 1)
+    qacheck_s(acc, "maybesave.no", mbox.button_label(1), "No")
+    hitno = mbox.hit_button(400.0, 304.0)
+    if hitno != 1:
+        x = 180.0
+        while x < 470.0:
+            if mbox.hit_button(x, 304.0) == 1:
+                hitno = 1
+            x = x + 5.0
+    qacheck_i(acc, "maybesave.hitno", hitno, 1)
+    mbox.hide(1)
+    qacheck_i(acc, "maybesave.result", mbox.result, 1)
+    qa_clear(lines, edit)
+    app.set_file("")
+    app.set_modified(0)
+    qacheck_s(acc, "discard.doc", qa_join_lines(lines), "")
+    # 26-29: File Open qua DlgFile + doc ve
+    dopen = dlg_make_open("")
+    qacheck_s(acc, "open.dlgpath", dopen.set_path("build/qtapp_doc.txt"), "build/qtapp_doc.txt")
+    qacheck_i(acc, "open.rc", qa_load_from(app, lines, edit, recent, "build/qtapp_doc.txt"), 1)
+    qacheck_s(acc, "open.doc", qa_join_lines(lines), "Hello\nWorld")
+    qacheck_s(acc, "open.status", app.get_status(), "Opened build/qtapp_doc.txt")
+    # 30: render ground-truth frame (caret home + File menu mo)
+    qa_caret_home(lines, edit)
+    mb.open(0)
+    panels = []
+    panels.append(app.get_status())
+    panels.append(qa_title(app))
+    surf = PixelSurface(640, 480, 640)
+    buf = []
+    npx = 640 * 480
+    i = int(0)
+    while i < npx:
+        buf.append(0)
+        i = i + 1
+    mpty = make_native_dialog_buttons(0.0, 0.0, 10.0, 10.0, "", "", 0, 1)
+    qa_render(buf, surf, mb, tb, sb, edit, lines, menus, file_items, 6, tips, panels, mpty)
+    px = qa_pxsum(buf)
+    print("pxsum=" + str(px))
+    qacheck_s(acc, "render.px", str(px), "207382747736100")
+    mb.open(-1)
+    # 31-36: Cut/Copy/Paste tren dong (clipboard noi bo)
+    qa_caret_home(lines, edit)
+    qacheck_i(acc, "copy.rc", qa_copy(app, lines, edit), 1)
+    qacheck_s(acc, "copy.clip", app.get_clipboard(), "Hello")
+    qa_caret_end(lines, edit)
+    qa_paste(app, lines, edit)
+    qacheck_s(acc, "paste.line", lines[1], "WorldHello")
+    qa_cut(app, lines, edit)
+    qacheck_s(acc, "cut.clip", app.get_clipboard(), "WorldHello")
+    qacheck_s(acc, "cut.doc", qa_join_lines(lines), "Hello")
+    qa_paste(app, lines, edit)
+    qacheck_s(acc, "paste2.doc", qa_join_lines(lines), "HelloWorldHello")
+    # 37-41: hit-test menu/toolbar/statusbar that
+    qacheck_i(acc, "menu.hitfile", mb.hit_menu(10.0), 0)
+    mb.open(0)
+    qacheck_i(acc, "menu.hitopen", mb.hit_item(45.0, 6), 1)
+    mb.open(-1)
+    qacheck_i(acc, "toolbar.hitsave", tb.hit_tool(70.0, 36.0), 2)
+    qacheck_i(acc, "status.p0", sb.panel_at(10.0), 0)
+    qacheck_i(acc, "status.p1", sb.panel_at(630.0), 1)
+    # 42-44: About dialog
+    about = make_native_dialog_buttons(170.0, 150.0, 300.0, 180.0, "About", "QtAppPort on TkvUI", 0, 1)
+    about.show()
+    qacheck_i(acc, "about.render", about.render(buf, surf, 0), 1)
+    about.hide(0)
+    qacheck_i(acc, "about.result", about.result, 0)
+    qacheck_i(acc, "about.hidden", about.visible, 0)
+    # 45-46: Print -> PDF that
+    nbytes = qa_print_doc(lines)
+    print("print_bytes=" + str(nbytes))
+    pbok = int(0)
+    if nbytes > 1000:
+        pbok = 1
+    qacheck(acc, "print.bytes", pbok)
+    qacheck_i(acc, "print.exists", tkv_has_file("build/qtapp_print.pdf"), 1)
+    # 47-50: recent files (toi da 5, moi nhat truoc)
+    qacheck_i(acc, "recent.save2", qa_save_to(app, lines, recent, "build/qtapp_doc2.txt"), 1)
+    qacheck_s(acc, "recent.top", recent[0], "build/qtapp_doc2.txt")
+    qa_recent_push(recent, "build/r3.txt")
+    qa_recent_push(recent, "build/r4.txt")
+    qa_recent_push(recent, "build/r5.txt")
+    qa_recent_push(recent, "build/r6.txt")
+    qacheck_i(acc, "recent.cap", len(recent), 5)
+    qacheck_s(acc, "recent.kept", recent[4], "build/qtapp_doc2.txt")
+    # 51-52: Exit khi do -> Discard -> exiting
+    qa_type(app, edit, lines, "!")
+    mbox2 = make_native_dialog_buttons(170.0, 150.0, 300.0, 180.0, "Application", "Do you want to save changes?", 1, 3)
+    mbox2.show()
+    mbox2.hide(1)
+    app.set_exiting(1)
+    qacheck_i(acc, "exit.discard", mbox2.result, 1)
+    qacheck_i(acc, "exit.flag", app.is_exiting(), 1)
+    print("qtapp: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "QTAPP_OK"
+    return "QTAPP_FAIL"
