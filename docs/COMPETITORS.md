@@ -1,8 +1,10 @@
-# So sánh repo TokenVector.UI với đối thủ (2026-09-19, cập nhật 2026-09-20)
+# So sánh repo TokenVector.UI với đối thủ (2026-09-19, cập nhật 2026-09-20, đối chiếu chức năng 2026-09-22)
 
 > Số sao GitHub lấy ngày 2026-09-19 (sẽ lỗi thời — tra lại khi dùng để claim).
 > Mục đích: định vị trung thực + rút gap list cho repo. Không dùng để quảng cáo.
 > Số liệu 2026-09-20 verify bằng build+run thật (xem chi tiết từng selftest).
+> Đối chiếu chức năng 2026-09-22: probe PyQt6 6.11.0 offscreen 9/9
+> (`tools/bench/func_pyqt_probe.py`) vs TkvUI verify 49/0/2 — xem §2b.
 
 ---
 
@@ -31,8 +33,35 @@
 | Accessibility | Data model + Win32 HWND mirror + JSON provider + role maps (NVDA đọc HWND hệ thống qua mirror) | Qt native; **Slint/egui qua AccessKit** | Cải thiện (mirror); COM bridge thật vẫn cần C# shim |
 | GPU | abstraction + shader pipeline stubs + device-op structs | Qt RHI; Slint; egui | Thua (cần host GPU thật) |
 | WASM | interp chạy thật + canvas browser chạy thật; AOT closed | Slint/egui wasm demo production | Partial |
-| Test/CI | **~1100 checks** headless (core47/gfx29/text238/widgets101/bidi150/uia33/a11y41+94/fx32/theme79/sql51/data76/native157/fb21/gpu66/shaping91/fallback21) + LOCALS_OK | Slint GUI automation; egui kittest | Thua về phương pháp GUI-test, thắng về số lượng unit |
+| Test/CI | **~2180 checks** headless (suite ~2110 + qtapp 52 + clipplayer 14, verify 49/0/2) + LOCALS_OK | Slint GUI automation; egui kittest | Thua về phương pháp GUI-test, thắng về số lượng unit |
+| Binary/deploy (tươi 2026-09-22) | suite **1644 KB** (32 module), app 549 KB (qtapp) / 3260 KB (clipplayer kèm clip bake) | PyQt app 15–20 MB+ (PyInstaller 50 MB+) | **Vẫn thắng xa**; số 649 KB cũ lỗi thời (suite đã lớn gấp đôi) |
+| Startup (tươi, trung thực) | exe trivial cold-spawn **~1.0 s** trên máy này (AV scan exe mới + CLR, 3 lần 1011–1115 ms) | python+QApplication cold **~0.2 s** (190–213 ms) | ⚠️ Số 31 ms cũ **không tái lập được ở đây** — thua cold-spawn khi có AV; cần đo lại máy sạch/đo warm để claim |
+| Memory idle (tươi) | trivial exe peak **11.0 MB** | QApplication offscreen idle **15.6 MB** | **Thắng** (cùng phương pháp `bench_mem.py`) |
+| SQL persistence (tươi) | 132/132 + kill-9 12 cycle + round-trip 1000 rows **~81 ms** | QSQLITE round-trip **~195 ms** (cùng workload, median 5 reps) | **Thắng ~2.4×** (ghi nhận: PyQt commit có fsync, TKV nhờ OS flush) |
 | Cộng đồng | 0 (local) | Qt Company; 841–1227 open issues đang xử lý ở 3 repo kia = cộng đồng sống | Thua |
+
+---
+
+## 2b. Ma trận parity chức năng (đối chiếu thật 2026-09-22)
+
+Mỗi ô đều có bằng chứng chạy được: TkvUI = verify/selftest (`TKVUI_VERIFY_OK`
+49/0/2); PyQt6 = probe offscreen 9/9 (`tools/bench/func_pyqt_probe.py`,
+PyQt 6.11.0/Qt 6.11.2). Modal-exec và playback thật không làm được offscreen
+→ ghi nhận, không claim.
+
+| Chức năng | TkvUI (bằng chứng) | PyQt6 (bằng chứng probe) | Kết luận |
+|---|---|---|---|
+| App assembly (MainWindow) | QtAppPort 52/52: menus/toolbar/statusbar/dock-less + RichEdit + dialogs + print + recent + exit | `mainwin.app` PASS: QMainWindow + 3 menus + 2 toolbars + statusbar + dock + QTextEdit cut/copy/paste + recent-less | Parity coverage app chuẩn; Qt hơn hẳn breadth (~1000 classes) và dock/MDI dùng sẵn (TkvUI có DockPanel/MdiArea nhưng port này chưa cần) |
+| Widgets render | native 25 + Ant ~15, selftest native 164 + widgets 101 | `widgets.render17` PASS (17 widget render ra QImage non-blank) | TkvUI đủ CRUD/form; Qt hơn xa số lượng + style native |
+| Dialogs | NativeDialog (show/hide/hit/result) + DlgFile/Color/Font (NATIVEDLG 39/39) | `dialogs.instantiate6` PASS (Msg/File/Color/Font/Input/Progress, không exec modal) | Parity instantiate; cả 2 đều không test modal headless |
+| Text Việt/bidi | bitmap 134 glyph precomposed + shaping engine (Arabic/Thai/Devanagari…) | `text.vi-bidi` PASS (HarfBuzz render Việt/Arabic/Thai ra pixels) | Qt thắng shaping full; TkvUI thắng tốc độ ASCII 1.9× (số 2026-09-20) |
+| SQL | 132/132 + kill-9 + round-trip thắng 2.4× (xem §2) | `sql.crud` PASS (memory + file, 100 rows) + filebench 195 ms | TkvUI thắng niche (built-in + crash-safe + nhanh); Qt thắng SQL full (engine SQLite đầy đủ) |
+| PDF/print | PDF writer 63/63 + shell-print thật (ShellExecuteA live) | `print.pdf` PASS (QPdfWriter >1 KB) | Parity PDF; TkvUI hơn shell-print thật, Qt hơn print engine (preview, printer enum) |
+| Clipboard | nội bộ (không OS clipboard headless) | `clipboard.roundtrip` PASS | Qt thắng |
+| Item-view | Data proxy/sort/filter (data 76/76) + SqlTableModel | `itemview.proxy` PASS (sort + filter + render) | Parity cơ bản |
+| Media | decode GIF/MJPEG/TKVV thuần + MP4 demux 62/62 + player VideoDemo 21/21 + ClipPlayer MP4→TKVV 14/14; OpenH264 kẹt struct marshal | `media.setsource` PASS (đặt source MP4 thật, không playback offscreen) | TkvUI thắng decode thuần/portable; Qt thắng playback + codec thật |
+| a11y | HWND mirror + JSON provider + KitTest 16/16 | native UIA (không test được screen reader offscreen) | Qt thắng native; TkvUI cải thiện bằng mirror |
+| GPU/WASM | abstraction + stubs; interp/canvas | Qt RHI; Slint/egui production | Thua (chưa đo Slint/egui — không cài được ở đây) |
 
 ---
 
@@ -90,18 +119,21 @@
 
 | Tiêu chí | PyQt6 | TokenVector.UI | Kết luận |
 |---|---|---|---|
-| Binary size | 15-20 MB | **649 KB** (suite 18 module) | ✅ Thắng |
-| Cold startup | 300-800 ms | **~31 ms** | ✅ Thắng |
-| Memory (idle) | 80-150 MB | **27.6 MB** | ✅ Thắng |
-| Text render | ~25 ms | **9.4 ms/rep** (atlas batch, thắng PyQt6 18.1 ms) | ✅ Thắng |
+| Binary size | 15-20 MB | **1644 KB** (suite 32 module, đo tươi; app 549 KB) | ✅ Thắng (số 649 KB cũ lỗi thời) |
+| Cold startup | ~0.2 s (đo tươi: python+QApp 190–213 ms) | **~1.0 s** cold-spawn exe mới (AV scan + CLR, đo tươi) / 31 ms cũ không tái lập | ⚠️ Thua cold-spawn có AV; cần đo máy sạch để claim lại |
+| Memory (idle) | 15.6 MB (QApp offscreen, đo tươi) | **11.0 MB** (exe trivial, đo tươi cùng phương pháp) | ✅ Thắng |
+| Text render | ~25 ms | **9.4 ms/rep** (atlas batch, thắng PyQt6 18.1 ms — số 2026-09-20) | ✅ Thắng |
 | Widget creation | ~5 ms/widget | **<0.0002 ms** | ✅ Thắng |
 | CRUD dev time | 2-4 h | ~1.5 p (thiếu feature) | ⚠️ Thua tinh thần |
-| Binary deploy | PyInstaller 50MB+ | **370-650 KB single EXE** | ✅ Thắng |
+| Binary deploy | PyInstaller 50MB+ | **549 KB–1.6 MB single EXE** | ✅ Thắng |
+| SQL file round-trip | 195 ms / 1000 rows (đo tươi) | **81 ms** (đo tươi, thắng 2.4×) | ✅ Thắng (ghi nhận vụ fsync) |
+| App port mẫu | (gốc Qt) | **Qt Application Example chạy 52/52** trên control TkvUI | ✅ Parity (mới 2026-09-22) |
+| Media ingest | decode+playback native | **MP4 thật → TKVV → player 14/14** (nhờ Chrome decode) | ✅ Niche (mới 2026-09-22) |
 | WASM deploy | Pyodide (interp) | **WASI interp + canvas** | ⚠️ Hòa |
 | OS look | Native | **Self-drawn 25 widget** | ⚠️ Partial |
 | Accessibility | Native UIA/AT-SPI | **HWND mirror + JSON provider** (COM bridge cần C# shim) | ⚠️ Partial (cải thiện từ 0) |
 
-**Kết luận (2026-09-20):** TokenVector.UI **thắng PyQt6 ở binary size, startup, memory, deploy size, text render (1.9×), CRUD throughput, SQL/print built-in** — **thua ở widget breadth (~40 vs ~1000), HarfBuzz full shaping, GPU thật, OS look native, ecosystem**. Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render).
+**Kết luận (2026-09-22):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest** — **thua ở widget breadth (~40 vs ~1000), HarfBuzz full shaping, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem**. Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence).
 
 ---
 
