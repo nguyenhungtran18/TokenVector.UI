@@ -135,112 +135,42 @@ jobs:
           PYEOF
 
   # =========================================================
-  # Phase 12.3: CI Matrix (Win + Ubuntu + WASM)
+  # Phase 12.3: full verify — CHI chay khi tkvc ton tai (compiler
+  # machine-local, khong co tren public runner). Khong co tkvc thi SKIP
+  # ro rang (khong gia vo pass). Chay tay day du: tools/verify.sh
   # =========================================================
-  verify-matrix:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            target: wasm
-            rust-toolchain: stable
-          - os: windows-latest
-            target: win32
-            rust-toolchain: stable
-    runs-on: ${{ matrix.os }}
+  verify-full-if-present:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Rust (for WASM target)
-        if: matrix.target == 'wasm'
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust-toolchain }}
-          target: wasm32-wasi
-      - name: Install tkvc (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          # tkvc.exe should be available in PATH or cached
-          echo "TKVC_PATH=$TKVC" >> $GITHUB_ENV
-      - name: Install tkvc (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          # Check if tkvc exists or build from source
-          echo "TKVC not pre-installed on Linux runner, skipping tkvc build"
-      - name: Run purity check
-        run: |
-          python3 - <<'PYEOF'
-          import os, sys, json, glob
-          bad = []
-          keep_root_ext = ('.tkv', '.md', '.json', '.nuspec', '.gitignore')
-          keep_root_names = ('LICENSE',)
-          for fn in os.listdir('.'):
-              if os.path.isdir(fn) or fn.startswith('.'):
-                  continue
-              if fn in ('LICENSE',):
-                  continue
-              if not fn.endswith(('.tkv', '.md', '.json', '.nuspec', '.gitignore')):
-                  bad.append('root non-tkv: ' + fn)
-          for fn in os.listdir('examples'):
-              fp = os.path.join('examples', fn)
-              if os.path.isdir(fp):
-                  continue
-              if not (fn.endswith('.tkv') or fn.endswith('.md')):
-                  bad.append('examples non-tkv: ' + fn)
-          import json, glob
-          d = json.load(open('tkvui.pkg.json'))
-          have = {m['file'] for m in d['modules']}
-          for f in glob.glob('TkvUI.*.tkv'):
-              if f not in have:
-                  bad.append('module chua dang ky pkg: ' + f)
-          for b in bad:
-              print('PURITY FAIL:', b)
-          sys.exit(1 if bad else 0)
-          print('PURITY_OK')
-          PYEOF
-      - name: Validate tkvui.pkg.json
-        run: python3 -c "import json; d=json.load(open('tkvui.pkg.json')); print('pkg', d['version'], 'modules:', len(d['modules']))"
-      - name: lint shell scripts
-        run: |
-          fail=0
-          for f in tools/*.sh; do
-            bash -n "$f" || { echo "SYNTAX FAIL: $f"; fail=1; }
-          done
-          exit $fail
-      - name: lint python scripts
-        run: |
-          python3 -m py_compile tools/bench/*.py tools/*.py 2>/dev/null || python3 -m py_compile tools/bench/*.py
-      - name: lint powershell scripts
-        if: runner.os == 'Windows'
+      - name: Tim tkvc
+        id: tkvc
         shell: pwsh
         run: |
-          $fail=0
-          foreach ($f in Get-ChildItem tools/*.ps1) {
-            $e = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$e)
-            if ($e.Count -gt 0) { $e | ForEach-Object { Write-Host $_ }; exit 1 }
+          $found = ""
+          foreach ($c in @($env:TKVC, "D:\TokenVector\3.code\dist\tkvc.exe")) {
+            if ($c -and (Test-Path $c)) { $found = $c; break }
           }
-          exit $fail
-      - name: Validate tkvui.pkg.json
-        run: python3 -c "import json; d=json.load(open('tkvui.pkg.json')); print('pkg', d['version'], 'modules:', len(d['modules']))"
-      - name: Check docs links
+          if (-not $found) {
+            $w = Get-Command tkvc.exe -ErrorAction SilentlyContinue
+            if ($w) { $found = $w.Source }
+          }
+          if ($found) {
+            $msys = $found -replace "\\", "/"
+            if ($msys -match "^([A-Za-z]):") { $msys = "/" + $Matches[1].ToLower() + $msys.Substring(2) }
+            echo "path=$msys" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "SKIP: khong co tkvc tren runner - chay tay tools/verify.sh tren dev box"
+          }
+      - name: Full verify (neu co tkvc)
+        if: steps.tkvc.outputs.path != ''
+        shell: bash
         run: |
-          python3 - <<'PYEOF'
-          import re, os, sys
-          bad = []
-          for root, _, files in os.walk('.'):
-              if '.git' in root: continue
-              if root.startswith(('./build', './dist', 'build', 'dist')): continue
-              for fn in files:
-                  if not fn.endswith('.md'): continue
-                  p = os.path.join(root, fn)
-                  s = open(p, encoding='utf-8').read()
-                  for m in re.finditer(r'\[(?:[^\]]*)\]\(([^)#\s]+)\)', s):
-                      t = m.group(1)
-                      if t.startswith(('http://', 'https://', 'mailto:', '#')): continue
-                      full = os.path.normpath(os.path.join(root, t))
-                      if not os.path.exists(full):
-                          bad.append(f'{p}: {t}')
-          for b in bad: print('DEAD LINK:', b)
-          sys.exit(1 if bad else 0)
-          PYEOF
+          export TKVC="${{ steps.tkvc.outputs.path }}"
+          bash tools/verify.sh
+      - name: Upload verify logs
+        if: always() && steps.tkvc.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-logs
+          path: build/verify/

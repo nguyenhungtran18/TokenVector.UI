@@ -16,7 +16,7 @@
 | License | MIT | GPL-3 / commercial | LGPL-3 / commercial | GPL-3 / commercial (royalty-free) | MIT/Apache-2.0 | MIT |
 | Stars | (local, chưa public) | PyPI dl ~M/tháng | PyPI dl ~M/tháng | **23.867** | **30.609** | **76.254** |
 | Tuổi / nhịp | 2026-, commit dày | từ 1998, release đều | official Qt Co, release đều | 2020-, active (push hôm nay) | 2019-, active | 2014-, active |
-| Widget | ~40 (25 native-look + ~15 Ant, 2026-09-20: +Wizard/FontPicker/RichEdit/TreeCombo/Dock/MDI) | **~1000 classes Qt** | = PyQt6 | default set + Material/Fluent/Cupertino/Native styles | ~30 + custom dễ | ~60, tool-oriented |
+| Widget | ~43 (28 native-look + ~15 Ant, 2026-09-20: +Wizard/FontPicker/RichEdit/TreeCombo/Dock/MDI; 2026-09-22: +CheckBox/RadioButton/GroupBox) | **~1000 classes Qt** | = PyQt6 | default set + Material/Fluent/Cupertino/Native styles | ~30 + custom dễ | ~60, tool-oriented |
 
 ---
 
@@ -27,7 +27,7 @@
 | Binary/deploy | suite 649 KB, app ~400 KB single EXE (cần .NET FW) | Slint (MCU < 300 KiB RAM, wasm subset font); egui wasm demo gọn | **Thắng trên Windows/.NET**; thua wafun đa nền |
 | Startup/RAM | 31 ms / 27.6 MB peak | Slint (thiết kế cho MCU), egui (nhẹ) | Hòa về triết lý, chưa đo đối đầu 2 ông này |
 | Text/shaping | atlas batch 9.4ms/rep (thắng PyQt6 18.1ms warm, 1.9×); shaping engine thuần (Arabic/Thai/Devanagari/Bengali/Tamil + kern + composite + CBDT bake) | Qt (HarfBuzz/full) | **Thắng PyQt6 về tốc độ ASCII**; thua về HarfBuzz full/GSUB-GPOS |
-| Widgets | ~40 (native 25 + Ant 15): calendar/wizard/dock/MDI/richtext/tree-combo/color-picker/font-dialog/statusbar + item-view framework + stylesheet engine | Qt ~1000 classes | Thua xa về số lượng; đủ cho app CRUD/form |
+| Widgets | ~43 (native 28 + Ant 15): calendar/wizard/dock/MDI/richtext/tree-combo/color-picker/font-dialog/statusbar/checkbox/radio/groupbox + item-view framework + stylesheet engine | Qt ~1000 classes | Thua xa về số lượng; đủ cho app CRUD/form |
 | SQL persistence | **Binary page 4KB + B-tree + WAL-lite + multi-WHERE + JOIN** (51/51) | Không ai có built-in | **Thắng (niche)** |
 | PDF/print | PDF writer + **shell-print thật** (ShellExecuteA verify live) | Không ai có built-in | **Thắng (niche)** |
 | Accessibility | Data model + Win32 HWND mirror + JSON provider + role maps (NVDA đọc HWND hệ thống qua mirror) | Qt native; **Slint/egui qua AccessKit** | Cải thiện (mirror); COM bridge thật vẫn cần C# shim |
@@ -52,7 +52,7 @@ PyQt 6.11.0/Qt 6.11.2). Modal-exec và playback thật không làm được offs
 | Chức năng | TkvUI (bằng chứng) | PyQt6 (bằng chứng probe) | Kết luận |
 |---|---|---|---|
 | App assembly (MainWindow) | QtAppPort 52/52: menus/toolbar/statusbar/dock-less + RichEdit + dialogs + print + recent + exit | `mainwin.app` PASS: QMainWindow + 3 menus + 2 toolbars + statusbar + dock + QTextEdit cut/copy/paste + recent-less | Parity coverage app chuẩn; Qt hơn hẳn breadth (~1000 classes) và dock/MDI dùng sẵn (TkvUI có DockPanel/MdiArea nhưng port này chưa cần) |
-| Widgets render | native 25 + Ant ~15, selftest native 164 + widgets 101 | `widgets.render17` PASS (17 widget render ra QImage non-blank) | TkvUI đủ CRUD/form; Qt hơn xa số lượng + style native |
+| Widgets render | native 28 + Ant ~15, selftest native 190 + widgets 101 | `widgets.render17` PASS (17 widget render ra QImage non-blank) | TkvUI đủ CRUD/form; Qt hơn xa số lượng + style native |
 | Dialogs | NativeDialog (show/hide/hit/result) + DlgFile/Color/Font (NATIVEDLG 39/39) | `dialogs.instantiate6` PASS (Msg/File/Color/Font/Input/Progress, không exec modal) | Parity instantiate; cả 2 đều không test modal headless |
 | Text Việt/bidi | bitmap 134 glyph precomposed + shaping engine (Arabic/Thai/Devanagari…) | `text.vi-bidi` PASS (HarfBuzz render Việt/Arabic/Thai ra pixels) | Qt thắng shaping full; TkvUI thắng tốc độ ASCII 1.9× (số 2026-09-20) |
 | SQL | 132/132 + kill-9 + round-trip thắng 2.4× (xem §2) | `sql.crud` PASS (memory + file, 100 rows) + filebench 195 ms | TkvUI thắng niche (built-in + crash-safe + nhanh); Qt thắng SQL full (engine SQLite đầy đủ) |

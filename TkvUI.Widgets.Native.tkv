@@ -2570,6 +2570,242 @@ def make_native_richedit(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeRichE
     return NativeRichEdit(x, y, w, h, 0, 0, 0, 1)
 
 # =========================================================
+# 27) NativeCheckBox - box + check/tristate + label
+# =========================================================
+class NativeCheckBox:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    label: "str"
+    state: "i32"
+    tristate: "i32"
+    hover: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, label, state, tristate, hover, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.label = label
+        self.state = state
+        self.tristate = tristate
+        self.hover = hover
+        self.enabled = enabled
+    def toggle(self) -> "i32":
+        if self.enabled == 0:
+            return self.state
+        if self.tristate == 1:
+            if self.state == 0:
+                self.state = 1
+            else:
+                if self.state == 1:
+                    self.state = 2
+                else:
+                    self.state = 0
+        else:
+            if self.state == 1:
+                self.state = 0
+            else:
+                self.state = 1
+        return self.state
+    def box_x(self) -> "f64":
+        return self.bx + 2.0
+    def box_y(self) -> "f64":
+        return self.by + (self.bh - 14.0) / 2.0
+    def hit_box(self, px: "f64", py: "f64") -> "i32":
+        x0 = self.box_x()
+        y0 = self.box_y()
+        if px < x0:
+            return 0
+        if py < y0:
+            return 0
+        if px >= x0 + 14.0:
+            return 0
+        if py >= y0 + 14.0:
+            return 0
+        return 1
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if py < self.by:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        return 1
+    def click(self) -> "i32":
+        if self.enabled == 0:
+            return 0
+        if self.contains(self.bx + 1.0, self.by + 1.0) == 0:
+            return 0
+        self.toggle()
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        x0 = self.box_x()
+        y0 = self.box_y()
+        br = Rect2D(x0, y0, 14.0, 14.0)
+        fill_round_rect(buf, surf, br, 2.0, os_role_color(pal, 0))
+        stroke_round_rect(buf, surf, br, 2.0, 1.0, os_separator_color(pal))
+        fg = os_role_color(pal, 1)
+        if self.state == 1:
+            draw_line(buf, surf, x0 + 3.0, y0 + 7.0, x0 + 6.0, y0 + 10.0, 2.0, fg)
+            draw_line(buf, surf, x0 + 6.0, y0 + 10.0, x0 + 11.0, y0 + 3.0, 2.0, fg)
+        if self.state == 2:
+            fill_round_rect(buf, surf, Rect2D(x0 + 4.0, y0 + 4.0, 6.0, 6.0), 1.0, fg)
+        draw_string(buf, surf, self.label, x0 + 20.0, y0 + 3.0, 1.0, fg)
+        if self.hover == 1:
+            if self.enabled == 1:
+                stroke_round_rect(buf, surf, Rect2D(self.bx, self.by, self.bw, self.bh), 3.0, 1.0, os_focus_color(pal))
+        return 1
+
+def make_native_checkbox(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "NativeCheckBox":
+    return NativeCheckBox(x, y, w, h, label, 0, 0, 0, 1)
+
+def make_native_tristate(x: "f64", y: "f64", w: "f64", h: "f64", label: "str") -> "NativeCheckBox":
+    return NativeCheckBox(x, y, w, h, label, 0, 1, 0, 1)
+
+# =========================================================
+# 28) NativeRadioButton - dot + label + group id (exclusivity by caller loop)
+# =========================================================
+class NativeRadioButton:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    label: "str"
+    checked: "i32"
+    group: "i32"
+    hover: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, label, checked, group, hover, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.label = label
+        self.checked = checked
+        self.group = group
+        self.hover = hover
+        self.enabled = enabled
+    def check(self) -> "i32":
+        if self.enabled == 0:
+            return self.checked
+        self.checked = 1
+        return 1
+    def uncheck(self) -> "i32":
+        self.checked = 0
+        return 0
+    def click(self) -> "i32":
+        if self.enabled == 0:
+            return 0
+        return self.check()
+    def dot_cx(self) -> "f64":
+        return self.bx + 9.0
+    def dot_cy(self) -> "f64":
+        return self.by + self.bh / 2.0
+    def hit_dot(self, px: "f64", py: "f64") -> "i32":
+        dx = px - self.dot_cx()
+        if dx < 0.0:
+            dx = 0.0 - dx
+        dy = py - self.dot_cy()
+        if dy < 0.0:
+            dy = 0.0 - dy
+        if dx + dy <= 11.0:
+            return 1
+        return 0
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if py < self.by:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        cx = self.dot_cx()
+        cy = self.dot_cy()
+        draw_arc(buf, surf, cx, cy, 7.0, 1.5, 0.0, 360.0, os_separator_color(pal))
+        if self.checked == 1:
+            fill_round_rect(buf, surf, Rect2D(cx - 3.0, cy - 3.0, 6.0, 6.0), 3.0, os_role_color(pal, 1))
+        draw_string(buf, surf, self.label, self.bx + 20.0, self.by + (self.bh - 8.0) / 2.0, 1.0, os_role_color(pal, 1))
+        return 1
+
+def make_native_radio(x: "f64", y: "f64", w: "f64", h: "f64", label: "str", group: "i32") -> "NativeRadioButton":
+    return NativeRadioButton(x, y, w, h, label, 0, group, 0, 1)
+
+# =========================================================
+# 29) NativeGroupBox - titled frame + optional check + content insets
+# =========================================================
+class NativeGroupBox:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    title: "str"
+    checkable: "i32"
+    checked: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, title, checkable, checked, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.title = title
+        self.checkable = checkable
+        self.checked = checked
+        self.enabled = enabled
+    def toggle(self) -> "i32":
+        if self.enabled == 0:
+            return self.checked
+        if self.checkable == 0:
+            return self.checked
+        if self.checked == 1:
+            self.checked = 0
+        else:
+            self.checked = 1
+        return self.checked
+    def title_h(self) -> "f64":
+        return 18.0
+    def content_x(self) -> "f64":
+        return self.bx + 8.0
+    def content_y(self) -> "f64":
+        return self.by + self.title_h() + 4.0
+    def content_w(self) -> "f64":
+        return self.bw - 16.0
+    def content_h(self) -> "f64":
+        return self.bh - self.title_h() - 12.0
+    def contains(self, px: "f64", py: "f64") -> "i32":
+        if px < self.bx:
+            return 0
+        if py < self.by:
+            return 0
+        if px >= self.bx + self.bw:
+            return 0
+        if py >= self.by + self.bh:
+            return 0
+        return 1
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by + 9.0, self.bw, self.bh - 9.0)
+        stroke_round_rect(buf, surf, r, 4.0, 1.0, os_separator_color(pal))
+        tx = self.bx + 10.0
+        fill_round_rect(buf, surf, Rect2D(tx - 4.0, self.by + 2.0, 8.0 + 6.0 * float(len(self.title)), 14.0), 2.0, os_role_color(pal, 0))
+        draw_string(buf, surf, self.title, tx, self.by + 4.0, 1.0, os_role_color(pal, 1))
+        return 1
+
+def make_native_groupbox(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "NativeGroupBox":
+    return NativeGroupBox(x, y, w, h, title, 0, 1, 1)
+
+def make_native_groupcheck(x: "f64", y: "f64", w: "f64", h: "f64", title: "str") -> "NativeGroupBox":
+    return NativeGroupBox(x, y, w, h, title, 1, 1, 1)
+
+# =========================================================
 # SELFTEST
 # =========================================================
 def nvcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
@@ -3002,6 +3238,47 @@ def native_selftest() -> "str":
                 nvcheck(acc, "tray.live.destroy", ok_dw)
     else:
         nvcheck(acc, "tray.live.skip", 1)
+    # CheckBox: toggle 2-state + tristate cycle + hit + disabled + render
+    cbx = make_native_checkbox(0.0, 0.0, 120.0, 22.0, "Opt")
+    nvcheck_i(acc, "cb.toggle1", cbx.toggle(), 1)
+    nvcheck_i(acc, "cb.toggle0", cbx.toggle(), 0)
+    nvcheck_i(acc, "cb.hit", cbx.hit_box(4.0, 10.0), 1)
+    nvcheck_i(acc, "cb.hit.out", cbx.hit_box(60.0, 10.0), 0)
+    nvcheck_i(acc, "cb.click", cbx.click(), 1)
+    nvcheck_i(acc, "cb.checked", cbx.state, 1)
+    cbx.enabled = 0
+    nvcheck_i(acc, "cb.disabled", cbx.click(), 0)
+    cbx.enabled = 1
+    tri = make_native_tristate(0.0, 0.0, 120.0, 22.0, "Tri")
+    nvcheck_i(acc, "tri.1", tri.toggle(), 1)
+    nvcheck_i(acc, "tri.2", tri.toggle(), 2)
+    nvcheck_i(acc, "tri.0", tri.toggle(), 0)
+    rbuf2 = nv_alloc_buf(120 * 22)
+    rsurf2 = PixelSurface(120, 22, 120)
+    nvcheck_i(acc, "cb.render", cbx.render(rbuf2, rsurf2, 0), 1)
+    # RadioButton: check + group exclusivity (caller loop) + hit + render
+    ra = make_native_radio(0.0, 0.0, 120.0, 22.0, "A", 7)
+    rb = make_native_radio(0.0, 24.0, 120.0, 22.0, "B", 7)
+    nvcheck_i(acc, "rb.check.a", ra.check(), 1)
+    rb.check()
+    if rb.group == ra.group:
+        ra.uncheck()
+    nvcheck_i(acc, "rb.excl.a", ra.checked, 0)
+    nvcheck_i(acc, "rb.excl.b", rb.checked, 1)
+    nvcheck_i(acc, "rb.redundant", rb.click(), 1)
+    nvcheck_i(acc, "rb.hit", ra.hit_dot(9.0, 11.0), 1)
+    nvcheck_i(acc, "rb.hit.out", ra.hit_dot(60.0, 11.0), 0)
+    nvcheck_i(acc, "rb.render", rb.render(rbuf2, rsurf2, 0), 1)
+    # GroupBox: toggle checkable + insets + contains + render
+    gb = make_native_groupcheck(0.0, 0.0, 200.0, 120.0, "Opts")
+    nvcheck_i(acc, "gb.toggle", gb.toggle(), 0)
+    nvcheck_i(acc, "gb.toggle.back", gb.toggle(), 1)
+    nvcheck_f(acc, "gb.cx", gb.content_x(), 8.0, 0.001)
+    nvcheck_f(acc, "gb.cy", gb.content_y(), 22.0, 0.001)
+    nvcheck_f(acc, "gb.cw", gb.content_w(), 184.0, 0.001)
+    nvcheck_f(acc, "gb.ch", gb.content_h(), 90.0, 0.001)
+    nvcheck_i(acc, "gb.contains", gb.contains(50.0, 60.0), 1)
+    nvcheck_i(acc, "gb.render", gb.render(rbuf2, rsurf2, 0), 1)
     print("native: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "NATIVE_OK"
