@@ -82,3 +82,27 @@ nằm trong header, loader tự chọn):
 - Bench file-backed mới: save+load bảng staff 1000 rows vs PyQt
   `crud_pyqt_bench.py` file-backed (TOTAL 505 ms) — so "persist 1000 rows
   ra file", báo cáo trung thực dù op không trùng khít.
+
+## P1.6 M1 crash-safety: kill-9 matrix (2026-09-22, `sqlite 132/132`)
+
+- **Tách `sql_serialize(gen, ...) -> str`** khỏi `sql_save` (behavior giữ
+  nguyên, đã verify 51/51 trước khi thêm test): ma trận cần "would-be
+  content" của save tiếp theo để cắt ngang.
+- **Ma trận cắt-ngang trong selftest** (`build/crash_matrix.db`, poison 2
+  slot trước để quyết định slot): serialize gen N+1, cắt tại 10 điểm
+  (0/8/16/32/64/25%/50%/75%/-32/-8) trên slot mục tiêu (slot gen nhỏ hơn —
+  đúng slot `sql_save` sẽ ghi), 2 rounds (gen 2→A khi B giữ gen 1, rồi
+  gen 3→B khi A giữ gen 2) + garbage + magic-only mỗi round + biên
+  tail-newline (thiếu đúng `\n` cuối == save hoàn tất → commit gen mới).
+  Mọi điểm cắt: load rc 0 + về gen cũ + rows nguyên (sum khớp).
+- **Kill thật** (`examples/TkvUI.SqlCrash.tkv` + `tools/sql_crashkill.py`):
+  writer append 1 row/save, in `WRITING`/`WROTE`; harness kill bằng
+  `TerminateProcess` (= kill -9, không cleanup) sau `WRITING` (mid-save)
+  hoặc ngay `WROTE` (between-saves), rồi chạy checker assert
+  `count == gen + PAD`, `sum == 1+..+count`, gen đơn điệu. PAD = 2000 rows
+  mồi sẵn để save đủ chậm cho kill rơi giữa `WriteAllText`. Kill trước
+  commit đầu tiên → rc 2 (DB rỗng) là đúng. Kết quả chuẩn:
+  12/12 cycle (`SQL_CRASHKILL_OK`: 6 mid-save + 6 between + first-empty).
+- Tính chất đã chứng minh: xấu nhất mất đúng 1 save đang ghi dở; không bao
+  giờ mất committed, không bao giờ corrupt cả 2 slot (trừ khi ghi rác cả 2
+  bằng tay → rc 8 đúng spec).

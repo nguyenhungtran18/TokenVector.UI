@@ -1,0 +1,91 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.SqlCrash - writer/checker cho kill-9 matrix (M1 crash-safety).
+
+Khong phai selftest (khong vao suite/verify): 2 entry duoc tools/sql_crashkill.py
+build rieng thanh exe, chay writer -> kill -9 (TerminateProcess) giua chung ->
+chay checker xac nhan phuc hoi.
+
+- sqlcrash_writer: load db cu (neu co), append 1 row/save, in WRITING/WROTE moi
+  vong. Du lieu la ham thuan cua gen: save thu k chua dung k rows id 1..k.
+- sqlcrash_check: load + assert count == gen + PAD + sum == 1+..+count + spot.
+
+Bat bien file sau kill: load rc 0, gen khong giam, count == gen + PAD (mat
+nhieu nhat 1 save dang ghi do). PAD = 2000 row moi san de save du cham.
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Data", "../TkvUI.SQLite"]
+__tkv_extern_pinvoke__ = [{"name": "sc_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
+
+def sc_spin_ms(ms: "i32") -> "i32":
+    t0 = sc_ticks()
+    n = int(0)
+    while sc_ticks() - t0 < ms:
+        n = n + 1
+    return n
+
+def sqlcrash_writer() -> "str":
+    # PAD: so row moi san de moi save cham (~2000 rows -> WriteAllText O(n2)
+    # du lau cho kill roi giua save). Phai khop checker (count == gen + PAD).
+    pad = int(2000)
+    db = make_sql_db()
+    sql_open(db, "build/sqlcrash.db")
+    tnames = []
+    scol_table = []
+    scol_name = []
+    scol_type = []
+    scol_notnull = []
+    scol_pk = []
+    tstart = []
+    tcount = []
+    tncol = []
+    rows = []
+    sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+    sql_create_table(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, "log", sql_cols2("id", "tag"), sql_types2(1, 0))
+    if sql_count_rows(tnames, tcount, "log") == 0:
+        j = int(1)
+        while j <= pad:
+            sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "log", sql_cols2(str(j), "p" + str(j)))
+            j = j + 1
+    i = sql_count_rows(tnames, tcount, "log") + 1
+    while i <= 300000:
+        sql_insert(db, tnames, scol_table, scol_name, scol_notnull, tstart, tcount, tncol, rows, "log", sql_cols2(str(i), "t" + str(i)))
+        print("WRITING " + str(i))
+        sql_save(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+        print("WROTE " + str(i))
+        sc_spin_ms(50)
+        i = i + 1
+    return "SQLCRASH_WRITER_DONE"
+
+def sqlcrash_check() -> "str":
+    db = make_sql_db()
+    sql_open(db, "build/sqlcrash.db")
+    tnames = []
+    scol_table = []
+    scol_name = []
+    scol_type = []
+    scol_notnull = []
+    scol_pk = []
+    tstart = []
+    tcount = []
+    tncol = []
+    rows = []
+    rc = sql_load(db, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
+    if rc != 0:
+        print("CHECK FAIL rc=" + str(rc))
+        return "SQLCRASH_FAIL"
+    g = db.persist_gen
+    c = sql_count_rows(tnames, tcount, "log")
+    s = sql_sum_int(tnames, scol_table, scol_name, tstart, tcount, tncol, rows, "log", "id")
+    print("CHECK gen=" + str(g) + " count=" + str(c) + " sum=" + str(s))
+    if g < 1:
+        print("CHECK FAIL gen<1")
+        return "SQLCRASH_FAIL"
+    if c != g + 2000:
+        print("CHECK FAIL count!=gen+PAD")
+        return "SQLCRASH_FAIL"
+    if s != c * (c + 1) // 2:
+        print("CHECK FAIL sum")
+        return "SQLCRASH_FAIL"
+    if sql_row_get(rows, tstart, tncol, 0, 0, 0) != "1":
+        print("CHECK FAIL spot")
+        return "SQLCRASH_FAIL"
+    return "SQLCRASH_OK"

@@ -1105,6 +1105,88 @@ def sqlite_selftest() -> "str":
     tnc2 = []
     rows2 = []
     sqlcheck_i(acc, "persist.nofile", sql_load(db2, tn2, ct2, cn2, cy2, nn2, pk2, ts2, tc2, tnc2, rows2), 2)
+    # M1 crash-matrix: kill giua sql_save (would-be content bi cat ngang tai
+    # moi diem). Slot muc tieu = slot sql_save se ghi (gen nho hon); load
+    # phai ve gen cu + du lieu nguyen. Poison truoc de quyet dinh slot.
+    db3 = make_sql_db()
+    sql_open(db3, "build/crash_matrix.db")
+    sqlf_write(db3.path + ".a", "X")
+    sqlf_write(db3.path + ".b", "Y")
+    tn3 = []
+    ct3 = []
+    cn3 = []
+    cy3 = []
+    nn3 = []
+    pk3 = []
+    ts3 = []
+    tc3 = []
+    tnc3 = []
+    rows3 = []
+    sqlcheck_i(acc, "crash.create", sql_create_table(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, "k", sql_cols2("id", "tag"), sql_types2(1, 0)), 0)
+    sql_insert(db3, tn3, ct3, cn3, nn3, ts3, tc3, tnc3, rows3, "k", sql_cols2("1", "alpha"))
+    sql_insert(db3, tn3, ct3, cn3, nn3, ts3, tc3, tnc3, rows3, "k", sql_cols2("2", "beta"))
+    sqlcheck_i(acc, "crash.save1", sql_save(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.gen1", db3.persist_gen, 1)
+    sqlcheck_i(acc, "crash.base", sql_sum_int(tn3, ct3, cn3, ts3, tc3, tnc3, rows3, "k", "id"), 3)
+    # Round 1: gen2 dinh ghi vao A (A dang hong, B giu gen1)
+    full2 = sql_serialize(2, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3)
+    n2 = len(full2)
+    cuts = [0, 8, 16, 32, 64, n2 // 4, n2 // 2, 3 * n2 // 4, n2 - 32, n2 - 8]
+    ci = int(0)
+    while ci < len(cuts):
+        k2 = cuts[ci]
+        if k2 < 0:
+            k2 = 0
+        if k2 > n2:
+            k2 = n2
+        sqlf_write(db3.path + ".a", full2[0:k2])
+        sqlcheck_i(acc, "crash.r1.load", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+        sqlcheck_i(acc, "crash.r1.gen", db3.persist_gen, 1)
+        sqlcheck_i(acc, "crash.r1.sum", sql_sum_int(tn3, ct3, cn3, ts3, tc3, tnc3, rows3, "k", "id"), 3)
+        ci = ci + 1
+    sqlf_write(db3.path + ".a", "GARBAGE-NOT-A-DB")
+    sqlcheck_i(acc, "crash.r1.garbage", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.r1.garbage.gen", db3.persist_gen, 1)
+    sqlcheck_i(acc, "crash.r1.garbage.sum", sql_sum_int(tn3, ct3, cn3, ts3, tc3, tnc3, rows3, "k", "id"), 3)
+    sqlf_write(db3.path + ".a", "TKVSQL1\n")
+    sqlcheck_i(acc, "crash.r1.magiconly", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.r1.magiconly.gen", db3.persist_gen, 1)
+    # Round 2: save that gen2 vao A, roi kill gen3 dinh ghi vao B
+    sqlcheck_i(acc, "crash.save2", sql_save(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.gen2", db3.persist_gen, 2)
+    full3 = sql_serialize(3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3)
+    n3 = len(full3)
+    cuts3 = [0, 8, 16, 32, 64, n3 // 4, n3 // 2, 3 * n3 // 4, n3 - 32, n3 - 8]
+    cj = int(0)
+    while cj < len(cuts3):
+        k3 = cuts3[cj]
+        if k3 < 0:
+            k3 = 0
+        if k3 > n3:
+            k3 = n3
+        sqlf_write(db3.path + ".b", full3[0:k3])
+        sqlcheck_i(acc, "crash.r2.load", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+        sqlcheck_i(acc, "crash.r2.gen", db3.persist_gen, 2)
+        sqlcheck_i(acc, "crash.r2.sum", sql_sum_int(tn3, ct3, cn3, ts3, tc3, tnc3, rows3, "k", "id"), 3)
+        cj = cj + 1
+    sqlf_write(db3.path + ".b", "GARBAGE-NOT-A-DB")
+    sqlcheck_i(acc, "crash.r2.garbage", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.r2.garbage.gen", db3.persist_gen, 2)
+    sqlcheck_i(acc, "crash.r2.garbage.sum", sql_sum_int(tn3, ct3, cn3, ts3, tc3, tnc3, rows3, "k", "id"), 3)
+    sqlf_write(db3.path + ".b", "TKVSQL1\n")
+    sqlcheck_i(acc, "crash.r2.magiconly", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.r2.magiconly.gen", db3.persist_gen, 2)
+    # Hoi phuc: save that gen3 vao B, load lai dung
+    sqlcheck_i(acc, "crash.save3", sql_save(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.gen3", db3.persist_gen, 3)
+    sqlcheck_i(acc, "crash.load3", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    # Bien: kill roi dung vao ky tu cuoi (thieu "\n" duoi) == save hoan tat
+    full4 = sql_serialize(4, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3)
+    n4 = len(full4)
+    sqlf_write(db3.path + ".a", full4[0:n4 - 1])
+    sqlcheck_i(acc, "crash.tailnl", sql_load(db3, tn3, ct3, cn3, cy3, nn3, pk3, ts3, tc3, tnc3, rows3), 0)
+    sqlcheck_i(acc, "crash.tailnl.gen", db3.persist_gen, 4)
+    sql_close(db3)
     sql_close(db)
     sqlcheck_i(acc, "close", sql_is_open(db), 0)
     print("sqlite: " + str(acc[0]) + "/" + str(acc[1]))
@@ -2082,13 +2164,9 @@ def sql_slot_parse(content: "str", tnames: "list[str]", scol_table: "list[i32]",
         return -1
     return gen
 
-def sql_save(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
-    if db.is_open == 0:
-        return db.fail(1, "db closed")
-    if db.path == "":
-        return db.fail(9, "no path")
-    db.persist_gen = db.persist_gen + 1
-    gen = db.persist_gen
+def sql_serialize(gen: "i32", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "str":
+    # Serialize toan DB thanh chuoi TKVSQL1 (khong cham file, khong tang gen).
+    # Tach tu sql_save de crash-matrix co the lay "would-be content" cat ngang.
     chunks = []
     chunks.append("TKVSQL1")
     chunks.append(str(gen))
@@ -2124,6 +2202,16 @@ def sql_save(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_nam
     while i < len(chunks):
         content = content + chunks[i] + "\n"
         i = i + 1
+    return content
+
+def sql_save(db: "SqlDb", tnames: "list[str]", scol_table: "list[i32]", scol_name: "list[str]", scol_type: "list[i32]", scol_notnull: "list[i32]", scol_pk: "list[i32]", tstart: "list[i32]", tcount: "list[i32]", tncol: "list[i32]", rows: "list[str]") -> "i32":
+    if db.is_open == 0:
+        return db.fail(1, "db closed")
+    if db.path == "":
+        return db.fail(9, "no path")
+    db.persist_gen = db.persist_gen + 1
+    gen = db.persist_gen
+    content = sql_serialize(gen, tnames, scol_table, scol_name, scol_type, scol_notnull, scol_pk, tstart, tcount, tncol, rows)
     slot_a = db.path + ".a"
     slot_b = db.path + ".b"
     ga = sql_slot_gen(slot_a)
