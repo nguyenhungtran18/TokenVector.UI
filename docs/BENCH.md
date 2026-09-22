@@ -79,17 +79,24 @@ Format TKVSQL1 (text, length-prefixed, dual-slot + generation — xem
 `docs/SQL_PERSISTENCE.md`). Bench `bench_persist`: staff 1000 rows,
 save ×5 + load ×5 (`build/staff_persist.db.a/b`, 29 KB/slot).
 
-| Op (1000 rows, file) | **TkvUI** | PyQt6 (file, CRUD full — workload khác) |
+| Op (1000 rows, file) | **TkvUI** (`bench_persist`, save×5+load×5) | PyQt6 (`tools/bench/crud_pyqt_filebench.py`, cùng workload) |
 |---|---|---|
-| SAVE (snapshot toàn DB) | ~72–78 ms/lần | — (nằm trong TOTAL 505 ms) |
-| LOAD (parse + rebuild index) | ~0–3 ms/lần | — |
-| Crash-safety | dual-slot: corrupt 1 slot bất kỳ vẫn load OK (16/16 check persist PASS, gồm gen đơn điệu, fallback 2 chiều, both-bad→8, no-file→2) | journal SQLite |
+| WRITE (memory→file) | **~78 ms/lần** (391/391/375 ms ÷ 5, 3 process runs) | **~187 ms/lần** (median 5 reps: 166/184/187/209/350) |
+| READ (file→memory) | **~3 ms/lần** (15–16 ms ÷ 5) | **~8 ms/lần** (ổn định) |
+| Round-trip | **~81 ms** | **~195 ms** |
+| File payload | 29 KB/slot (TKVSQL1 text, dual-slot) | 32 KB (SQLite B-tree + journal) |
+| Crash-safety | dual-slot: corrupt 1 slot bất kỳ vẫn load OK (sqlite 132/132, gồm ma trận cắt-ngang 2 slot + kill-9 thật 12 cycle) | journal SQLite |
 
-**Verdict: ĐẠT (tính năng).** Lần đầu TKV có persistence file thật với
-crash-safety kiểm chứng được (51/51 SQLITE_OK). Save ~75 ms/29 KB còn chậm
-(O(n²) string concat khi serialize ~12K chunks — ghi nhận tối ưu sau bằng
-chunk-join/StringBuilder extern). So tốc độ với PyQt file CRUD (505 ms)
-không cùng workload nên chỉ ghi nhận cạnh nhau, không claim thắng.
+**Verdict: ĐẠT (tốc độ + tính năng, 2026-09-22, đo tươi 2 bên).** Round-trip
+TkvUI ~81 ms vs PyQt ~195 ms → **thắng ~2.4×**, trong tiêu chí M1 (±20%).
+Workload tương đương: cùng 1000 staff rows (id/name/age/city) memory→file→
+memory, build rows ngoài giờ đo cả 2 bên. Lưu ý trung thực: PyQt commit có
+fsync journal, TkvUI `WriteAllText` nhờ OS flush (không có primitive fsync —
+ghi nhận); payload tương đương (29 vs 32 KB). O(n²) concat khi serialize vẫn
+là bottleneck tương đối (save 78 ms cho 29 KB), nhưng đã đủ thắng nhờ SQLite
+trả giá journal+fsync cao hơn. Số CRUD full cũ (PyQt 505 ms, gồm UPDATE/
+DELETE — engine TKV chưa có file-backed update/delete) giữ để đối chiếu,
+không dùng cho verdict này.
 
 ## 6.1 Memory — cùng workload text 108K chars, peak RSS tiến trình
 
