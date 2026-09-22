@@ -177,6 +177,16 @@ def main():
     L.append('def %s_nframes() -> "i32":' % pre)
     L.append('    return %d' % nfr)
     L.append('')
+    # Ground truth RGB sum/frame (khop tkvv_render_rgb + sum trong .tkv)
+    for i, ((px, dl), src) in enumerate(zip(back, frames)):
+        s = 0
+        for idx in px:
+            c = palrgb[idx]
+            s = s + c[0] + c[1] + c[2]
+        L.append('def %s_f%d_sum() -> "i32":' % (pre, i))
+        L.append('    return %d' % s)
+        L.append('')
+        print('  f%d rgbsum=%d' % (i, s))
     out = os.path.join(root, a.out)
     open(out, 'w', encoding='utf-8').write('\n'.join(L))
     print('wrote ' + out + ' + ' + tvp)

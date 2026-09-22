@@ -65,7 +65,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "48 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 30 module cases incl. +mp4, suite TKVUI_OK 32/32, 16 examples incl. +videodemo +qtapp; android/ios no device; Mp4 38/38 demux, VideoDemo 21/21 player, QtAppPort 52/52)"
+    "last_result": "49 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 30 module cases incl. +mp4, suite TKVUI_OK 32/32, 17 examples incl. +videodemo +qtapp +clipplayer; android/ios no device; Mp4 38/38 demux, VideoDemo 21/21 player, QtAppPort 52/52, ClipPlayer 14/14)"
   },
   "package": {
     "script": "tools/package.sh",
