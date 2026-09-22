@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.H264 - OpenH264 pinvoke prototype, OPTIONAL (khong import boi umbrella).
+
+Ly do optional (giong TkvUI.Font): WelsCreateDecoder can DLL that (build/,
+khong commit) + Initialize/DecodeFrame2 can struct marshal (gap compiler,
+xem docs/OPENH264.md). Chay tay khi du dieu kien:
+  tkvc.exe build TkvUI.H264.tkv --entry h264_selftest --out build/h264_test.exe
+Thieu DLL -> H264_SKIPPED (headless-safe), khong FAIL.
+"""
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Platform"]
+
+__tkv_extern_pinvoke__ = [
+    {"name": "h264_wels_create", "dll": "openh264-2.6.0-win64.dll", "symbol": "WelsCreateDecoder", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+    {"name": "h264_wels_destroy", "dll": "openh264-2.6.0-win64.dll", "symbol": "WelsDestroyDecoder", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+]
+
+def h264_dll_present() -> "i32":
+    if tkv_has_file("openh264-2.6.0-win64.dll") == 1:
+        return 1
+    if tkv_has_file("build\\openh264-win64.dll") == 1:
+        return 1
+    return 0
+
+def h264check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def h264_selftest() -> "str":
+    print("== TkvUI.H264 selftest (optional) ==")
+    acc = [int(0), int(0)]
+    h264check(acc, "dll present", h264_dll_present())
+    print("h264: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "H264_OK"
+    return "H264_FAIL"

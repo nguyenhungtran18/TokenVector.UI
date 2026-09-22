@@ -1,8 +1,7 @@
 # OpenH264 cho TokenVector.UI — tải về, khỏi xây (verified 2026-09-22)
 
 Kết quả đã verify bằng chạy thật trên máy này:
-- Tải `openh264-2.6.0-win64.dll.bz2` (452.053 bytes) từ `ciscobinary.openh264.org`,
-  giải nén → 978.520 bytes, header `MZ`, đủ 3 exports.
+- Tải `openh264-2.6.0-win64.dll` (452KB → 978KB), header `MZ`, đủ 3 exports.
 - `LoadLibrary` OK; `WelsCreateDecoder` trả rc=0 + con trỏ decoder hợp lệ;
   `WelsDestroyDecoder` OK (verify bằng Python ctypes).
 - Tái lập 1 lệnh: `powershell -ExecutionPolicy Bypass -File tools/fetch_openh264.ps1`
@@ -40,7 +39,7 @@ từ Cisco như script trên.
 chặn ở `tkvc` gán cứng identity Framework cho extern assembly
 (`DEVELOPMENT_PLAN.md` §3) — cần upstream mở **đúng 2 primitive**:
 **(a)** đọc/ghi struct native qua pinvoke, **(b)** reference đúng identity
-assembly. Khi đó shim C# ~20 dòng (mẫu OpenH264Lib.NET rút gọn) là đủ.
+assembly. Khi đó shim C# ~20 dòng (mẫu OpenH264Lib.NET) là đủ.
 
 ## 3. Giới hạn phải nói rõ
 
