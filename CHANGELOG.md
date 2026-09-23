@@ -4,6 +4,8 @@ Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy t�
 
 ## Unreleased (chưa commit)
 
+- **Vtable dispatch sửa xong, verify độc lập bằng COM thật** (tkvc exe 17:05): `CoCreateInstance` FileOpenDialog (GUID qua R2 buffers) + `AddRef` slot 1 cho r1=2/r2=3 (d=1) + `Release` slot 2 sạch — VTCOM 4/4, khớp số maintainer. R8 mở một phần (dispatch + method đơn giản); struct params vẫn chờ R1. Đường shim C# + R2 buffers cho OpenH264 giờ thông hoàn toàn.
+
 - **Nhóm B tiếp: `ord()` mở → dùng thật; R3 re-probe vẫn đóng** (tkvc 23/09 13:21): `fb_is_emoji`/`fb_is_color_font` chuyển `char_code` → `ord()`, ranges chết nay sống (✚ → đúng 4; fallback 37/37); `bidi_is_surrogate` giữ kẹp biên vì `ConvertToUtf32` ném với lone surrogate. Re-probe R3 bằng DLL `csc.exe`: vẫn `FileLoadException` identity Framework đóng dấu sai — struct/COM/identity tiếp tục chờ. Astral grouping không cần `ord()` (đã xong trước).
 
 - **Migration `len()` bytes→chars (tkvc build 22:14)**: compiler mới đếm `len()` theo chars/units (trước: bytes UTF-8) — migrate text family sang char-semantics, verify lại xanh: `shape_script_of` fall-through (không return 7 oan), tách `idx`/`byte_pos` ở mọi vòng segmentation (Shaping/Bidi/FontFallback/Ime), `vi_seq_len_at` gộp combining-marks, `utf8_seq_len` trả byte-length theo codepoint, test byte-calibrated → unit (`n=6`→`4`, run offsets, emoji astral 2 classes). Text 239, Shaping 91, Bidi 150, Ime 37, Widgets 101, Fallback 37. Verify 50/0/2.

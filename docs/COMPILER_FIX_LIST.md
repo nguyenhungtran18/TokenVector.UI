@@ -45,14 +45,16 @@
 - Hệ quả: đường shim C# MỞ (OpenH264, AccessKit) — shim giao tiếp bằng
   kiểu cơ bản + R2 buffers, marshal struct/complex nằm trong C#.
 
-### F-4b. `__tkv_vtable__` tồn tại nhưng emit SAI (mới phát hiện 23/09)
-- Declaration chấp nhận keys `convention/name/params/returns`; call shape
-  là `(iface_ptr, fn_slot, ...declared_args)`.
-- **Bug**: IL emit chỉ push `(obj, slot)` rồi `calli` thô → gọi vào địa chỉ
-  = slot → `AccessViolationException` (đo thật với obj=0/slot=1).
-  Thiếu bước resolve `*(obj + slot*ptrsize)`.
-- Cần maintainer sửa emitter (không phải direction mới). R8 vẫn đóng cho
-  tới lúc đó.
+### F-4b. `__tkv_vtable__` — ĐÃ SỬA + VERIFY ĐỘC LẬP (exe 17:05)
+- Emitter mới resolve `fn = *(iface + slot*8)` trên miền i64 rồi mới
+  `calli`; call shape `ten(iface_var, slot, ...args)`, iface phải là tên
+  biến đơn (inline nổ on ào lúc build — đúng thiết kế).
+- **Verify độc lập bằng COM object thật** (CoCreateInstance FileOpenDialog
+  qua GUID bytes trong R2 buffers, không cần struct): `AddRef` r1=2, r2=3
+  (d=1, khớp số maintainer), `Release` về 2,1 sạch. VTCOM 4/4.
+- R8 mở một phần: dispatch + method đơn giản (AddRef/Release) chạy thật;
+  method phức tạp (struct params) vẫn chờ R1. UIA provider thật đã khả thi
+  từng bước (kết hợp HWND mirror hiện có).
 
 ### F-4. COM vtable / implement interface (R8)
 - Chặn: UIA provider thật, D3D11/GPU pipeline. HWND mirror chỉ là đường vòng.
