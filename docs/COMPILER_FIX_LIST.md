@@ -35,14 +35,24 @@
 - Giải pháp: khai báo struct + truyền `Struct*` (in/out) như §R1 trong
   `UPSTREAM_REQUIREMENTS.md` (acceptance: `GetCursorPos`/`GetSystemTime`).
 
-### F-3. Assembly identity đúng cho extern (R3) — VẪN ĐÓNG (re-probe 23/09)
-- **Bằng chứng chạy thật (lần 2, tkvc mới)**: build DLL test bằng `csc.exe`,
-  khai báo `__tkv_extern_assembly__`, gọi lúc chạy nổ Y NGUYÊN:
-  `FileLoadException: 'R3Test, Version=4.0.0.0, Culture=neutral,
-  PublicKeyToken=b77a5c561934e089'` — compiler vẫn đóng dấu identity
-  Framework lên assembly tư nhân.
-- Chặn: mọi shim C# (OpenH264 ~20 dòng, AccessKit).
-- Giải pháp: cho khai báo full identity (name+version+culture+token) như §R3.
+### F-3. Assembly identity đúng cho extern (R3) — MỞ QUA TUPLE (23/09)
+- Đính chính kết luận cũ (chỉ probe form bare nên sai): form bare
+  `__tkv_extern_assembly__ = "R3Test"` ra identity Framework là **by-design**.
+- Form đúng: `__tkv_extern_assembly__ = [("R3Test", None, None)]` +
+  method `assembly: "R3Test"` → **PROBER3A_OK (50), exit 0** trên exe 13:21.
+- Form full-identity inline emit IL sai cú pháp (tên không quote) — không
+  dùng; tuple là form chính thức.
+- Hệ quả: đường shim C# MỞ (OpenH264, AccessKit) — shim giao tiếp bằng
+  kiểu cơ bản + R2 buffers, marshal struct/complex nằm trong C#.
+
+### F-4b. `__tkv_vtable__` tồn tại nhưng emit SAI (mới phát hiện 23/09)
+- Declaration chấp nhận keys `convention/name/params/returns`; call shape
+  là `(iface_ptr, fn_slot, ...declared_args)`.
+- **Bug**: IL emit chỉ push `(obj, slot)` rồi `calli` thô → gọi vào địa chỉ
+  = slot → `AccessViolationException` (đo thật với obj=0/slot=1).
+  Thiếu bước resolve `*(obj + slot*ptrsize)`.
+- Cần maintainer sửa emitter (không phải direction mới). R8 vẫn đóng cho
+  tới lúc đó.
 
 ### F-4. COM vtable / implement interface (R8)
 - Chặn: UIA provider thật, D3D11/GPU pipeline. HWND mirror chỉ là đường vòng.
