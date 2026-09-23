@@ -81,6 +81,8 @@ for f in libharfbuzz.dll libglib-2.0-0.dll libintl-8.dll; do
     cp -f "build/$f" "$OUT/" 2>/dev/null || true
   fi
 done
+run_case harfbuzz   TkvUI.HarfBuzz.tkv  harfbuzz_selftest HBWIRE_OK
+run_case hbwire     TkvUI.Text.tkv     hbwire_selftest   HBWIRE_OK
 run_case bidi       TkvUI.Bidi.tkv     bidi_selftest     BIDI_OK
 run_case gpu        TkvUI.Gpu.tkv      gpu_selftest      GPU_OK
 run_case a11y       TkvUI.A11y.tkv     a11y_selftest     A11Y_OK

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """TkvUI.Text - bitmap font + renderer (Task 3) + TTF rasterizer (P2.8) + Vietnamese (TkvUI.Viet), needs TkvUI.Core"""
-__tkv_import__ = ["TkvUI.Core", "TkvUI.Viet", "TkvUI.I18nData"]
+__tkv_import__ = ["TkvUI.Core", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.HarfBuzz"]
 # P2.1: pinvoke GetTickCount de do thoi gian (benchmark atlas vs classic)
 __tkv_extern_pinvoke__ = [{"name": "text_ticks", "dll": "kernel32.dll", "symbol": "GetTickCount", "convention": "stdcall", "params": [], "returns": "i32"}]
 # TASK 3: TEXT - Embedded Bitmap Font 5x7 + Renderer + Glyph Atlas (P2.1)
@@ -4037,6 +4037,243 @@ def text_draw_fallback(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]
                     cur_x = cur_x + advpx
         idx = idx + 1
     return 1
+
+# =========================================================
+# L2: HarfBuzz draw path (text_atlas_draw_shaped) + HBWIRE selftest
+# =========================================================
+def text_is_ascii_only(text: "str") -> "i32":
+    i = int(0)
+    n = len(text)
+    while i < n:
+        if char_code(text[i:i + 1]) < 0:
+            return 0
+        i = i + 1
+    return 1
+
+def text_shaped_pick_font(script: "i32") -> "list[i64]":
+    # Font best-effort cho script; rong = khong co embedded -> shape that bai.
+    if script == HB_SCRIPT_HAN:
+        return i18n_font_bytes_cjk()
+    if script == HB_SCRIPT_THAI or script == HB_SCRIPT_DEVANAGARI:
+        return []
+    if script == HB_SCRIPT_BENGALI or script == HB_SCRIPT_TAMIL or script == HB_SCRIPT_TELUGU:
+        return []
+    return i18n_font_bytes_he()
+
+def text_shaped_lang(script: "i32") -> "str":
+    if script == HB_SCRIPT_HEBREW:
+        return "he"
+    if script == HB_SCRIPT_ARABIC:
+        return "ar"
+    if script == HB_SCRIPT_THAI:
+        return "th"
+    if script == HB_SCRIPT_DEVANAGARI:
+        return "hi"
+    if script == HB_SCRIPT_HAN:
+        return "zh"
+    return "en"
+
+def atlas_find_gid_slot(iatlas: "GlyphAtlas", gid: "i32") -> "i32":
+    i = int(0)
+    while i < len(iatlas.glyph_gid):
+        if iatlas.glyph_gid[i] == gid:
+            return i
+        i = i + 1
+    return -1
+
+def atlas_slot_capacity(iatlas: "GlyphAtlas") -> "i32":
+    gw = iatlas.glyph_w * iatlas.scale
+    gh = iatlas.glyph_h * iatlas.scale
+    if gw <= 0:
+        return 0
+    if gh <= 0:
+        return 0
+    cols = iatlas.width // gw
+    rows = iatlas.height // gh
+    return cols * rows
+
+def atlas_find_or_bake_gid(iatlas: "GlyphAtlas", iabuf: "list[i64]", gid: "i32", font_bytes: "list[i64]") -> "i32":
+    # Tim slot theo gid; chua co va con slot trong -> lazy-bake glyf tu TTF.
+    # Tra slot, -1 neu khong duoc (thieu font / atlas day / gid 0).
+    if gid <= 0:
+        return -1
+    slot = atlas_find_gid_slot(iatlas, gid)
+    if slot >= 0:
+        return slot
+    if len(font_bytes) < 12:
+        return -1
+    cap = atlas_slot_capacity(iatlas)
+    free = len(iatlas.glyph_gid)
+    if free >= cap:
+        return -1
+    f = ttf_load_font(font_bytes)
+    if f.upem == 0:
+        return -1
+    hhea_off = ttf_find_table(font_bytes, 1751672161)
+    hhea = ttf_parse_hhea(font_bytes, hhea_off)
+    if f.ascent - f.descent == 0:
+        return -1
+    cscale = float(iatlas.glyph_h * iatlas.scale) / (float(f.ascent - f.descent) * 0.9)
+    while len(iatlas.glyph_gid) <= free:
+        iatlas.glyph_gid.append(-1)
+    while len(iatlas.glyph_adv) <= free:
+        iatlas.glyph_adv.append(6 * iatlas.scale)
+    hmtx_off = ttf_find_table(font_bytes, 1752003704)
+    hmtx = ttf_parse_hmtx(font_bytes, hmtx_off, hhea[3], f.num_glyphs)
+    ttf_rasterize_glyph_to_atlas(font_bytes, f.glyf_off, f.loca_off, f.index_to_loc_format, gid, cscale, iabuf, iatlas, free)
+    mm = ttf_get_glyph_metrics(hmtx, f.num_glyphs, gid)
+    iatlas.glyph_adv[free] = int(float(mm[0]) * cscale)
+    iatlas.glyph_gid[free] = gid
+    return free
+
+def text_shaped_adv_scale(font_bytes: "list[i64]", iatlas: "GlyphAtlas") -> "f64":
+    # HB default scale = upem (font units) -> pixel qua cscale cua atlas.
+    if len(font_bytes) < 12:
+        return 0.0
+    f = ttf_load_font(font_bytes)
+    if f.upem == 0:
+        return 0.0
+    if f.ascent - f.descent == 0:
+        return 0.0
+    return float(iatlas.glyph_h * iatlas.scale) / (float(f.ascent - f.descent) * 0.9)
+
+def text_atlas_draw_shaped(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32" = 0, box_w: "f64" = 0.0, tracking: "f64" = 0.0) -> "i32":
+    # Draw path L2: ASCII fast-path (khong HB, giu bench 9.4ms); thieu DLL ->
+    # fallback cu; co DLL -> shape per-run + blit (gid lazy-bake / box).
+    if text_is_ascii_only(text) == 1:
+        scratch = []
+        return text_atlas_draw_string_ex(abuf, atlas, buf, surf, text, scratch, x, y, color, align, box_w, tracking)
+    if hb_lib_present() == 0:
+        return text_draw_fallback(abuf, atlas, iabuf, iatlas, buf, surf, text, x, y, color, align, box_w, tracking)
+    return text_shaped_draw_hb(abuf, atlas, iabuf, iatlas, buf, surf, text, x, y, color, align, box_w, tracking)
+
+def text_shaped_draw_hb(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", color: "ColorRgba", align: "i32", box_w: "f64", tracking: "f64") -> "i32":
+    # Shape toan bo text thanh runs -> slot/adv song song -> tinh chieu rong
+    # -> align -> blit. Cluster giu de caller doc (selftest). Fallback ve box
+    # khi shape that bai per-run (font rong/missing glyph).
+    sc = iatlas.scale
+    if sc < 1:
+        sc = 1
+    mono = 6 * sc + int(tracking)
+    runs = []
+    nruns = shape_split_runs(text, runs)
+    slots = []
+    advs = []
+    n = len(text)
+    i = int(0)
+    r = int(0)
+    while r < nruns:
+        rs = runs[r * 4]
+        re = runs[r * 4 + 1]
+        script = runs[r * 4 + 2]
+        direction = runs[r * 4 + 3]
+        fb = text_shaped_pick_font(script)
+        lang = text_shaped_lang(script)
+        gids = []
+        hadv = []
+        hcl = []
+        cnt = shape_run_hb(text, rs, re, fb, script, direction, lang, gids, hadv, hcl)
+        if cnt <= 0:
+            # fallback: 1 box/seq, advance monospace
+            j = rs
+            while j < re:
+                slots.append(-1)
+                advs.append(mono)
+                j = j + 1
+        else:
+            cscale = text_shaped_adv_scale(fb, iatlas)
+            k = int(0)
+            while k < cnt:
+                slot = atlas_find_or_bake_gid(iatlas, iabuf, gids[k], fb)
+                slots.append(slot)
+                av = int(float(hadv[k]) * cscale)
+                if av <= 0:
+                    av = mono
+                advs.append(av)
+                k = k + 1
+        r = r + 1
+    # chieu rong de align
+    tw = 0.0
+    gi = int(0)
+    ng = len(slots)
+    while gi < ng:
+        tw = tw + float(advs[gi] + int(tracking))
+        gi = gi + 1
+    cur_x = int(x)
+    if align == 1:
+        if box_w > tw:
+            cur_x = int(x) + int((box_w - tw) / 2.0)
+    if align == 2:
+        if box_w > tw:
+            cur_x = int(x) + int(box_w - tw)
+    cur_y = int(y)
+    gi = int(0)
+    while gi < ng:
+        slot = slots[gi]
+        if slot >= 0:
+            atlas_blit_glyph(iabuf, iatlas, buf, surf, slot, cur_x, cur_y, color, color.a)
+        else:
+            vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
+        cur_x = cur_x + advs[gi] + int(tracking)
+        gi = gi + 1
+    return 1
+
+def hbwire_selftest() -> "str":
+    # L2 acceptance: Arabic/Thai/Devanagari render pixel > 0 qua
+    # text_atlas_draw_shaped; cluster count match shape_run_hb; ASCII path
+    # van dung text_atlas_draw_string_ex (khong regress).
+    print("=== TkvUI.Text hbwire selftest ===")
+    acc = []
+    acc.append(0)
+    acc.append(0)
+    white = ColorRgba(255, 255, 255, 255)
+    empty = ColorRgba(0, 0, 0, 0)
+    fas = text_atlas_record(1)
+    fab = atlas_buffer(fas)
+    atlas_bake(fas, fab)
+    iat = text_atlas_record_i18n(1)
+    ibf = atlas_buffer(iat)
+    text_atlas_bake_i18n_all(iat, ibf)
+    buf = []
+    surface_ensure_capacity(buf, 4800)
+    surf = PixelSurface(200, 24, 200)
+    # ASCII fast path van goi draw_string_ex (pixel > 0, khong can DLL)
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "hbwire ascii rc", text_atlas_draw_shaped(fab, fas, ibf, iat, buf, surf, "ABC", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "hbwire ascii pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    # cluster count match: shape Arabic "سلام" (10 bytes UTF-8)
+    gids = []
+    advs = []
+    clus = []
+    cnt = shape_run_hb("سلام", 0, 4, i18n_font_bytes_he(), HB_SCRIPT_ARABIC, HB_DIRECTION_RTL, "ar", gids, advs, clus)
+    if hb_lib_present() == 1:
+        text_check_gt(acc, "hbwire arabic shape n", cnt, 0)
+        text_check_i(acc, "hbwire arabic cluster len", len(clus), cnt)
+        # RTL visual order: cluster dau = byte offset cao nhat, cuoi = 0
+        text_check_i(acc, "hbwire arabic cluster last", clus[cnt - 1], 0)
+        text_check_gt(acc, "hbwire arabic cluster0 hi", clus[0], clus[cnt - 1])
+    # Arabic draw pixel > 0
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "hbwire arabic draw rc", text_atlas_draw_shaped(fab, fas, ibf, iat, buf, surf, "سلام", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "hbwire arabic pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    # Thai: khong embedded font -> shape fail -> box fallback van pixel > 0
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "hbwire thai draw rc", text_atlas_draw_shaped(fab, fas, ibf, iat, buf, surf, "ก", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "hbwire thai pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    # Devanagari: cung khong font -> box
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "hbwire deva draw rc", text_atlas_draw_shaped(fab, fas, ibf, iat, buf, surf, "अ", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "hbwire deva pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    # Hebrew co font -> shape + draw
+    surface_clear(buf, surf, empty)
+    text_check_i(acc, "hbwire heb draw rc", text_atlas_draw_shaped(fab, fas, ibf, iat, buf, surf, "שלום", 0.0, 0.0, white), 1)
+    text_check_gt(acc, "hbwire heb pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    print("--- hbwire selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1]:
+        print("HBWIRE_OK")
+        return "HBWIRE_OK"
+    print("HBWIRE_FAIL")
+    return "HBWIRE_FAIL"
 
 # ---- test helpers: emit bytes + synthetic TTF toi thieu (chi dung trong selftest) ----
 def ttf_put_u16(data: "list[i64]", v: "i32") -> "i32":

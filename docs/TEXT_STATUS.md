@@ -27,11 +27,11 @@
 **Hiện trạng:**
 - Bidi UAX#9 + visual reorder: DONE (`TkvUI.Bidi.tkv`, **194/194 PASS**)
 - **HarfBuzz 14.5 thật: ĐÃ打通 (2026-09-23)** — pinvoke `hb_*` + `hb_shape_full`/`hb_shape_text`, bake Arial exact (gid/adv/cluster khớp ctypes, Ả Rập RTL joining), `tools/fetch_harfbuzz.ps1` (MIT), skip-sạch 157/157 khi thiếu dll
-- **Còn thiếu:** wire vào draw path — `TkvUI.Text` không import được `TkvUI.Bidi` (vòng import) → cần leaf `TkvUI.HarfBuzz` + atlas lazy-bake gid do HB trả về (không chỉ isolated forms)
+- **Wire draw path: ĐÃ XONG (L2, 2026-09-23)** — leaf `TkvUI.HarfBuzz` phá vòng import Text↔Bidi; `text_atlas_draw_shaped` + `atlas_find_or_bake_gid` lazy-bake; `hbwire_selftest` **14/14 `HBWIRE_OK`** (Arabic pixel>0 + cluster match, Thai/Deva box pixel>0, ASCII fast-path giữ nguyên)
 
-**Workaround hiện tại (khi thiếu dll):** Arabic/Hebrew dùng glyph baked sẵn (`i18n_baked`), không shaping runtime.
+**Workaround cũ (khi thiếu dll):** Arabic/Hebrew dạng glyph baked sãn (`i18n_baked`), không shaping runtime — nay fallback qua `text_draw_fallback` khi `hb_lib_present()==0`.
 
-**Mục tiêu:** `text_atlas_draw_i18n` hỗ trợ shaping đúng cho Indic/Thai/Arabic full khi có dll.
+**Mục tiêu:** `text_atlas_draw_shaped` hỗ trợ shaping đúng cho Indic/Thai/Arabic full khi có dll — **đã wire**; Arabic/Hebrew/Han có font embedded → shape thật; Thai/Deva chưa có embedded font → box fallback (cần thêm subset font để render glyph thật).
 
 ---
 
