@@ -26,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PAGE = ('<!DOCTYPE html><html><head><meta charset="utf-8"><title>cap</title>'
         '<style>html,body{margin:0;padding:0;background:#000}'
-        'video{width:%dpx;height:%dpx;display:block}</style></head><body>'
+        'video{width:%dpx;height:%dpx;display:block;object-fit:fill}</style></head><body>'
         '<video id="v" muted playsinline preload="auto" src="%s"></video>'
         '</body></html>')
 
