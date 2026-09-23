@@ -5,19 +5,19 @@ Phu thuoc: TkvUI.Core, TkvUI.Platform (Win32 registry probe).
 Khong vong import: FontDiscovery -> Core, Platform. Font/FontFallback import FontDiscovery.
 
 Kien truc (giong cac module khac: headless-safe stubs):
-- Registry scan: STUB tra 0. Ly do: HKEY_* constants (0x80000001/0x80000002)
-  vuot int32 va compiler khong giu duoc gia tri >2^31 qua chuoi
-  literal -> TkvInt -> pinvoke i64 (OverflowException luc chay).
-  Khi upstream sua, bo stub va dung pinvoke fd_pinv_* da khai bao san.
+- Registry scan: THAT tu 2026-09-22 (R6 i64 literal + R2 out-handle):
+  mo HKLM Fonts key + enum ten values. file_path mapping (RegQueryValueEx
+  DATA) la buoc sau. Non-Windows: tra 0, khong cham advapi32.
 - Phan loi (pure, test duoc): well-known font dirs theo OS + weighted
   family matching + fallback chain co trong so cho FontFallback.
 """
 __tkv_import__ = ["TkvUI.Core", "TkvUI.Platform"]
 
-# Win32 pinvoke de doc registry (giu khai bao cho upstream; chua goi).
+# Win32 pinvoke de doc registry (that: open + enum + close).
 __tkv_extern_pinvoke__ = [
     {"name": "fd_pinv_reg_open_key", "dll": "advapi32.dll", "symbol": "RegOpenKeyExA", "convention": "stdcall", "params": ["i64", "str", "i32", "i32", "i64"], "returns": "i32"},
     {"name": "fd_pinv_reg_close_key", "dll": "advapi32.dll", "symbol": "RegCloseKey", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+    {"name": "fd_pinv_reg_enum_value", "dll": "advapi32.dll", "symbol": "RegEnumValueA", "convention": "stdcall", "params": ["i64", "i32", "i64", "i64", "i64", "i64", "i64", "i64"], "returns": "i32"},
 ]
 
 KEY_READ = 131097
@@ -50,8 +50,36 @@ class FontDiscoveryResult:
         self.families = []
 
 def fd_reg_open_key(root: "i64", subkey: "str") -> "i64":
-    # STUB (M2.4): tra 0. Can HKEY_* >2^31 ma compiler khong giu duoc.
-    return 0
+    # That (R6 i64 literal + R2 out-handle): mo key, tra handle (0 neu loi).
+    # Chi goi tren Windows (detect_platform()==1) — advapi32 khong co elsewhere.
+    hp = alloc_bytes(8)
+    write_i64(hp, 0, 0)
+    rc = fd_pinv_reg_open_key(root, subkey, 0, 131097, hp)
+    h = read_i64(hp, 0)
+    free_bytes(hp)
+    if rc != 0:
+        return 0
+    return h
+
+def fd_reg_enum_name(handle: "i64", index: "i32", out_names: "list[str]") -> "i32":
+    # Doc ten value thu index (RegEnumValueA). 1 neu ok (append), 0 neu het/loi.
+    nb = alloc_bytes(1024)
+    lb = alloc_bytes(4)
+    write_i32(lb, 0, 1024)
+    rc = fd_pinv_reg_enum_value(handle, index, nb, lb, 0, 0, 0, 0)
+    if rc != 0:
+        free_bytes(nb)
+        free_bytes(lb)
+        return 0
+    nl = read_i32(lb, 0)
+    if nl <= 0 or nl > 1024:
+        free_bytes(nb)
+        free_bytes(lb)
+        return 0
+    out_names.append(read_ansi(nb, 0, nl))
+    free_bytes(nb)
+    free_bytes(lb)
+    return 1
 
 def fd_reg_close_key(handle: "i64") -> "i32":
     if handle != 0:
@@ -80,12 +108,27 @@ def fd_scan_font_dir(dir_path: "str", out_families: "list[FontFamily]") -> "i32"
     return 0
 
 def fd_registry_scan_fonts(out_families: "list[FontFamily]") -> "i32":
-    # STUB (M2.4): registry scan can HKEY_* >2^31 (xem fd_reg_open_key).
-    # Tra 0; caller van co well-known dirs + built-in fallback chain.
-    return 0
+    # That (R6+R2): mo HKLM Fonts key, enum ten values (M2.4 tien 1 buoc).
+    # file_path de trong (map file can RegQueryValueEx DATA — buoc sau).
+    # Non-Windows: tra 0 (khong cham advapi32).
+    if detect_platform() != 1:
+        return 0
+    h = fd_reg_open_key(2147483650, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts")
+    if h == 0:
+        return 0
+    names = []
+    idx = int(0)
+    while fd_reg_enum_name(h, idx, names) == 1:
+        idx = idx + 1
+    fd_reg_close_key(h)
+    i = int(0)
+    while i < len(names):
+        out_families.append(FontFamily(names[i], "", 400, 0, 1))
+        i = i + 1
+    return len(names)
 
 def fd_discover_all_fonts(out_families: "list[FontFamily]") -> "i32":
-    # Discover tat ca font: registry (stub) + font dirs (well-known paths).
+    # Discover tat ca font: registry (that, Windows) + font dirs (well-known paths).
     count = fd_registry_scan_fonts(out_families)
     dirs = []
     fd_get_font_dirs(dirs)
@@ -240,12 +283,29 @@ def fd_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
 def fd_selftest() -> "str":
     print("== TkvUI.FontDiscovery selftest ==")
     acc = [int(0), int(0)]
-    # Registry stub: tra 0 (headless-safe), khong crash
-    hk = fd_reg_open_key(0, "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts")
-    ok_stub = 0
-    if hk == 0:
-        ok_stub = 1
-    fd_check(acc, "reg stub tra 0", ok_stub)
+    # Registry that (Windows) / skip (non-Windows, headless-safe)
+    if detect_platform() == 1:
+        hk = fd_reg_open_key(2147483650, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts")
+        ok_open = 0
+        if hk != 0:
+            ok_open = 1
+        fd_check(acc, "reg.open", ok_open)
+        nm = []
+        fd_check(acc, "reg.enum0", fd_reg_enum_name(hk, 0, nm))
+        ok_nm = 0
+        if len(nm) > 0:
+            if len(nm[0]) > 0:
+                ok_nm = 1
+        fd_check(acc, "reg.name0", ok_nm)
+        fd_reg_close_key(hk)
+        famreg = []
+        nreg = fd_registry_scan_fonts(famreg)
+        ok_nreg = 0
+        if nreg > 10:
+            ok_nreg = 1
+        fd_check(acc, "reg.scan>10", ok_nreg)
+    else:
+        fd_check(acc, "reg.skip.nonwin", 1)
     # Font dirs theo platform
     dirs = []
     fd_get_font_dirs(dirs)

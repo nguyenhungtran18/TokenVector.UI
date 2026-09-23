@@ -245,25 +245,42 @@ def mj_pow2list(out_pw: "list[i32]") -> "i32":
         i = i + 1
     return len(out_pw)
 
+def mj_refill(scan: "list[i32]", br: "list[i32]") -> "i32":
+    # Nap 1 byte vao reservoir khi cnt <= 16. br = [bytepos, bitbuf, bitcnt]
+    # (bit chua doc nam o `cnt` bit thap). i32-safe: buf < 2^24.
+    if br[2] > 16:
+        return br[2]
+    if br[0] >= len(scan):
+        return br[2]
+    br[1] = br[1] | (scan[br[0]] << br[2])
+    br[0] = br[0] + 1
+    br[2] = br[2] + 8
+    return br[2]
+
 def mj_getbit(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]") -> "i32":
-    # 1 bit MSB-first tai br[0]; br[0] += 1. Tra -1 khi het.
+    # 1 bit MSB-first tu reservoir (R5 bitwise). Tra -1 khi het.
     # (JPEG doc MSB-first, nguoc LZW-GIF LSB-first.)
-    pos = br[0]
-    if pos // 8 >= len(scan):
-        return -1
-    byte = scan[pos // 8]
-    b = (byte // pw2[7 - (pos % 8)]) % 2
-    br[0] = pos + 1
+    if br[2] == 0:
+        mj_refill(scan, br)
+        if br[2] == 0:
+            return -1
+    br[2] = br[2] - 1
+    b = (br[1] >> br[2]) & 1
+    br[1] = br[1] & ((1 << br[2]) - 1)
     return b
 
 def mj_recv(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]", n: "i32") -> "i32":
-    # Doc n bits MSB-first. Tra -1 khi het.
+    # Doc n bits MSB-first truc tiep tu reservoir (R5). Tra -1 khi het.
     v = int(0)
     i = int(0)
     while i < n:
-        b = mj_getbit(scan, br, pw2)
-        if b < 0:
-            return -1
+        if br[2] == 0:
+            mj_refill(scan, br)
+            if br[2] == 0:
+                return -1
+        br[2] = br[2] - 1
+        b = (br[1] >> br[2]) & 1
+        br[1] = br[1] & ((1 << br[2]) - 1)
         v = v * 2 + b
         i = i + 1
     return v
@@ -272,7 +289,7 @@ def mj_extend(v: "i32", s: "i32", pw2: "list[i32]") -> "i32":
     # Mo rong so co dau JPEG (F.12). s = category.
     if s == 0:
         return 0
-    half = pw2[s - 1]
+    half = 1 << (s - 1)
     if v < half:
         return v + 1 - half * 2
     return v
@@ -315,8 +332,8 @@ def mj_decode_block(scan: "list[i32]", br: "list[i32]", pw2: "list[i32]", hmin: 
         rs = mj_huff_sym(scan, br, pw2, hmin, hmax, hval, hsym, tac * 16)
         if rs < 0:
             return 0
-        r = rs // 16
-        s = rs % 16
+        r = rs >> 4
+        s = rs & 15
         if s == 0:
             if r == 15:
                 k = k + 16
@@ -363,6 +380,15 @@ def mj_build_cos(out_ct: "list[f64]") -> "i32":
         x = x + 1
     return len(out_ct)
 
+def mj_dc_only(blk: "list[i32]") -> "i32":
+    # 1 neu block chi co DC (63 AC = 0). Rescan 64 so (~60x re hon IDCT).
+    i = int(1)
+    while i < 64:
+        if blk[i] != 0:
+            return 0
+        i = i + 1
+    return 1
+
 def mj_idct(blk: "list[i32]", ct: "list[f64]", out_px: "list[i32]") -> "i32":
     # IDCT 8x8 float: out[y*8+x] = 1/4*SUM C(u)C(v)F*cos*cos + 128, clamp.
     # blk he so CHUAN row-major (row=v, col=u) - khop zigzag chuan.
@@ -396,14 +422,29 @@ def mj_clamp8(v: "i32") -> "i32":
         return 255
     return v
 
-def mj_ycbcr_to_rgb(yy: "i32", cb: "i32", cr: "i32", out_rgb: "list[i32]") -> "i32":
-    # BT.601 float. Append r,g,b. Tra 3.
-    r = int(float(yy) + 1.402 * float(cr - 128) + 0.5)
-    g = int(float(yy) - 0.344136 * float(cb - 128) - 0.714136 * float(cr - 128) + 0.5)
-    b = int(float(yy) + 1.772 * float(cb - 128) + 0.5)
-    out_rgb.append(mj_clamp8(r))
-    out_rgb.append(mj_clamp8(g))
-    out_rgb.append(mj_clamp8(b))
+def mj_ycbcr_tables(lr: "list[f64]", lb: "list[f64]", lg1: "list[f64]", lg2: "list[f64]") -> "i32":
+    # LUT float theo kenh (xay 1 lan/frame). Luu TICH TRUNG GIAN (khong int)
+    # nen ket hop sau cho ket qua bit-identical voi cong thuc goc.
+    c = int(0)
+    while c < 256:
+        d = float(c - 128)
+        lr.append(1.402 * d)
+        lb.append(1.772 * d)
+        lg1.append(0.0 - 0.344136 * d)
+        lg2.append(0.0 - 0.714136 * d)
+        c = c + 1
+    return 256
+
+def mj_ycbcr_to_rgb(yy: "i32", cb: "i32", cr: "i32", out_rgb: "list[i32]", pos: "i32", lr: "list[f64]", lb: "list[f64]", lg1: "list[f64]", lg2: "list[f64]") -> "i32":
+    # BT.601 float qua LUT (bit-identical: cung cay bieu thuc nhu ban goc).
+    # Ghi r,g,b tai pos (caller presize). Tra 3.
+    yf = float(yy)
+    r = int(yf + lr[cr] + 0.5)
+    g = int(yf + lg1[cb] + lg2[cr] + 0.5)
+    b = int(yf + lb[cb] + 0.5)
+    out_rgb[pos] = mj_clamp8(r)
+    out_rgb[pos + 1] = mj_clamp8(g)
+    out_rgb[pos + 2] = mj_clamp8(b)
     return 3
 
 def mj_place_block(plane: "list[i32]", stride: "i32", gx: "i32", gy: "i32", blk: "list[i32]") -> "i32":
@@ -502,7 +543,7 @@ def mj_decode_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
         Cr.append(128)
         i = i + 1
     dcpred = [0, 0, 0]
-    br = [0]
+    br = [0, 0, 0]
     my = int(0)
     while my < mcuy:
         mx = int(0)
@@ -525,7 +566,14 @@ def mj_decode_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
                         if okr == 0:
                             return 0
                         px = []
-                        mj_idct(blk, ct, px)
+                        if mj_dc_only(blk) == 1:
+                            vdc = mj_clamp8(int((ct[0] * ct[0]) * float(blk[0]) / 4.0 + 128.5))
+                            qi = int(0)
+                            while qi < 64:
+                                px.append(vdc)
+                                qi = qi + 1
+                        else:
+                            mj_idct(blk, ct, px)
                         if ci == 0:
                             mj_place_block(Y, ystride, mx * hc + bx, my * vc + by, px)
                         else:
@@ -543,6 +591,19 @@ def mj_decode_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
     fx = h0 // 1
     if ncomp == 3:
         fx = h0
+    lr = []
+    lb = []
+    lg1 = []
+    lg2 = []
+    mj_ycbcr_tables(lr, lb, lg1, lg2)
+    npix3 = w * h * 3
+    pi = int(0)
+    while pi < npix3:
+        out_rgb.append(0)
+        pi = pi + 1
+    use_half = 0
+    if fx == 2:
+        use_half = 1
     y = int(0)
     while y < h:
         x = int(0)
@@ -551,9 +612,14 @@ def mj_decode_frame(data: "list[i32]", out_rgb: "list[i32]") -> "i32":
             cb = 128
             cr = 128
             if ncomp == 3:
-                cb = Cb[(y // fx) * cstride + x // fx]
-                cr = Cr[(y // fx) * cstride + x // fx]
-            mj_ycbcr_to_rgb(yy, cb, cr, out_rgb)
+                sy = y // fx
+                sx = x // fx
+                if use_half == 1:
+                    sy = y >> 1
+                    sx = x >> 1
+                cb = Cb[sy * cstride + sx]
+                cr = Cr[sy * cstride + sx]
+            mj_ycbcr_to_rgb(yy, cb, cr, out_rgb, (y * w + x) * 3, lr, lb, lg1, lg2)
             x = x + 1
         y = y + 1
     return 1

@@ -54,7 +54,8 @@
     { "name": "TkvUI.MjpgHDData", "file": "TkvUI.MjpgHDData.tkv", "imports": ["TkvUI.Core"], "summary": "1 frame 720p bake 8 chunk (44.5KB) + ground truth RGB (sum/first/last); dung cho verdict HD", "selftest": null },
     { "name": "TkvUI.Mp4Data", "file": "TkvUI.Mp4Data.tkv", "imports": ["TkvUI.Core"], "summary": "MP4 2-track craft san (avc1 3 samples + mp4a 2 samples, 1480B) + ground truth tracks/durations/sizes/offsets; khong doc file luc chay", "selftest": null },
     { "name": "TkvUI.Mp4", "file": "TkvUI.Mp4.tkv", "imports": ["TkvUI.Core","TkvUI.Mp4Data","TkvUI.Mp4RData"], "summary": "MP4 demux thuan .tkv (duong B): box walk + moov/mvhd + trak (tkhd/mdia/stbl) + sample table (stsz/stsc/stco/co64) + ctts + SPS Exp-Golomb + O(1) sample offset + extract + ms durations; tra ma loi ro", "selftest": "mp4_selftest" },
-    { "name": "TkvUI.Mp4RData", "file": "TkvUI.Mp4RData.tkv", "imports": ["TkvUI.Core"], "summary": "File MP4 realistic (moov sau mdat, co64, elst, ctts, stsc 2 runs, SPS that 160x128 Baseline); khong doc file luc chay", "selftest": null }
+    { "name": "TkvUI.Mp4RData", "file": "TkvUI.Mp4RData.tkv", "imports": ["TkvUI.Core"], "summary": "File MP4 realistic (moov sau mdat, co64, elst, ctts, stsc 2 runs, SPS that 160x128 Baseline); khong doc file luc chay", "selftest": null },
+    { "name": "TkvUI.Clipboard", "file": "TkvUI.Clipboard.tkv", "imports": ["TkvUI.Core"], "summary": "Clipboard OS that (Win32 GlobalAlloc/Lock + R2 buffers + ConvertToUtf32): CF_TEXT/CF_UNICODETEXT, ASCII/Viet/emoji round-trip", "selftest": "clipboard_selftest" }
   ],
   "umbrella": {
     "file": "TokenVector.UI.tkv",
@@ -65,7 +66,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "49 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 30 module cases incl. +mp4, suite TKVUI_OK 32/32, 17 examples incl. +videodemo +qtapp +clipplayer; android/ios no device; Mp4 38/38 demux, VideoDemo 21/21 player, QtAppPort 52/52, ClipPlayer 14/14)"
+    "last_result": "50 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 31 module cases incl. +clipboard, suite TKVUI_OK 33/33, 17 examples; android/ios no device; Clipboard 12/12 OS that, FontDiscovery registry that 18/18)"
   },
   "package": {
     "script": "tools/package.sh",

@@ -188,6 +188,18 @@ bitwise (`>>`/`&` thay `//`/`%`, nhanh 10–50× cho bit-reader) và/hoặc SIMD
 từ compiler — gap số 1 cho codec, đã ghi trong `docs/COMPILER_GAPS.md`.
 Đường TKVV custom (không Huffman/IDCT) mới là ứng viên realtime — để tiếp.
 
+### Update R5 (2026-09-22, bitwise đã mở — kết quả âm trung thực)
+
+Đã áp dụng R5 khắp hot paths MJPEG (`TkvUI.Mjpg.tkv`): bit-reservoir
+(`>>`/`&`, bỏ `//`/`%` từng bit), `extend`/`rs-split` bitwise, YCbCr LUT
+float (bit-identical theo construction), DC-only fast path (bit-identical
+theo IEEE), RGB presize + index-assign, upsample `>>1`. Xác minh:
+44/44 + 6/6 giữ xanh pixel-exact. Đo HD 3 lần: **437/454/500ms (~2fps) —
+không nhanh hơn**. Kết luận: tường thật là float-IDCT (~88M mult-adds
+TkvInt-boxed) + per-op overhead (call/list-index mỗi pixel), KHÔNG phải
+bit-reader. Muốn realtime phải integer-IDCT (vỡ pixel-exact) hoặc SIMD
+(không có primitive). TKVV (~100fps@720p) vẫn là đáp án realtime.
+
 ## Verdict HD realtime (TKVV fast path, 2026-09-22)
 
 Presized buffers + RGB trực tiếp (0 append): đo 200-400 reps —

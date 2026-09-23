@@ -9,9 +9,9 @@ Thư viện UI đa nền tảng viết **100% bằng TokenVector (`.tkv`)**, zer
 Rasterizer, font, effects, layout, widget và cửa sổ native đều tự viết, biên dịch bằng `tkvc.exe` → IL → `.exe`.
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
-- **49 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 17 example; android/ios SKIPPED, cần thiết bị thật)
-- **~2140 checks** qua suite (core 47, text 239, bidi 150, widgets 101, native 190, emoji 107, shaping 91, sqlite 132, video 44, tkvv 56, mjpg 44, mp4 62, …)
-- **Binary 649 KB** (suite 26 module) | app ~370–430 KB
+- **50 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 31 module + suite 33/33 + 17 example; android/ios SKIPPED, cần thiết bị thật)
+- **~2160 checks** qua suite (core 47, text 239, bidi 150, widgets 101, native 190, emoji 107, shaping 91, sqlite 132, video 44, tkvv 56, mjpg 44, mp4 62, …)
+- **Binary 1644 KB** (suite 33 module) | app ~550 KB–3.3 MB (tùy clip bake)
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
 - **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), **emoji bake 12 symbol 12×12** (`TkvUI.EmojiData`), PDF writer + SQLite (persist + in-memory), ~40 widget, DesignerApp interactive
 - **WASM**: interp chạy thật (wasmtime DATA_OK), browser canvas demo, AOT closed upstream
@@ -95,7 +95,8 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 | `abridge_selftest` | 94/94 PASS |
 | `fallback_selftest` | **37/37 PASS** (resolve/metrics + weighted fontconfig + **emoji raster thật**) |
 | `emoji_selftest` (`TkvUI.EmojiData`, mới) | **107/107 PASS** (12 glyph bake + distinct + bounds) |
-| `fontdisc_selftest` | 15/15 PASS (weighted matching) |
+| `fontdisc_selftest` | 18/18 PASS (weighted matching + registry scan thật) |
+| `clipboard_selftest` (`TkvUI.Clipboard`, mới) | **12/12 PASS** (clipboard OS thật: ASCII/Việt/emoji round-trip qua Win32 + R2 buffers) |
 | `shaping_selftest` | 91/91 PASS (Arabic/Thai/Indic/Bengali/Tamil + lam-alef) |
 | `nativedlg_selftest` | 39/39 PASS |
 | `ime_selftest` | 37/37 PASS (Telex/VNI + composition) |

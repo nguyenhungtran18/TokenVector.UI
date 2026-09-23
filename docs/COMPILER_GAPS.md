@@ -207,6 +207,9 @@
   `examples/TkvUI.QtAppPort.tkv`.
 - **Liên quan D5:** có thể cùng họ dispatch-theo-tên, nhưng D6 đã isolate dứt
   điểm và có workaround chắc chắn (không cần chờ upstream).
+- **Update 2026-09-22: ĐÃ SỬA upstream** (tkvc build 22:14) — `edit.insert`
+  trong loop emit đúng, workaround `qa_put1` trong QtAppPort đã gỡ, 52/52
+  giữ xanh.
 
 ---
 

@@ -1,0 +1,233 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.Clipboard - OS clipboard that (Win32) tren native buffers (R2).
+
+Phu thuoc: Core (chi scalar; lists do caller giu).
+Thiet ke:
+- CF_TEXT (ASCII/Latin-1) + CF_UNICODETEXT (BMP + astral qua surrogate pair).
+- Ghi: OpenClipboard(0) -> Empty -> GlobalAlloc(GMEM_MOVEABLE) -> GlobalLock
+  -> write_u8 (codepoint qua Char.ConvertToUtf32) -> GlobalUnlock ->
+  SetClipboardData (he thong giu handle).
+- Doc: Open -> GetClipboardData (uu tien UNICODETEXT) -> GlobalLock ->
+  GlobalSize -> read -> Unlock -> Close (KHONG free handle he thong).
+- Ma codepoint lay bang ConvertToUtf32 (mscorlib static, kieu co ban —
+  tranh Marshal tra IntPtr ma extern_method khong resolve).
+  Chuoi .tkv hop-le theo cau truc (literal/chr/file-decode) nen khong lone
+  surrogate; phia doc thay unit le -> the U+FFFD (khong crash).
+
+Ma loi set: 0=ok 1=open 2=alloc 3=lock 4=charset 5=set.
+Ma loi get: 0=ok (append text) 1=open 2=no-data/lock.
+
+Tien to Clip*/clip_* — khong trung khi merge.
+"""
+__tkv_import__ = ["TkvUI.Core"]
+__tkv_extern_pinvoke__ = [
+    {"name": "clip_open", "dll": "user32.dll", "symbol": "OpenClipboard", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+    {"name": "clip_empty", "dll": "user32.dll", "symbol": "EmptyClipboard", "convention": "stdcall", "params": [], "returns": "i32"},
+    {"name": "clip_set", "dll": "user32.dll", "symbol": "SetClipboardData", "convention": "stdcall", "params": ["i32", "i64"], "returns": "i64"},
+    {"name": "clip_close", "dll": "user32.dll", "symbol": "CloseClipboard", "convention": "stdcall", "params": [], "returns": "i32"},
+    {"name": "clip_get", "dll": "user32.dll", "symbol": "GetClipboardData", "convention": "stdcall", "params": ["i32"], "returns": "i64"},
+    {"name": "clip_has", "dll": "user32.dll", "symbol": "IsClipboardFormatAvailable", "convention": "stdcall", "params": ["i32"], "returns": "i32"},
+    {"name": "clip_alloc", "dll": "kernel32.dll", "symbol": "GlobalAlloc", "convention": "stdcall", "params": ["i32", "i64"], "returns": "i64"},
+    {"name": "clip_lock", "dll": "kernel32.dll", "symbol": "GlobalLock", "convention": "stdcall", "params": ["i64"], "returns": "i64"},
+    {"name": "clip_unlock", "dll": "kernel32.dll", "symbol": "GlobalUnlock", "convention": "stdcall", "params": ["i64"], "returns": "i32"},
+    {"name": "clip_free", "dll": "kernel32.dll", "symbol": "GlobalFree", "convention": "stdcall", "params": ["i64"], "returns": "i64"},
+    {"name": "clip_size", "dll": "kernel32.dll", "symbol": "GlobalSize", "convention": "stdcall", "params": ["i64"], "returns": "i64"}
+]
+__tkv_extern_method__ = [
+    {"name": "clip_to32", "assembly": "mscorlib", "class": "System.Char", "method": "ConvertToUtf32", "params": ["str", "i32"], "returns": "i32"}
+]
+
+CLIP_CF_TEXT = 1
+CLIP_CF_UNICODE = 13
+CLIP_GMEM_MOVEABLE = 2
+
+def clipcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def clipcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    if got == want:
+        return clipcheck(acc, name + " = " + str(got), 1)
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    acc[1] = acc[1] + 1
+    return 0
+
+def clipcheck_s(acc: "list[i32]", name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        return clipcheck(acc, name, 1)
+    print("  FAIL " + name + " got=[" + got + "] want=[" + want + "]")
+    acc[1] = acc[1] + 1
+    return 0
+
+def clip_next_cp(s: "str", i: "i32", out_adv: "list[i32]") -> "i32":
+    # Codepoint tai vi tri i (xu ly surrogate pair); out_adv[0]=buoc nhay.
+    cp = clip_to32(s, i)
+    if cp > 65535:
+        out_adv.append(2)
+    else:
+        out_adv.append(1)
+    return cp
+
+def clip_set_text(s: "str") -> "i32":
+    # 0=ok 1=open 2=alloc 3=lock 4=charset 5=set.
+    # Phan loai + ghi theo codepoint (ConvertToUtf32 xu ly pair san).
+    wide = int(0)
+    i = int(0)
+    n = len(s)
+    while i < n:
+        adv = []
+        cp = clip_next_cp(s, i, adv)
+        if cp > 255:
+            wide = 1
+        if cp < 0 or cp > 1114111:
+            return 4
+        i = i + adv[0]
+    fmt = int(1)
+    need = n + 1
+    if wide == 1:
+        fmt = 13
+        need = (n + 1) * 4
+    if clip_open(0) == 0:
+        return 1
+    clip_empty()
+    h = clip_alloc(2, int64(need))
+    if h == 0:
+        clip_close()
+        return 2
+    p = clip_lock(h)
+    if p == 0:
+        clip_free(h)
+        clip_close()
+        return 3
+    pos = int(0)
+    i = int(0)
+    while i < n:
+        adv = []
+        cp = clip_next_cp(s, i, adv)
+        if wide == 1:
+            if cp > 65535:
+                v = cp - 65536
+                hi = 55296 + (v >> 10)
+                lo = 56320 + (v & 1023)
+                write_u8(p, pos, hi & 255)
+                write_u8(p, pos + 1, (hi >> 8) & 255)
+                write_u8(p, pos + 2, lo & 255)
+                write_u8(p, pos + 3, (lo >> 8) & 255)
+                pos = pos + 4
+            else:
+                write_u8(p, pos, cp & 255)
+                write_u8(p, pos + 1, (cp >> 8) & 255)
+                pos = pos + 2
+        else:
+            write_u8(p, pos, cp)
+            pos = pos + 1
+        i = i + adv[0]
+    if wide == 1:
+        write_u8(p, pos, 0)
+        write_u8(p, pos + 1, 0)
+    else:
+        write_u8(p, pos, 0)
+    clip_unlock(h)
+    rh = clip_set(fmt, h)
+    clip_close()
+    if rh == 0:
+        clip_free(h)
+        return 5
+    return 0
+
+def clip_get_text(out: "list[str]") -> "i32":
+    # 0=ok (append text) 1=open 2=no-data/lock.
+    while len(out) > 0:
+        out.pop()
+    if clip_open(0) == 0:
+        return 1
+    fmt = int(13)
+    if clip_has(13) == 0:
+        fmt = 1
+    h = clip_get(fmt)
+    if h == 0:
+        clip_close()
+        return 2
+    p = clip_lock(h)
+    if p == 0:
+        clip_close()
+        return 2
+    n = int(clip_size(h))
+    s = ""
+    if fmt == 13:
+        nc = n // 2
+        i = int(0)
+        while i < nc:
+            lo = read_u8(p, i * 2)
+            hi = read_u8(p, i * 2 + 1)
+            code = lo + hi * 256
+            if code == 0:
+                break
+            if hi >= 216 and hi <= 219:
+                if i + 1 < nc:
+                    lo2 = read_u8(p, i * 2 + 2)
+                    hi2 = read_u8(p, i * 2 + 3)
+                    if hi2 >= 220 and hi2 <= 223:
+                        cp = 65536 + ((code - 55296) << 10) + (lo2 + hi2 * 256 - 56320)
+                        s = s + chr(cp)
+                        i = i + 2
+                    else:
+                        s = s + chr(65533)
+                        i = i + 1
+                else:
+                    s = s + chr(65533)
+                    i = i + 1
+            else:
+                if hi >= 220 and hi <= 223:
+                    s = s + chr(65533)
+                else:
+                    s = s + chr(code)
+                i = i + 1
+    else:
+        i = int(0)
+        while i < n:
+            c = read_u8(p, i)
+            if c == 0:
+                break
+            s = s + chr(c)
+            i = i + 1
+    clip_unlock(h)
+    clip_close()
+    out.append(s)
+    return 0
+
+def clipboard_selftest() -> "str":
+    print("== TkvUI.Clipboard selftest ==")
+    acc = [int(0), int(0)]
+    clipcheck_i(acc, "set.ascii", clip_set_text("Hello TkvUI 123"), 0)
+    got = []
+    clipcheck_i(acc, "get.rc", clip_get_text(got), 0)
+    clipcheck_s(acc, "get.ascii", got[0], "Hello TkvUI 123")
+    clipcheck_i(acc, "has.text", clip_has(1), 1)
+    vn = "Ti" + chr(7870) + "ng Vi" + chr(7879) + "t " + chr(417) + "i"
+    clipcheck_i(acc, "set.vi", clip_set_text(vn), 0)
+    got2 = []
+    clip_get_text(got2)
+    clipcheck_s(acc, "get.vi", got2[0], vn)
+    clipcheck_i(acc, "set.empty", clip_set_text(""), 0)
+    got3 = []
+    clip_get_text(got3)
+    clipcheck_s(acc, "get.empty", got3[0], "")
+    clipcheck_i(acc, "set.latin1", clip_set_text("caf" + chr(233)), 0)
+    got4 = []
+    clip_get_text(got4)
+    clipcheck_s(acc, "get.latin1", got4[0], "caf" + chr(233))
+    astr = "A" + chr(128512) + "B"
+    clipcheck_i(acc, "set.astral", clip_set_text(astr), 0)
+    got5 = []
+    clip_get_text(got5)
+    clipcheck_s(acc, "get.astral", got5[0], astr)
+    print("clipboard: " + str(acc[0]) + "/" + str(acc[1]))
+    if acc[0] == acc[1]:
+        return "CLIPBOARD_OK"
+    return "CLIPBOARD_FAIL"

@@ -57,7 +57,7 @@ PyQt 6.11.0/Qt 6.11.2). Modal-exec và playback thật không làm được offs
 | Text Việt/bidi | bitmap 134 glyph precomposed + shaping engine (Arabic/Thai/Devanagari…) | `text.vi-bidi` PASS (HarfBuzz render Việt/Arabic/Thai ra pixels) | Qt thắng shaping full; TkvUI thắng tốc độ ASCII 1.9× (số 2026-09-20) |
 | SQL | 132/132 + kill-9 + round-trip thắng 2.4× (xem §2) | `sql.crud` PASS (memory + file, 100 rows) + filebench 195 ms | TkvUI thắng niche (built-in + crash-safe + nhanh); Qt thắng SQL full (engine SQLite đầy đủ) |
 | PDF/print | PDF writer 63/63 + shell-print thật (ShellExecuteA live) | `print.pdf` PASS (QPdfWriter >1 KB) | Parity PDF; TkvUI hơn shell-print thật, Qt hơn print engine (preview, printer enum) |
-| Clipboard | nội bộ (không OS clipboard headless) | `clipboard.roundtrip` PASS | Qt thắng |
+| Clipboard | OS thật Win32 12/12 (ASCII/Việt/emoji round-trip, CF_TEXT+UNICODE) | `clipboard.roundtrip` PASS | TkvUI thắng trên Windows (R2 mở 2026-09-22); Qt thắng cross-platform |
 | Item-view | Data proxy/sort/filter (data 76/76) + SqlTableModel | `itemview.proxy` PASS (sort + filter + render) | Parity cơ bản |
 | Media | decode GIF/MJPEG/TKVV thuần + MP4 demux 62/62 + player VideoDemo 21/21 + ClipPlayer MP4→TKVV 14/14; OpenH264 kẹt struct marshal | `media.setsource` PASS (đặt source MP4 thật, không playback offscreen) | TkvUI thắng decode thuần/portable; Qt thắng playback + codec thật |
 | a11y | HWND mirror + JSON provider + KitTest 16/16 | native UIA (không test được screen reader offscreen) | Qt thắng native; TkvUI cải thiện bằng mirror |
@@ -130,10 +130,11 @@ PyQt 6.11.0/Qt 6.11.2). Modal-exec và playback thật không làm được offs
 | App port mẫu | (gốc Qt) | **Qt Application Example chạy 52/52** trên control TkvUI | ✅ Parity (mới 2026-09-22) |
 | Media ingest | decode+playback native | **MP4 thật → TKVV → player 14/14** (nhờ Chrome decode) | ✅ Niche (mới 2026-09-22) |
 | WASM deploy | Pyodide (interp) | **WASI interp + canvas** | ⚠️ Hòa |
-| OS look | Native | **Self-drawn 25 widget** | ⚠️ Partial |
+| OS look | Native | **Self-drawn 28 widget** | ⚠️ Partial |
+| Clipboard OS | cross-platform | **Win32 thật 12/12** (R2 mở 2026-09-22) | ✅ Thắng Windows, thua cross-platform |
 | Accessibility | Native UIA/AT-SPI | **HWND mirror + JSON provider** (COM bridge cần C# shim) | ⚠️ Partial (cải thiện từ 0) |
 
-**Kết luận (2026-09-22):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest** — **thua ở widget breadth (~40 vs ~1000), HarfBuzz full shaping, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem**. Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence).
+**Kết luận (2026-09-22, cập nhật Nhóm B):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest, clipboard Windows** — **thua ở widget breadth (~43 vs ~1000), HarfBuzz full shaping, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem**. Compiler mở R2/R4/R5/R6/R9/R10/R12 (tkvc 22:14); còn đóng: struct marshal (→ H.264 chờ), COM vtable, assembly identity. Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence).
 
 ---
 

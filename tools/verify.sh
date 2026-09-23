@@ -93,6 +93,7 @@ run_case mjpg       TkvUI.Mjpg.tkv mjpg_selftest MJPG_OK
 run_case mjpghd      TkvUI.Mjpg.tkv mjpg_hd_selftest MJHD_OK
 run_case videodemo   examples/TkvUI.VideoDemo.tkv videodemo_run VIDEODEMO_OK
 run_case mp4         TkvUI.Mp4.tkv mp4_selftest MP4_OK
+run_case clipboard   TkvUI.Clipboard.tkv clipboard_selftest CLIPBOARD_OK
 run_case qtapp       examples/TkvUI.QtAppPort.tkv qtapp_run QTAPP_OK
 run_case clipplayer  examples/TkvUI.ClipPlayer.tkv clipplayer_run CLIPPLAYER_OK
 run_case nativedlg  TkvUI.NativeDlg.tkv nativedlg_selftest NATIVEDLG_OK

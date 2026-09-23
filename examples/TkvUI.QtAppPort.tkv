@@ -236,23 +236,16 @@ def qa_clear(lines: "list[str]", edit: "NativeRichEdit") -> "i32":
     edit.clamp_caret(lines)
     return 1
 
-def qa_put1(edit: "NativeRichEdit", lines: "list[str]", ch: "str") -> "i32":
-    # NOTE compiler (bug da isolate): method trung ten BCL (insert) goi TRONG
-    # vong lap se phan giai sai thanh List.Insert (MissingMethodException luc
-    # chay). Wrapper goi thang-hang (kieu probe_a) thi dung -> loop goi wrapper.
-    ed = edit
-    return ed.insert(lines, ch)
-
 def qa_type(app: "QtApp", edit: "NativeRichEdit", lines: "list[str]", text: "str") -> "i32":
-    ed = edit
-    ln = lines
+    # NOTE compiler: D6 da sua (R4 mo 2026-09-22) — goi thang edit.insert
+    # trong loop (truoc day phai qua wrapper qa_put1, da xoa).
     i = int(0)
     while i < len(text):
         ch = text[i:i + 1]
         if ch == "\n":
-            ed.newline(ln)
+            edit.newline(lines)
         else:
-            qa_put1(ed, ln, ch)
+            edit.insert(lines, ch)
         i = i + 1
     app.set_modified(1)
     app.set_status("Edited")
@@ -343,15 +336,13 @@ def qa_paste(app: "QtApp", lines: "list[str]", edit: "NativeRichEdit") -> "i32":
     clip = app.get_clipboard()
     if clip == "":
         return 0
-    ed = edit
-    ln = lines
     i = int(0)
     while i < len(clip):
         ch = clip[i:i + 1]
         if ch == "\n":
-            ed.newline(ln)
+            edit.newline(lines)
         else:
-            qa_put1(ed, ln, ch)
+            edit.insert(lines, ch)
         i = i + 1
     app.set_modified(1)
     app.set_status("Pasted")
