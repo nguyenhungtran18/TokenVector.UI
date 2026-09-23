@@ -10,7 +10,7 @@ Rasterizer, font, effects, layout, widget và cửa sổ native đều tự vi�
 
 - Version: **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`)
 - **49 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 2026-09-22 — 30 module + suite 32/32 + 17 example; android/ios SKIPPED, cần thiết bị thật)
-- **~2140 checks** qua suite (core 47, text 238, bidi 150, widgets 101, native 190, emoji 107, shaping 91, sqlite 132, video 44, tkvv 56, mjpg 44, mp4 62, …)
+- **~2140 checks** qua suite (core 47, text 239, bidi 150, widgets 101, native 190, emoji 107, shaping 91, sqlite 132, video 44, tkvv 56, mjpg 44, mp4 62, …)
 - **Binary 649 KB** (suite 26 module) | app ~370–430 KB
 - **Startup ~31 ms** (trivial) / **Memory 27.6 MB** (idle) | **Text 9.4 ms** (400×54 chars, thắng PyQt6 ~1.9×) | Widget <0.001 ms/w
 - **Niche độc quyền**: Vietnamese-first (134 glyph precomposed), **emoji bake 12 symbol 12×12** (`TkvUI.EmojiData`), PDF writer + SQLite (persist + in-memory), ~40 widget, DesignerApp interactive
@@ -77,7 +77,7 @@ $TKVC build examples/TkvUI.Live.tkv    --entry run_live --out build/TkvUI.LiveRu
 |---|---|
 | `core_selftest` | 47/47 PASS |
 | `graphics_selftest` | 29/29 PASS |
-| `text_selftest` | **238/238 PASS** (atlas + Việt + TTF synthetic + i18n baked + fallback, kèm benchmark atlas ~5×) |
+| `text_selftest` | **239/239 PASS** (atlas + Việt + TTF synthetic + i18n baked + fallback, kèm benchmark atlas ~5×) |
 | `effects_selftest` | 32/32 PASS (kèm benchmark blur; **half-res blur ~2.5×**) |
 | `platform_selftest` | **82/82 PASS** (probe runtime + WinForms interop thật + theme polling + multi-window 2 cửa sổ thật) |
 | `input_selftest` | 41/41 PASS |

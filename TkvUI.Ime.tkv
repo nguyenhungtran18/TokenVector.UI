@@ -296,20 +296,18 @@ def ime_bare_vowel(ch: "str") -> "i32":
 
 def ime_last_start(text: "str") -> "i32":
     # Vi tri unit bat dau sequence cuoi (de thay/backspace ca sequence).
+    # MIGRATION len(): di nguoc tu cuoi, gom combining marks (decomposed);
+    # precomposed moi unit 1 sequence. Khong dung byte-adv nua.
     n = len(text)
     if n == 0:
         return 0
-    idx = int(0)
-    last = 0
-    while idx < n:
-        last = idx
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        if adv <= 0:
-            adv = 1
-        idx = idx + adv
-    return last
+    i = n - 1
+    while i > 0:
+        if vi_is_mark(text[i:i + 1]) == 1:
+            i = i - 1
+        else:
+            break
+    return i
 
 def ime_last_seq(text: "str") -> "str":
     n = len(text)

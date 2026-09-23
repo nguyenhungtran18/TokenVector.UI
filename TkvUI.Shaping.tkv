@@ -171,24 +171,23 @@ def ar_shape_word(text: "str", starts: "list[i32]", lens: "list[i32]", forms: "l
     llens = []
     ltypes = []
     idx = int(0)
+    byte_pos = int(0)
     pend_start = int(-1)
     pend_len = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         t = ar_join_type(seg)
         if t < 0:
             return 0
         if t == 3:
             if pend_start < 0:
-                pend_start = idx
+                pend_start = byte_pos
                 pend_len = 0
             pend_len = pend_len + adv
         else:
             if pend_start < 0:
-                lstarts.append(idx)
+                lstarts.append(byte_pos)
                 llens.append(adv)
             else:
                 lstarts.append(pend_start)
@@ -196,7 +195,8 @@ def ar_shape_word(text: "str", starts: "list[i32]", lens: "list[i32]", forms: "l
                 pend_start = -1
                 pend_len = 0
             ltypes.append(t)
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     # Trailing marks: gan vao letter cuoi
     if pend_start >= 0:
         if len(ltypes) == 0:
@@ -380,15 +380,14 @@ def th_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
     # marks gan vao cluster hien tai. Vi du [โต] la 1 cluster.
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     cur_start = int(-1)
     cur_len = int(0)
     pre_open = int(0)
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         mc = th_mark_class(seg)
         if mc == 1:
             if cur_start >= 0:
@@ -396,7 +395,7 @@ def th_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
                     starts.append(cur_start)
                     lens.append(cur_len)
                     count = count + 1
-            cur_start = idx
+            cur_start = byte_pos
             cur_len = adv
             pre_open = 1
         else:
@@ -408,22 +407,20 @@ def th_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
                         starts.append(cur_start)
                         lens.append(cur_len)
                         count = count + 1
-                else:
-                    cur_start = idx
-                    cur_len = 0
                 if pre_open == 0:
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
                 else:
                     cur_len = cur_len + adv
                     pre_open = 0
             else:
                 if cur_start < 0:
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
                 else:
                     cur_len = cur_len + adv
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     if cur_start >= 0:
         starts.append(cur_start)
         lens.append(cur_len)
@@ -551,6 +548,7 @@ def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
     # Cum Devanagari + flags (0 base / 1 reph / 2 prebase-matra).
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     cur_start = int(-1)
     cur_len = int(0)
     cur_flag = int(0)
@@ -559,9 +557,7 @@ def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         if in_is_consonant(seg) == 1:
             if cur_start >= 0:
                 if expect_cons == 1:
@@ -573,12 +569,12 @@ def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                     lens.append(cur_len)
                     flags.append(cur_flag)
                     count = count + 1
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
                     cur_flag = 0
                     maybe_reph = 0
             else:
-                cur_start = idx
+                cur_start = byte_pos
                 cur_len = adv
                 cur_flag = 0
                 maybe_reph = 0
@@ -611,7 +607,8 @@ def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                         expect_cons = 0
                     else:
                         return 0
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     if cur_start >= 0:
         starts.append(cur_start)
         lens.append(cur_len)
@@ -624,10 +621,12 @@ def in_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
 # Thu tu: ASCII -> Viet -> Arabic -> Thai -> Devanagari -> baked i18n.
 # =========================================================
 def shape_script_of(seq: "str") -> "i32":
+    # MIGRATION len(): tkvc MSE doc len() theo chars/units (truoc day theo
+    # bytes UTF-8). Single non-ASCII (len==1) KHONG return 7 oan nua ma roi
+    # xuong chain detect (vi_bits/ar/th/in/i18n xu ly singles tot).
     if len(seq) == 1:
         if char_code(seq) >= 0:
             return 0
-        return 7
     if vi_bits(seq) >= 0:
         return 1
     if ar_join_type(seq) >= 0:
@@ -654,10 +653,7 @@ def shape_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32"
     if n == 0:
         return 0
     # Xac dinh script cua sequence dau
-    adv0 = utf8_seq_len(text, 0)
-    if adv0 > n:
-        adv0 = n
-    s0 = shape_script_of(text[0:adv0])
+    s0 = shape_script_of(text[0:1])
     if s0 == 2:
         return ar_cluster_runs(text, starts, lens)
     if s0 == 5:
@@ -673,15 +669,15 @@ def shape_clusters(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32"
         return ta_clusters(text, starts, lens, flags)
     # Mac dinh: moi sequence 1 cluster
     idx = int(0)
+    byte_pos = int(0)
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        starts.append(idx)
+        starts.append(byte_pos)
         lens.append(adv)
         count = count + 1
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     return count
 
 def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32":
@@ -690,6 +686,7 @@ def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32
     # Dung cho cursor/selection.
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     cur_start = int(-1)
     cur_len = int(0)
     prev_t = int(-1)
@@ -698,15 +695,13 @@ def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         t = ar_join_type(seg)
         if t < 0:
             return 0
         if t == 3:
             if pend_start < 0:
-                pend_start = idx
+                pend_start = byte_pos
                 pend_len = adv
             else:
                 pend_len = pend_len + adv
@@ -720,7 +715,7 @@ def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32
                 pend_start = -1
                 pend_len = 0
             if cur_start < 0:
-                cur_start = idx
+                cur_start = byte_pos
                 cur_len = adv
             else:
                 if prev_t == 2 and (t == 1 or t == 2):
@@ -729,10 +724,11 @@ def ar_cluster_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i32
                     starts.append(cur_start)
                     lens.append(cur_len)
                     count = count + 1
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
             prev_t = t
-        idx = idx + adv
+            idx = idx + 1
+            byte_pos = byte_pos + adv
     if pend_start >= 0:
         if cur_start < 0:
             return 0
@@ -867,6 +863,7 @@ def bn_is_consonant(seq: "str") -> "i32":
 def bn_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "list[i32]") -> "i32":
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     cur_start = int(-1)
     cur_len = int(0)
     cur_flag = int(0)
@@ -875,9 +872,7 @@ def bn_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         if bn_is_consonant(seg) == 1:
             if cur_start >= 0:
                 if expect_cons == 1:
@@ -889,12 +884,12 @@ def bn_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                     lens.append(cur_len)
                     flags.append(cur_flag)
                     count = count + 1
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
                     cur_flag = 0
                     maybe_reph = 0
             else:
-                cur_start = idx
+                cur_start = byte_pos
                 cur_len = adv
                 cur_flag = 0
                 maybe_reph = 0
@@ -926,7 +921,8 @@ def bn_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                         expect_cons = 0
                     else:
                         return 0
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     if cur_start >= 0:
         starts.append(cur_start)
         lens.append(cur_len)
@@ -1015,6 +1011,7 @@ def ta_is_consonant(seq: "str") -> "i32":
 def ta_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "list[i32]") -> "i32":
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     cur_start = int(-1)
     cur_len = int(0)
     cur_flag = int(0)
@@ -1022,9 +1019,7 @@ def ta_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         if ta_is_consonant(seg) == 1:
             if cur_start >= 0:
                 if expect_cons == 1:
@@ -1035,11 +1030,11 @@ def ta_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                     lens.append(cur_len)
                     flags.append(cur_flag)
                     count = count + 1
-                    cur_start = idx
+                    cur_start = byte_pos
                     cur_len = adv
                     cur_flag = 0
             else:
-                cur_start = idx
+                cur_start = byte_pos
                 cur_len = adv
                 cur_flag = 0
         else:
@@ -1059,7 +1054,8 @@ def ta_clusters(text: "str", starts: "list[i32]", lens: "list[i32]", flags: "lis
                     expect_cons = 0
                 else:
                     return 0
-        idx = idx + adv
+        idx = idx + 1
+        byte_pos = byte_pos + adv
     if cur_start >= 0:
         starts.append(cur_start)
         lens.append(cur_len)
@@ -1091,37 +1087,37 @@ def ar_ligature_runs(text: "str", starts: "list[i32]", lens: "list[i32]") -> "i3
     # Tra so runs; moi run = byte offsets bao ca 2 chu + marks giua.
     n = len(text)
     idx = int(0)
+    byte_pos = int(0)
     count = int(0)
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         if ar_is_lam(seg) == 1:
-            j = idx + adv
+            j = idx + 1
+            j_byte = byte_pos + adv
             while j < n:
                 jadv = utf8_seq_len(text, j)
-                if j + jadv > n:
-                    jadv = n - j
-                jseg = text[j:j + jadv]
+                jseg = text[j:j + 1]
                 if ar_is_transparent(jseg) == 1:
-                    j = j + jadv
+                    j = j + 1
+                    j_byte = j_byte + jadv
                 else:
                     break
             if j < n:
                 jadv = utf8_seq_len(text, j)
-                if j + jadv > n:
-                    jadv = n - j
-                jseg = text[j:j + jadv]
+                jseg = text[j:j + 1]
                 if ar_is_alef_variant(jseg) == 1:
-                    starts.append(idx)
-                    lens.append(j + jadv - idx)
+                    starts.append(byte_pos)
+                    lens.append(j_byte + jadv - byte_pos)
                     count = count + 1
-                    idx = j + jadv
+                    idx = j + 1
+                    byte_pos = j_byte + jadv
                     continue
-            idx = idx + adv
+            idx = idx + 1
+            byte_pos = byte_pos + adv
         else:
-            idx = idx + adv
+            idx = idx + 1
+            byte_pos = byte_pos + adv
     return count
 
 # =========================================================

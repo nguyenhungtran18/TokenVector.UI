@@ -3135,7 +3135,7 @@ def widget_selftest() -> "str":
     tf.backspace()
     widget_check_i(acc, "textfield len sau backspace", len(tf.text), 1)
     tf.type_char("ệ")
-    widget_check_i(acc, "textfield len sau ky tu Viet 3dv", len(tf.text), 4)
+    widget_check_i(acc, "textfield len sau ky tu Viet", len(tf.text), 2)
     widget_check_i(acc, "textfield strlen Viet", vi_strlen(tf.text), 2)
     tf.backspace()
     widget_check_i(acc, "textfield backspace xoa ca sequence", len(tf.text), 1)

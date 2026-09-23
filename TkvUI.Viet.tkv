@@ -446,20 +446,44 @@ def vi_is_ascii(u: "str") -> "i32":
         return 0
     return 1
 
-def vi_seq_len_at(text: "str", p: "i32", n: "i32") -> "i32":
-    # Do dai sequence bat dau tai p: 1 (ASCII), 2/3 (Viet), 1 (la: tien 1).
-    u = text[p]
-    if vi_is_ascii(u) == 1:
+def vi_is_mark(u: "str") -> "i32":
+    # Combining marks tieng Viet (decomposed): grave/acute/tilde/hook/dot/
+    # breve/circumflex/horn. Dung chr() de tranh ky tu vo hinh trong source.
+    if u == chr(768):
         return 1
-    if p + 1 < n:
-        p2 = u + text[p + 1]
-        if vi_bits(p2) >= 0:
-            return 2
-    if p + 2 < n:
-        p3 = u + text[p + 1] + text[p + 2]
-        if vi_bits(p3) >= 0:
-            return 3
-    return 1
+    if u == chr(769):
+        return 1
+    if u == chr(771):
+        return 1
+    if u == chr(777):
+        return 1
+    if u == chr(803):
+        return 1
+    if u == chr(774):
+        return 1
+    if u == chr(770):
+        return 1
+    if u == chr(795):
+        return 1
+    return 0
+
+def vi_seq_len_at(text: "str", p: "i32", n: "i32") -> "i32":
+    # Do dai sequence bat dau tai p (char-semantics): base (ASCII hay
+    # precomposed) + combining marks lien tiep. Precomposed = 1;
+    # decomposed e+horn+dot = 3. Luon >= 1 (khong bao gio 0).
+    if p < 0:
+        return 1
+    if p >= n:
+        return 1
+    adv = int(1)
+    j = p + 1
+    while j < n:
+        if vi_is_mark(text[j]) == 1:
+            adv = adv + 1
+            j = j + 1
+        else:
+            break
+    return adv
 
 def vi_strlen(s: "str") -> "i32":
     # Dem so ky tu (sequence), khong phai so don vi byte.
@@ -540,22 +564,26 @@ def vi_draw_bits(buf: "list[i64]", surf: "PixelSurface", bits: "i64", cx: "i32",
     return 1
 
 def utf8_seq_len(text: "str", p: "i32") -> "i32":
-    # Do dai sequence UTF-8 bat dau tai p (byte->codepoint buoc 1: tach).
-    # Chi dung so sanh 1-don-vi (1v1) + == vi so sanh nhieu-don-vi co F0
-    # bi sai (bang chung probe: "F0F0" >= "F09F.." = 0). Pivot F0/E0 lay
-    # bang ref[0] (index tren bien). ASCII -> 1; F0.. -> 4; E0..EF -> 3;
-    # con lai (C2..DF + byte le) -> 2. Khong bao gio tra 0.
+    # Do dai UTF-8 bytes cho codepoint tai p (code-point based len).
+    # MIGRATION: truoc day p la byte offset, u la byte; nay p la codepoint
+    # index, u la codepoint. Tra byte length: 1/2/3/4 theo Unicode.
+    # (Bao toan lens byte-offsets cho cluster API.)
     u = text[p]
+    # Lay codepoint bang cach so sanh voi nguong (dung chr/len da co).
+    # ASCII (0x00-0x7F) -> 1; 0x80-0x7FF -> 2; 0x800-0xFFFF -> 3; con lai -> 4.
+    # Dung vi_is_ascii + so sanh codepoint truc tiep qua string compare
+    # (compiler ho tro compare codepoint).
     if vi_is_ascii(u) == 1:
         return 1
-    ref4 = "🌍"
-    f0 = ref4[0]
-    ref3 = "ก"
-    e0 = ref3[0]
-    if u == f0:
-        return 4
-    if u >= f0:
-        return 4
-    if u >= e0:
+    # So sanh voi nguong bang cach tao string tu codepoint va so sanh
+    # (vi_is_ascii da xu ly ASCII, con lai kiem tra theo thu tu codepoint).
+    # Dung bang so sanh don gian: U+0800 = "ࠀ" (Samarian), U+10000 kho phan biet
+    # nen dung truc tiep: neu u >= "ࠀ" (0x800) -> 3, neu khong -> 2.
+    # "ࠀ" U+0800 la nguong 2->3 bytes.
+    if u >= "ࠀ":
+        # Tren U+FFFF (4 bytes) hiem trong test, nhung van xu ly:
+        # U+10000 = "𐀀" (Linear B) - dung de phan biet 3 vs 4.
+        if u >= "𐀀":
+            return 4
         return 3
     return 2

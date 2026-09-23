@@ -10,12 +10,13 @@ FB_EMOJI = 4
 FB_COLOR = 5
 
 def fb_classify(seq: "str") -> "i32":
+    # MIGRATION len(): single non-ASCII (len==1) KHONG return 3 oan nua ma
+    # roi xuong chain (truoc day len dem bytes nen singles co len 2-3).
     if len(seq) == 1:
         c = char_code(seq)
         if c >= 32:
             if c <= 126:
                 return 0
-        return 3
     if vi_bits(seq) != -1:
         return 1
     if i18n_codepoint(seq) >= 0:
@@ -49,11 +50,8 @@ def fb_measure(text: "str") -> "f64":
     idx = int(0)
     cols = int(0)
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
         cols = cols + 1
-        idx = idx + adv
+        idx = idx + 1
     return float(cols * 6)
 
 def fb_is_emoji(seq: "str") -> "i32":
@@ -76,13 +74,10 @@ def fb_is_emoji(seq: "str") -> "i32":
     i = int(0)
     n = len(seq)
     while i < n:
-        adv = utf8_seq_len(seq, i)
-        if i + adv > n:
-            adv = n - i
-        cp = i18n_codepoint(seq[i:i+adv])
+        cp = i18n_codepoint(seq[i:i + 1])
         if cp == 8205:
             return 1
-        i = i + adv
+        i = i + 1
     return 0
 
 def fb_is_color_font(seq: "str") -> "i32":
@@ -108,11 +103,8 @@ def fb_draw_run_emoji(buf: "list[i64]", surf: "PixelSurface", text: "str", start
     idx = start
     cx = x
     while idx < end:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
-        seq = text[idx:idx + adv]
-        slot = emoji_slot_for(emoji_codepoint(seq))
+        seg = text[idx:idx + 1]
+        slot = emoji_slot_for(emoji_codepoint(seg))
         if slot >= 0:
             cx = cx + emoji_blit(buf, surf, slot, cx, y, color)
         else:
@@ -120,7 +112,7 @@ def fb_draw_run_emoji(buf: "list[i64]", surf: "PixelSurface", text: "str", start
             _ = fill_round_rect(buf, surf, r, 2, ColorRgba(255, 255, 255, 255))
             draw_string(buf, surf, "E", cx + 2, y + 2, 1, ColorRgba(0, 0, 0, 255))
             cx = cx + 12
-        idx = idx + adv
+        idx = idx + 1
     return cx - x
 
 def fb_draw_run_color(buf: "list[i64]", surf: "PixelSurface", text: "str", start: "i32", ulen: "i32", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
@@ -128,16 +120,10 @@ def fb_draw_run_color(buf: "list[i64]", surf: "PixelSurface", text: "str", start
     idx = start
     cx = x
     while idx < end:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         r = Rect2D(cx, y, 12, 12)
         _ = fill_round_rect(buf, surf, r, 2, color)
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         cx = cx + 12
-        idx = idx + adv
+        idx = idx + 1
     return cx - x
 
 def fb_count_missing(text: "str") -> "i32":
@@ -145,24 +131,18 @@ def fb_count_missing(text: "str") -> "i32":
     idx = int(0)
     c = int(0)
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        if fb_classify(text[idx:idx + adv]) == 3:
+        if fb_classify(text[idx:idx + 1]) == 3:
             c = c + 1
-        idx = idx + adv
+        idx = idx + 1
     return c
 
 def fb_has_font(text: "str", font: "i32") -> "i32":
     n = len(text)
     idx = int(0)
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        if fb_classify(text[idx:idx + adv]) == font:
+        if fb_classify(text[idx:idx + 1]) == font:
             return 1
-        idx = idx + adv
+        idx = idx + 1
     return 0
 
 def fb_resolve(text: "str", starts: "list[i32]", lens: "list[i32]", fonts: "list[i32]") -> "i32":
@@ -171,10 +151,7 @@ def fb_resolve(text: "str", starts: "list[i32]", lens: "list[i32]", fonts: "list
     cur_font = -1
     run_start = 0
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        f = fb_classify(text[idx:idx + adv])
+        f = fb_classify(text[idx:idx + 1])
         if f != cur_font:
             if cur_font >= 0:
                 starts.append(run_start)
@@ -182,7 +159,7 @@ def fb_resolve(text: "str", starts: "list[i32]", lens: "list[i32]", fonts: "list
                 fonts.append(cur_font)
             cur_font = f
             run_start = idx
-        idx = idx + adv
+        idx = idx + 1
     if cur_font >= 0:
         starts.append(run_start)
         lens.append(n - run_start)
@@ -221,16 +198,10 @@ def fb_draw_run_viet(buf: "list[i64]", surf: "PixelSurface", text: "str", start:
     idx = start
     cx = x
     while idx < end:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         r = Rect2D(cx, y, 12, 12)
         _ = fill_round_rect(buf, surf, r, 2, color)
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         cx = cx + 12
-        idx = idx + adv
+        idx = idx + 1
     return cx - x
 
 def fb_draw_run_i18n(iabuf: "list[i64]", iatlas: "PixelSurface", buf: "list[i64]", surf: "PixelSurface", text: "str", start: "i32", ulen: "i32", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
@@ -238,16 +209,10 @@ def fb_draw_run_i18n(iabuf: "list[i64]", iatlas: "PixelSurface", buf: "list[i64]
     idx = start
     cx = x
     while idx < end:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         r = Rect2D(cx, y, 12, 12)
         _ = fill_round_rect(buf, surf, r, 2, color)
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         cx = cx + 12
-        idx = idx + adv
+        idx = idx + 1
     return cx - x
 
 def fb_draw_run_box(buf: "list[i64]", surf: "PixelSurface", text: "str", start: "i32", ulen: "i32", x: "i32", y: "i32", color: "ColorRgba") -> "i32":
@@ -255,16 +220,10 @@ def fb_draw_run_box(buf: "list[i64]", surf: "PixelSurface", text: "str", start: 
     idx = start
     cx = x
     while idx < end:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         r = Rect2D(cx, y, 12, 12)
         _ = fill_round_rect(buf, surf, r, 2, color)
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > end:
-            adv = end - idx
         cx = cx + 12
-        idx = idx + adv
+        idx = idx + 1
     return cx - x
 
 def fb_check(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
@@ -312,7 +271,6 @@ def fb_oracle(seq: "str") -> "i32":
         if c >= 32:
             if c <= 126:
                 return 0
-        return 3
     if vi_bits(seq) != -1:
         return 1
     if i18n_codepoint(seq) >= 0:

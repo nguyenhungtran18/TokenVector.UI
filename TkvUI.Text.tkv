@@ -3974,13 +3974,13 @@ def text_atlas_draw_i18n(iabuf: "list[i64]", iatlas: "GlyphAtlas", buf: "list[i6
 def font_family_resolve(seq: "str") -> "i32":
     # FontConfig-like resolver (Phase 1 fallback chain): 0=ASCII bitmap,
     # 1=Viet bitmap, 2=i18n-he, 3=i18n-cjk, 4=fallback box.
+    # MIGRATION len(): single non-ASCII (len==1) KHONG return 4 oan nua ma
+    # roi xuong chain (truoc day len dem bytes nen singles co len 2-3).
     if len(seq) == 1:
         if vi_is_ascii(seq) == 1:
             return 0
-        return 4
-    if len(seq) == 2 or len(seq) == 3:
-        if vi_bits(seq) >= 0:
-            return 1
+    if vi_bits(seq) >= 0:
+        return 1
     cp = i18n_codepoint(seq)
     if cp < 0:
         return 4
@@ -4001,21 +4001,11 @@ def text_draw_fallback(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]
     steps = 0
     idx = 0
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         fid = font_family_resolve(seg)
-        if fid == 4:
-            k = 0
-            while k < adv:
-                tw = tw + float(advpx)
-                steps = steps + 1
-                k = k + 1
-        else:
-            tw = tw + float(advpx)
-            steps = steps + 1
-        idx = idx + adv
+        tw = tw + float(advpx)
+        steps = steps + 1
+        idx = idx + 1
     if steps > 0:
         tw = tw + tracking * float(steps - 1)
     cur_x = int(x)
@@ -4028,10 +4018,7 @@ def text_draw_fallback(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]
     cur_y = int(y)
     idx = 0
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seg = text[idx:idx + adv]
+        seg = text[idx:idx + 1]
         fid = font_family_resolve(seg)
         if fid == 0:
             code = char_code(seg)
@@ -4046,12 +4033,9 @@ def text_draw_fallback(abuf: "list[i64]", atlas: "GlyphAtlas", iabuf: "list[i64]
                     atlas_blit_glyph(iabuf, iatlas, buf, surf, i18n_slot_for(i18n_codepoint(seg)), cur_x, cur_y, color, color.a)
                     cur_x = cur_x + advpx
                 else:
-                    k = 0
-                    while k < adv:
-                        vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
-                        cur_x = cur_x + advpx
-                        k = k + 1
-        idx = idx + adv
+                    vi_draw_bits(buf, surf, 33874822719, cur_x, cur_y, sc, color)
+                    cur_x = cur_x + advpx
+        idx = idx + 1
     return 1
 
 # ---- test helpers: emit bytes + synthetic TTF toi thieu (chi dung trong selftest) ----
@@ -5069,9 +5053,11 @@ def text_selftest() -> "str":
     text_check_i(acc, "vi strlen Viet", vi_strlen("Việt"), 4)
     text_check_i(acc, "vi strlen ascii", vi_strlen("ABC"), 3)
     text_check_i(acc, "vi strlen rong", vi_strlen(""), 0)
-    text_check_i(acc, "vi seq V", vi_seq_len_at("Việt", 0, 6), 1)
-    text_check_i(acc, "vi seq e-3dv", vi_seq_len_at("Việt", 2, 6), 3)
-    text_check_i(acc, "vi seq t", vi_seq_len_at("Việt", 5, 6), 1)
+    text_check_i(acc, "vi seq V", vi_seq_len_at("Việt", 0, 4), 1)
+    text_check_i(acc, "vi seq e-precomp", vi_seq_len_at("Việt", 2, 4), 1)
+    vdcomp = "Vie" + chr(795) + chr(803) + "t"
+    text_check_i(acc, "vi seq e-3dv", vi_seq_len_at(vdcomp, 2, 6), 3)
+    text_check_i(acc, "vi seq t", vi_seq_len_at("Việt", 3, 4), 1)
     vm = measure_string("Việt", 1.0)
     text_check_f(acc, "vi measure w=4 cot", vm.w, 24.0, 0.001)
     text_check_i(acc, "vi line_count 2 dong", text_line_count("Việt Nam", 1.0, 24.0), 2)
@@ -5079,7 +5065,7 @@ def text_selftest() -> "str":
     text_check_f(acc, "vi block w=4 cot", vb.w, 24.0, 0.001)
     vt = vi_truncate("Việt Nam", 4)
     text_check_i(acc, "vi truncate 4 cot", vi_strlen(vt), 4)
-    text_check_i(acc, "vi truncate units", len(vt), 6)
+    text_check_i(acc, "vi truncate units", len(vt), 4)
     vtok = 0
     if vi_truncate("ABCDEF", 4) == "ABCD":
         vtok = 1
@@ -5166,6 +5152,8 @@ def text_selftest() -> "str":
     surface_clear(buf, surf, empty)
     text_check_i(acc, "fb milestone tra 1", text_draw_fallback(fab, fas, ibf, iat, buf, surf, "你好 🌍 שלום", 0.0, 0.0, white), 1)
     text_check_gt(acc, "fb milestone co pixel", text_count_nonzero(buf, 4800, 0, 4800), 0)
+    surface_clear(buf, surf, empty)
+    text_draw_fallback(fab, fas, ibf, iat, buf, surf, " ", 0.0, 0.0, white)
     fsp = 0
     fix = 0
     while fix < 8:

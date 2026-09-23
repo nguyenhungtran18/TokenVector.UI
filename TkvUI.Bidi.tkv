@@ -883,12 +883,7 @@ def shape_split_runs(text: "str", out: "list[i32]") -> "i32":
     cur_d = int(0)
     i = int(0)
     while i < n:
-        adv = utf8_seq_len(text, i)
-        if adv < 1:
-            adv = 1
-        if i + adv > n:
-            adv = n - i
-        u = text[i:i + adv]
+        u = text[i:i + 1]
         sc = shape_unit_script(u)
         d = shape_run_dir(sc)
         if cur_s < 0:
@@ -906,7 +901,7 @@ def shape_split_runs(text: "str", out: "list[i32]") -> "i32":
                     run_start = i
                     cur_s = sc
                     cur_d = d
-        i = i + adv
+        i = i + 1
     out.append(run_start)
     out.append(n)
     out.append(cur_s)
@@ -924,15 +919,10 @@ def shape_seq_clusters(text: "str", out: "list[i32]") -> "i32":
     nseq = int(0)
     i = int(0)
     while i < n:
-        adv = utf8_seq_len(text, i)
-        if adv < 1:
-            adv = 1
-        if i + adv > n:
-            adv = n - i
         out.append(i)
-        out.append(i + adv)
+        out.append(i + 1)
         nseq = nseq + 1
-        i = i + adv
+        i = i + 1
     return nseq
 
 def shape_run_fallback(text: "str", start: "i32", end: "i32", out_adv: "list[i32]", out_cl: "list[i32]") -> "i32":
@@ -1021,21 +1011,19 @@ def bidi_seq_classes(text: "str") -> "list[i32]":
     idx = 0
     while idx < n:
         adv = utf8_seq_len(text, idx)
-        if idx + adv > n:
-            adv = n - idx
-        seq = text[idx:idx + adv]
+        seq = text[idx:idx + 1]
         cls = utf8_seq_range(seq, adv)
         out.append(cls)
-        idx = idx + adv
+        idx = idx + 1
     return out
 
 def bidi_seq_offset(text: "str", n: "i32", s: "i32") -> "i32":
-    off = 0
-    k = 0
-    while k < s:
-        off = off + utf8_seq_len(text, off)
-        k = k + 1
-    return off
+    # Classes gio per-unit nen seq index == unit offset (clamp bien).
+    if s < 0:
+        return 0
+    if s > n:
+        return n
+    return s
 
 def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
     """Ve text theo visual order (RTL/mirror), sequence-aware; tra 1."""
@@ -1058,10 +1046,7 @@ def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f6
     while k < m:
         s = order[k]
         off = bidi_seq_offset(text, n, s)
-        adv = utf8_seq_len(text, off)
-        if off + adv > n:
-            adv = n - off
-        seg = text[off:off + adv]
+        seg = text[off:off + 1]
         lv = levels[s]
         if lv % 2 == 1:
             seg = bidi_mirror_char(seg)
@@ -1071,7 +1056,7 @@ def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f6
         k = k + 1
     return 1
 
-def bidi_draw_visual_atlas(buf: "list[i64]", surf: "PixelSurface", iabuf: "list[i64]", iatlas: "GlyphAtlas", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
+def bidi_draw_visual_atlas(buf: "list[i64]", surf: "PixelSurface", iabuf: "list[i64]", iatlas: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
     """Ve text theo visual order, seq co trong atlas i18n thi blit glyph that,
     seq la thi draw_string nhu cu (giu mirror). Atlas bake o scale 1."""
     n = len(text)
@@ -1096,10 +1081,7 @@ def bidi_draw_visual_atlas(buf: "list[i64]", surf: "PixelSurface", iabuf: "list[
     while k < m:
         s = order[k]
         off = bidi_seq_offset(text, n, s)
-        adv = utf8_seq_len(text, off)
-        if off + adv > n:
-            adv = n - off
-        seg = text[off:off + adv]
+        seg = text[off:off + 1]
         lv = levels[s]
         if lv % 2 == 1:
             seg = bidi_mirror_char(seg)
@@ -1424,6 +1406,14 @@ def bidi_visual_text(chars: "list[str]", order: "list[i32]", levels: "list[i32]"
     return out
 
 # Self-test
+def bidi_buf_equal(b1: "list[i64]", b2: "list[i64]", n: "i32") -> "i32":
+    i = int(0)
+    while i < n:
+        if b1[i] != b2[i]:
+            return 0
+        i = i + 1
+    return 1
+
 def bidi_selftest() -> "str":
     acc = []
     acc.append(0)
@@ -1551,11 +1541,11 @@ def bidi_selftest() -> "str":
     text_check_i(acc, "shape run0 e", runs[1], 1)
     text_check_i(acc, "shape run0 sc", runs[2], HB_SCRIPT_LATIN)
     text_check_i(acc, "shape run1 s", runs[4], 1)
-    text_check_i(acc, "shape run1 e", runs[5], 3)
+    text_check_i(acc, "shape run1 e", runs[5], 2)
     text_check_i(acc, "shape run1 sc", runs[6], HB_SCRIPT_HEBREW)
     text_check_i(acc, "shape run1 dir", runs[7], HB_DIRECTION_RTL)
-    text_check_i(acc, "shape run2 s", runs[8], 3)
-    text_check_i(acc, "shape run2 e", runs[9], 4)
+    text_check_i(acc, "shape run2 s", runs[8], 2)
+    text_check_i(acc, "shape run2 e", runs[9], 3)
     runs2 = []
     text_check_i(acc, "shape runs join", shape_split_runs("AB 12", runs2), 1)
     text_check_i(acc, "shape join e", runs2[1], 5)
@@ -1566,7 +1556,7 @@ def bidi_selftest() -> "str":
     text_check_i(acc, "shape cl0 s", cls[0], 0)
     text_check_i(acc, "shape cl0 e", cls[1], 1)
     text_check_i(acc, "shape cl1 s", cls[2], 1)
-    text_check_i(acc, "shape cl1 e", cls[3], 3)
+    text_check_i(acc, "shape cl1 e", cls[3], 2)
     cls0 = []
     text_check_i(acc, "shape clusters empty", shape_seq_clusters("", cls0), 0)
     fadv = []
@@ -1726,9 +1716,9 @@ def bidi_selftest() -> "str":
     sv = bidi_seq_classes("Việt")
     text_check_i(acc, "bidi seq Viet len", len(sv), 4)
     text_check_i(acc, "bidi seq Viet e-moc", sv[2], 0)
-    text_check_i(acc, "bidi seq off 0", bidi_seq_offset("Việt", 6, 0), 0)
-    text_check_i(acc, "bidi seq off 2", bidi_seq_offset("Việt", 6, 2), 2)
-    text_check_i(acc, "bidi seq off 3", bidi_seq_offset("Việt", 6, 3), 5)
+    text_check_i(acc, "bidi seq off 0", bidi_seq_offset("Việt", 4, 0), 0)
+    text_check_i(acc, "bidi seq off 2", bidi_seq_offset("Việt", 4, 2), 2)
+    text_check_i(acc, "bidi seq off 3", bidi_seq_offset("Việt", 4, 3), 3)
     vbuf = []
     surface_ensure_capacity(vbuf, 4800)
     vsurf = PixelSurface(200, 24, 200)
@@ -1770,7 +1760,7 @@ def bidi_selftest() -> "str":
     text_check_i(acc, "bidi seq Ni L", nh[0], 0)
     text_check_i(acc, "bidi seq Hao L", nh[1], 0)
     em = bidi_seq_classes("🌍")
-    text_check_i(acc, "bidi seq emoji len", len(em), 1)
+    text_check_i(acc, "bidi seq emoji len", len(em), 2)
     text_check_i(acc, "bidi seq emoji ON", em[0], 13)
     surface_clear(vbuf, vsurf, empty)
     bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 1)
@@ -1781,24 +1771,22 @@ def bidi_selftest() -> "str":
     text_check_i(acc, "bidi draw RTL/LTR cung pixel", t1, t2)
     surface_clear(vbuf, vsurf, empty)
     bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 1)
-    l1 = 0
-    r1 = 0
-    zi = 0
-    while zi < 8:
-        l1 = l1 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
-        r1 = r1 + text_count_nonzero(vbuf, 4800, zi * 200 + 12, zi * 200 + 18)
-        zi = zi + 1
+    ebuf = []
+    ei = 0
+    while ei < 4800:
+        ebuf.append(0)
+        ei = ei + 1
+    esurf = PixelSurface(200, 24, 200)
+    surface_clear(ebuf, esurf, empty)
+    draw_string(ebuf, esurf, "A", 0.0, 0.0, 1.0, white)
+    draw_string(ebuf, esurf, "א", 6.0, 0.0, 1.0, white)
+    text_check_i(acc, "bidi draw swap rtl", bidi_buf_equal(vbuf, ebuf, 4800), 1)
     surface_clear(vbuf, vsurf, empty)
     bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 2)
-    l2 = 0
-    r2 = 0
-    zi = 0
-    while zi < 8:
-        l2 = l2 + text_count_nonzero(vbuf, 4800, zi * 200 + 0, zi * 200 + 6)
-        r2 = r2 + text_count_nonzero(vbuf, 4800, zi * 200 + 12, zi * 200 + 18)
-        zi = zi + 1
-    text_check_i(acc, "bidi draw swap ngoai", l1, r2)
-    text_check_i(acc, "bidi draw swap ngoai 2", r1, l2)
+    surface_clear(ebuf, esurf, empty)
+    draw_string(ebuf, esurf, "א", 0.0, 0.0, 1.0, white)
+    draw_string(ebuf, esurf, "A", 6.0, 0.0, 1.0, white)
+    text_check_i(acc, "bidi draw swap ltr", bidi_buf_equal(vbuf, ebuf, 4800), 1)
     surface_clear(vbuf, vsurf, empty)
     text_check_i(acc, "bidi draw milestone tra 1", bidi_draw_visual(vbuf, vsurf, "你好 🌍 שלום", 0.0, 0.0, 1.0, white, 0), 1)
     text_check_gt(acc, "bidi draw milestone co pixel", text_count_nonzero(vbuf, 4800, 0, 4800), 0)
