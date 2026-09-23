@@ -17,17 +17,14 @@
 
 ## B. Thêm nhỏ (1 buổi mỗi cái)
 
-### F-1. Builtin `ord()` — đối xứng với `chr()` vừa ship
-- Vì sao cần: không có cách nào lấy codepoint từ `str` (string compare
-  không biểu diễn được biên surrogate D800/DC00; `chr()` ném với input
-  surrogate; bảng literal chỉ cover ký tự đã biết).
-- Workaround hiện tại (đã chứng minh 4/4 + dùng thật trong
-  `bidi_is_surrogate`/`bidi_seq_step`): kẹp surrogate bằng 2 biên hợp lệ
-  `chr(0xD7FF)`/`chr(0xE000)` — chỉ đủ để **group astral pair**, không đủ
-  cho `ord()` tổng quát (VD: Hangul Jamo Extended-B D7B0–D7FF lọt vùng kẹp).
-- Giải pháp: `ord(u) -> i32` qua `Char.ConvertToUtf32(string, 0)` (giống hệt
-  cách `chr()` dùng `ConvertFromUtf32`).
-- Acceptance: `ord("A")==65`, `ord("ê")==234`, `ord("ệ")==7887`.
+### F-1. Builtin `ord()` — ✅ ĐÃ MỞ (tkvc 23/09 13:21), đã tiêu thụ
+- Mở đúng như đề xuất (`Char.ConvertToUtf32`, đối xứng `chr()`); probe
+  65/234/7879 đúng hết (lưu ý: `ệ` U+1EC7 = 7879, không phải 7887).
+- Đã áp dụng: `fb_is_emoji`/`fb_is_color_font` chuyển `char_code` → `ord()`,
+  ranges chết từ trước nay sống thật (✚ U+271A → đúng 4 emoji thay vì 3
+  missing; test expectation sửa theo cho trung thực). Fallback 37/37.
+- Còn lại: `bidi_is_surrogate` GIỮ nguyên kẹp biên (không dùng `ord()` được
+  vì `ConvertToUtf32` ném với lone surrogate — đúng chỗ cần detect chúng).
 
 ## C. Sửa thật (chặn tính năng lớn, đã chứng minh không có đường vòng)
 
@@ -38,12 +35,12 @@
 - Giải pháp: khai báo struct + truyền `Struct*` (in/out) như §R1 trong
   `UPSTREAM_REQUIREMENTS.md` (acceptance: `GetCursorPos`/`GetSystemTime`).
 
-### F-3. Assembly identity đúng cho extern (R3) — CÓ PROOF MỚI
-- **Bằng chứng chạy thật 2026-09-23**: build DLL test bằng `csc.exe`,
-  khai báo `__tkv_extern_assembly__`, gọi lúc chạy nổ đúng:
+### F-3. Assembly identity đúng cho extern (R3) — VẪN ĐÓNG (re-probe 23/09)
+- **Bằng chứng chạy thật (lần 2, tkvc mới)**: build DLL test bằng `csc.exe`,
+  khai báo `__tkv_extern_assembly__`, gọi lúc chạy nổ Y NGUYÊN:
   `FileLoadException: 'R3Test, Version=4.0.0.0, Culture=neutral,
-  PublicKeyToken=b77a5c561934e089'` — compiler đóng dấu identity Framework
-  lên assembly tư nhân.
+  PublicKeyToken=b77a5c561934e089'` — compiler vẫn đóng dấu identity
+  Framework lên assembly tư nhân.
 - Chặn: mọi shim C# (OpenH264 ~20 dòng, AccessKit).
 - Giải pháp: cho khai báo full identity (name+version+culture+token) như §R3.
 

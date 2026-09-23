@@ -55,8 +55,9 @@ def fb_measure(text: "str") -> "f64":
     return float(cols * 6)
 
 def fb_is_emoji(seq: "str") -> "i32":
+    # F-1 ord(): ranges truoc day CHET (char_code chi toi 126) — gio mo that.
     if len(seq) == 1:
-        c = char_code(seq)
+        c = ord(seq)
         if c >= 127744 and c <= 129775:
             return 1
         if c >= 9984 and c <= 10175:
@@ -81,8 +82,9 @@ def fb_is_emoji(seq: "str") -> "i32":
     return 0
 
 def fb_is_color_font(seq: "str") -> "i32":
+    # F-1 ord(): nhu fb_is_emoji.
     if len(seq) == 1:
-        c = char_code(seq)
+        c = ord(seq)
         if c >= 127744 and c <= 129775:
             return 1
         return 0
@@ -474,7 +476,7 @@ def fallback_selftest() -> "str":
         e = e + 1
     surface_clear(ebuf2, esurf, clear0)
     boxseq = "✚"
-    fbcheck_i(acc, "emoji.otherclass", fb_classify(boxseq), 3)
+    fbcheck_i(acc, "emoji.otherclass", fb_classify(boxseq), 4)
     fbcheck_i(acc, "emoji.boxslot", emoji_slot_for(emoji_codepoint(boxseq)), -1)
     bw = fb_draw_run_emoji(ebuf2, esurf, boxseq, 0, len(boxseq), 0, 0, white)
     fbcheck_i(acc, "emoji.boxw", bw, 12)
