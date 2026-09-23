@@ -1005,25 +1005,55 @@ def utf8_seq_range(seq: "str", adv: "i32") -> "i32":
         return BIDI_L
     return BIDI_ON
 
+def bidi_is_surrogate(u: "str") -> "i32":
+    # Don vi UTF-16 le (D800-DFFF)? Khong viet literal/chr() truc tiep duoc
+    # (invalid UTF-8 / ConvertFromUtf32 nem) nen kep bang 2 bien hop-le
+    # D7FF/E000 (da probe ordinal-dung 4/4 tren tkvc 22:14).
+    if u > chr(55295):
+        if u < chr(57344):
+            return 1
+    return 0
+
+def bidi_seq_step(text: "str", n: "i32", off: "i32") -> "i32":
+    # So units cua 1 sequence tai off: 2 neu astral pair hop-le, else 1.
+    if off < 0:
+        return 1
+    if off >= n:
+        return 1
+    if bidi_is_surrogate(text[off:off + 1]) == 1:
+        if off + 1 < n:
+            if bidi_is_surrogate(text[off + 1:off + 2]) == 1:
+                return 2
+    return 1
+
 def bidi_seq_classes(text: "str") -> "list[i32]":
     out = []
     n = len(text)
     idx = 0
     while idx < n:
-        adv = utf8_seq_len(text, idx)
-        seq = text[idx:idx + 1]
-        cls = utf8_seq_range(seq, adv)
+        step = bidi_seq_step(text, n, idx)
+        adv = 4
+        if step == 1:
+            adv = utf8_seq_len(text, idx)
+        cls = utf8_seq_range(text[idx:idx + step], adv)
         out.append(cls)
-        idx = idx + 1
+        idx = idx + step
     return out
 
 def bidi_seq_offset(text: "str", n: "i32", s: "i32") -> "i32":
-    # Classes gio per-unit nen seq index == unit offset (clamp bien).
-    if s < 0:
+    # Map class index -> unit offset (di qua pair nhu seq_classes).
+    if s <= 0:
         return 0
-    if s > n:
+    off = int(0)
+    ci = int(0)
+    while ci < s:
+        if off >= n:
+            return n
+        off = off + bidi_seq_step(text, n, off)
+        ci = ci + 1
+    if off > n:
         return n
-    return s
+    return off
 
 def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f64", y: "f64", scale: "f64", color: "ColorRgba", direction: "i32") -> "i32":
     """Ve text theo visual order (RTL/mirror), sequence-aware; tra 1."""
@@ -1046,7 +1076,7 @@ def bidi_draw_visual(buf: "list[i64]", surf: "PixelSurface", text: "str", x: "f6
     while k < m:
         s = order[k]
         off = bidi_seq_offset(text, n, s)
-        seg = text[off:off + 1]
+        seg = text[off:off + bidi_seq_step(text, n, off)]
         lv = levels[s]
         if lv % 2 == 1:
             seg = bidi_mirror_char(seg)
@@ -1081,7 +1111,7 @@ def bidi_draw_visual_atlas(buf: "list[i64]", surf: "PixelSurface", iabuf: "list[
     while k < m:
         s = order[k]
         off = bidi_seq_offset(text, n, s)
-        seg = text[off:off + 1]
+        seg = text[off:off + bidi_seq_step(text, n, off)]
         lv = levels[s]
         if lv % 2 == 1:
             seg = bidi_mirror_char(seg)
@@ -1760,7 +1790,7 @@ def bidi_selftest() -> "str":
     text_check_i(acc, "bidi seq Ni L", nh[0], 0)
     text_check_i(acc, "bidi seq Hao L", nh[1], 0)
     em = bidi_seq_classes("🌍")
-    text_check_i(acc, "bidi seq emoji len", len(em), 2)
+    text_check_i(acc, "bidi seq emoji len", len(em), 1)
     text_check_i(acc, "bidi seq emoji ON", em[0], 13)
     surface_clear(vbuf, vsurf, empty)
     bidi_draw_visual(vbuf, vsurf, "אA", 0.0, 0.0, 1.0, white, 1)
