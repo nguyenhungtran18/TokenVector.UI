@@ -1,68 +1,72 @@
-# Danh sách cần sửa ở compiler (tkvc) + giải pháp đề xuất
+# Cần sửa ở compiler (tkvc) — CHỈ MỤC CHƯA XONG (viết lại 23/09 tối)
 
-> File riêng, ngắn gọn, đưa thẳng cho người sửa tkvc. Chi tiết đầy đủ +
-> acceptance test chạy được: `docs/UPSTREAM_REQUIREMENTS.md` (R1–R12).
-> Trạng thái probe ngày 2026-09-23 trên tkvc build 22:14.
+> File riêng cho maintainer. Đã đối chiếu từng mục bằng probe chạy thật
+> trên exe 17:05 — mục nào mở rồi chuyển xuống §D, không hỏi lại.
+> Spec đầy đủ + acceptance test: `docs/UPSTREAM_REQUIREMENTS.md` (R1–R12).
 
-## A. Hỏi xác nhận (không cần sửa code, cần 1 câu trả lời)
+## A. Cần 1 câu trả lời (không sửa code)
 
 ### Q-1. Ngữ nghĩa `len()` — chủ ý hay regression?
-- Hiện tượng: build 22:14 đổi `len()` từ bytes UTF-8 sang chars/units.
-  Bằng chứng: test `vi_seq_len_at("Việt", 0, 6)` (n=6 = số bytes) crash
-  `IndexOutOfRange`; `shape_script_of("ệ")` rẽ nhánh sai.
-- Repo đã migrate toàn bộ text family sang char-semantics (đúng đắn hơn,
-  khớp `.NET String.Length`), verify 50/0/2 xanh lại.
-- Cần maintainer xác nhận: **giữ chars (xong, không làm gì thêm)** hay
-  **revert về bytes (báo ngay để repo revert migration theo)**.
+- Build 22:14 đổi `len()` từ bytes UTF-8 sang chars/units (bằng chứng:
+  test `vi_seq_len_at("Việt", 0, 6)` crash; đã migrate toàn bộ text family
+  sang char-semantics, verify 50/0/2 xanh lại).
+- Hỏi: **giữ chars (xong)** hay **revert về bytes (báo để repo revert theo)**.
 
-## B. Thêm nhỏ (1 buổi mỗi cái)
+## B. Cần sửa thật (đã chứng minh không có đường vòng)
 
-### F-1. Builtin `ord()` — ✅ ĐÃ MỞ (tkvc 23/09 13:21), đã tiêu thụ
-- Mở đúng như đề xuất (`Char.ConvertToUtf32`, đối xứng `chr()`); probe
-  65/234/7879 đúng hết (lưu ý: `ệ` U+1EC7 = 7879, không phải 7887).
-- Đã áp dụng: `fb_is_emoji`/`fb_is_color_font` chuyển `char_code` → `ord()`,
-  ranges chết từ trước nay sống thật (✚ U+271A → đúng 4 emoji thay vì 3
-  missing; test expectation sửa theo cho trung thực). Fallback 37/37.
-- Còn lại: `bidi_is_surrogate` GIỮ nguyên kẹp biên (không dùng `ord()` được
-  vì `ConvertToUtf32` ném với lone surrogate — đúng chỗ cần detect chúng).
+### F-2. Struct marshal qua pinvoke (R1) — CHƯA CÓ GÌ MỚI
+- `__tkv_struct__` vẫn bị bỏ qua im lặng; `extern_method` trả `IntPtr` vẫn
+  `MissingMethodException`. Không file feature mới nào trong dist.
+- Chặn còn lại: OpenH264 **trực tiếp** (`Initialize`/`DecodeFrame2`),
+  HarfBuzz full, `GetTextExtentPoint32A`, struct X11/Vulkan, method COM
+  có struct params.
+- Tạm bypass được: shim C# (R3-tuple + R2 đã mở) — đang đi đường này cho
+  H.264, nhưng direct-integration vẫn cần R1.
+- Giải pháp + acceptance (`GetCursorPos`/`GetSystemTime`): §R1 trong
+  `UPSTREAM_REQUIREMENTS.md`, giữ nguyên.
 
-## C. Sửa thật (chặn tính năng lớn, đã chứng minh không có đường vòng)
+### F-4 còn lại. Implement COM interface trong `.tkv` (R8-phần-2)
+- Vtable CALLS đã mở + verify độc lập (AddRef d=1, xem §D) — phần này xong.
+- Còn thiếu: (a) method có struct params (chờ R1); (b) implement một COM
+  interface bằng class `.tkv` để COM gọi NGƯỢC vào (cần cho UIA provider
+  đầy đủ — hiện chỉ gọi RA ngoài được, chưa expose được).
+- Giải pháp đề xuất: hoặc emit CCW/vtable cho record có đánh dấu
+  (VD: `__tkv_com_class__`), hoặc document chính thức "chỉ gọi ra" để repo
+  chốt kiến trúc host-shim implement phía C#.
 
-### F-2. Struct marshal qua pinvoke (R1)
-- Chặn: OpenH264 `Initialize`/`DecodeFrame2`, HarfBuzz full, text-measure chuẩn.
-- Đã thử: `__tkv_struct__` bị bỏ qua im lặng; `extern_method` trả `IntPtr`
-  → `MissingMethodException`; shim C# kẹt ở F-3.
-- Giải pháp: khai báo struct + truyền `Struct*` (in/out) như §R1 trong
-  `UPSTREAM_REQUIREMENTS.md` (acceptance: `GetCursorPos`/`GetSystemTime`).
+### F-3 còn lại. Form full-identity inline emit IL sai cú pháp (nhẹ)
+- Tuple đã là form chính thức và chạy (PROBER3A_OK) — mục này ưu tiên thấp,
+  ghi để khỏi quên: với method `assembly` = full identity string, IL emit
+  ra `.assembly extern R3Test, Version=...` không quote → lỗi assemble.
+- Giải pháp: hoặc parse identity ra version/token đúng, hoặc báo lỗi rõ
+  "dùng tuple thay vì inline" lúc build thay vì emit IL hỏng.
 
-### F-3. Assembly identity đúng cho extern (R3) — MỞ QUA TUPLE (23/09)
-- Đính chính kết luận cũ (chỉ probe form bare nên sai): form bare
-  `__tkv_extern_assembly__ = "R3Test"` ra identity Framework là **by-design**.
-- Form đúng: `__tkv_extern_assembly__ = [("R3Test", None, None)]` +
-  method `assembly: "R3Test"` → **PROBER3A_OK (50), exit 0** trên exe 13:21.
-- Form full-identity inline emit IL sai cú pháp (tên không quote) — không
-  dùng; tuple là form chính thức.
-- Hệ quả: đường shim C# MỞ (OpenH264, AccessKit) — shim giao tiếp bằng
-  kiểu cơ bản + R2 buffers, marshal struct/complex nằm trong C#.
+### R11. Diagnostics an toàn (chưa kiểm, có thể vẫn thiếu)
+- Biến chưa khai báo phải lỗi compile (hiện nghi vẫn silent); function vượt
+  ~256 locals phải báo rõ (hiện crash ngẫu nhiên, repo tự check bằng
+  `tools/check_locals.py`).
+- Giải pháp + acceptance (2 file repro): §R11.
 
-### F-4b. `__tkv_vtable__` — ĐÃ SỬA + VERIFY ĐỘC LẬP (exe 17:05)
-- Emitter mới resolve `fn = *(iface + slot*8)` trên miền i64 rồi mới
-  `calli`; call shape `ten(iface_var, slot, ...args)`, iface phải là tên
-  biến đơn (inline nổ on ào lúc build — đúng thiết kế).
-- **Verify độc lập bằng COM object thật** (CoCreateInstance FileOpenDialog
-  qua GUID bytes trong R2 buffers, không cần struct): `AddRef` r1=2, r2=3
-  (d=1, khớp số maintainer), `Release` về 2,1 sạch. VTCOM 4/4.
-- R8 mở một phần: dispatch + method đơn giản (AddRef/Release) chạy thật;
-  method phức tạp (struct params) vẫn chờ R1. UIA provider thật đã khả thi
-  từng bước (kết hợp HWND mirror hiện có).
+## C. Chờ môi trường, không phải compiler (ghi nhận)
 
-### F-4. COM vtable / implement interface (R8)
-- Chặn: UIA provider thật, D3D11/GPU pipeline. HWND mirror chỉ là đường vòng.
-- Giải pháp: như §R8 (dài hạn, P2).
+- **R7 runtime Linux**: build đã chấp nhận `.so`; chưa kiểm runtime vì thiếu
+  máy Linux. Cần CI/runner Linux hoặc xác nhận từ maintainer.
+- **R3 trên máy khác**: tuple đã xanh ở đây; nếu maintainer cần matrix
+  (x86/x64, .NET Framework/Core) thì báo để chạy thêm.
 
-## D. Đã mở — không cần làm gì thêm (ghi nhận để khỏi hỏi lại)
+## D. ĐÃ MỞ — archive, đừng hỏi lại
 
-R2 native buffers (đúng spec đề xuất) · R4/D6 (insert trong loop đúng) ·
-R5 bitwise · R6 i64 literal · R9 `chr()` · R10 `--target library` +
-`--subsystem` (đã smoke) · R12 `reserve()` (chạy OK) · R7 build chấp nhận
-`.so` (runtime chưa kiểm vì thiếu Linux) · R11 chưa kiểm.
+- R2 native buffers = `alloc/free/read/write_u8/i32/i64`, `read_ansi`
+  (đúng spec đề xuất; Clipboard + registry + GUID-bytes dùng thật).
+- R4/D6 insert trong loop đúng (gỡ workaround `qa_put1`, qtapp 52/52).
+- R5 bitwise `& | >> <<` (MJPEG hot paths, pixels bit-identical).
+- R6 i64 literal (HKEY >2³¹ chạy thật, fd 18/18).
+- R9 `chr()` · F-1 `ord()` (ConvertToUtf32/FromUtf32; lưu ý đã biết:
+  `ord()` ném với lone surrogate nên `bidi_is_surrogate` vẫn phải kẹp biên
+  `chr(0xD7FF)`/`chr(0xE000)` — đừng "sửa hộ" chỗ này).
+- R10 `--target library` + `--subsystem` (đã smoke: DLL 29KB ra đúng).
+- R12 `reserve()` (build + chạy OK, chưa áp dụng rộng).
+- R3-tuple `[(name, None, None)]` (PROBER3A_OK); bare form ra Framework
+  identity là by-design.
+- Vtable dispatch `(iface_var, slot, ...args)` (VTCOM 4/4 trên COM thật;
+  iface phải là tên biến đơn — đúng thiết kế).
