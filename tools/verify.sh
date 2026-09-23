@@ -101,6 +101,19 @@ run_case ime        TkvUI.Ime.tkv ime_selftest IME_OK
 run_case uia        TkvUI.Uia.tkv uia_selftest UIA_OK
 run_case atspi      TkvUI.Atspi.tkv atspi_selftest ATSPI_OK
 
+# h264: shim managed build tu source tracked (tools/h264); copy ben canh exe
+# trong OUT vi CLR chi probe thu muc chua exe. Thieu native dll -> SKIP tu selftest.
+if [ ! -f build/OpenH264Shim.dll ] && [ -f tools/h264/OpenH264Shim.cs ]; then
+  CSC="/c/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+  if [ -x "$CSC" ]; then
+    "$CSC" //target:library //out:build/OpenH264Shim.dll tools/h264/OpenH264Shim.cs >/dev/null 2>&1 || true
+  fi
+fi
+if [ -f build/OpenH264Shim.dll ]; then
+  cp -f build/OpenH264Shim.dll "$OUT/" 2>/dev/null || true
+fi
+run_case h264       TkvUI.H264.tkv   h264_selftest  H264_OK
+
 echo "--- suite (umbrella, entry mac dinh 'main') ---"
 run_case suite      TokenVector.UI.tkv ""                TKVUI_OK
 

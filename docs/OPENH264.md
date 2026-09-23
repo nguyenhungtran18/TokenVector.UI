@@ -22,24 +22,25 @@ Tham khảo đúng mẫu tích hợp: `secile/OpenH264Lib.NET` (MIT) — native 
 bridge mỏng + consumer .NET; sample của họ tải đúng `openh264-*-win32.dll`
 từ Cisco như script trên.
 
-## 2. API surface cần cho decode (tối thiểu, theo `codec_api.h`)
+## 2. API surface — TRẠNG THÁI 2026-09-23: DECODE + ROUND-TRIP ✅
 
-1. `int WelsCreateDecoder(ISVCDecoder** ppDecoder)` — con trỏ-nhận-con-trỏ.
-   ✅ **Gọi được ngay** (đã chứng minh rc=0 bằng ctypes): pinvoke `.tkv`
-   với `i64` ra/vào đã chứng minh ở `TkvUI.Platform`/`TkvUI.Font`.
-2. `int Initialize(const SDecodingParam* pParam)` — truyền **struct**.
-   🔴 Chặn (tkvc không marshal struct — xem `docs/COMPILER_GAPS.md`).
-3. `DECODING_STATE DecodeFrame2(const u8* pSrc, int len, u8** ppDst,
-   SBufferInfo* pDstInfo)` — struct vào + **mảng 3 con trỏ YUV ra** +
-   struct trạng thái ra (width/height/stride/bufferStatus).
-   🔴 Chặn (out-struct + out-handle — cùng họ gap với GPU device/X11).
-4. `int GetOption(...)`, `void WelsDestroyDecoder(...)` — destroy ✅ gọi được.
+1. `WelsCreateDecoder` — pinvoke i64 ✅ (chứng minh từ 22/09).
+2. `Initialize(SDecodingParam*)` — struct marshal → **vòng qua C# shim**
+   (`tools/h264/OpenH264Shim.cs`, R1 không cần cho đường này).
+3. `DecodeFrame2(...)` + `SBufferInfo` out — cũng nằm trong shim; `.tkv`
+   chỉ gọi static methods i32/i64 + R2 buffers (R2) — identity assembly
+   đầy đủ inline (R3 đã mở).
+4. **Đã verify chạy thật:**
+   - `ShimTest`: decode `gop.264` Baseline 960×540 → 6 frame RGB.
+   - `RoundTrip` (`tools/h264/RoundTrip.cs`): encoder OpenH264 → Annex B
+     → shim decode → 11/12 frame 64×64 gray đúng cả level (RC=0).
+     Bẫy đã gặp: `SFrameBSInfo` có **nhiều layer** — frame IDR để slice ở
+     `sLayerInfo[1]`, chỉ đọc layer[0] thì mất IDR → decoder `rc=18`
+     (`dsNoParamSets|dsRefLost`) cho mọi frame P.
+   - `TkvUI.H264.tkv` selftest: stream 230B bake trong source → 8/8
+     (`H264_OK`), thiếu dll → `H264_OK H264_SKIPPED` (verify SKIP, 0 FAIL).
 
-Đường vòng đã chứng minh trong repo (C# shim build+call được) hiện cũng
-chặn ở `tkvc` gán cứng identity Framework cho extern assembly
-(`DEVELOPMENT_PLAN.md` §3) — cần upstream mở **đúng 2 primitive**:
-**(a)** đọc/ghi struct native qua pinvoke, **(b)** reference đúng identity
-assembly. Khi đó shim C# ~20 dòng (mẫu OpenH264Lib.NET) là đủ.
+Giới hạn còn lại: **chỉ Constrained Baseline** (§3), không muxer/audio.
 
 ## 3. Giới hạn phải nói rõ
 
@@ -52,10 +53,11 @@ assembly. Khi đó shim C# ~20 dòng (mẫu OpenH264Lib.NET) là đủ.
 
 ## 4. Next steps (theo thứ tự)
 
-1. ✅ Tải + verify DLL (xong 2026-09-22).
-2. Viết yêu cầu upstream 2 primitive (a)(b) kèm use-case này (đo được,
-   có deadline rõ thay vì "cần marshal" chung chung).
-3. Khi upstream mở: shim C# + `TkvUI.H264.tkv` (pinvoke 4 hàm trên +
-   copy YUV ra `PixelSurface` + selftest decode 1 frame Baseline bake sẵn).
-4. MP4 demux thuần `.tkv` song song (không chặn bởi compiler).
-5. FFmpeg LGPL cho Main/High — sau cùng.
+1. ✅ Tải + verify DLL (2026-09-22).
+2. ✅ Upstream mở primitive (a) R1 struct + (b) R3 identity — đã đóng.
+3. ✅ Shim C# + `TkvUI.H264.tkv` selftest decode bake sẵn — 8/8 (23/09).
+   Round-trip encode→decode verify riêng (`tools/h264/RoundTrip.cs`, 11/12).
+4. MP4 demux thuần `.tkv` (song song, không chặn).
+5. Encode từ `.tkv` (encoder vtable đã tay thử trong RoundTrip — có thể
+   gói shim thêm static Encode* khi cần).
+6. FFmpeg LGPL cho Main/High — sau cùng.
