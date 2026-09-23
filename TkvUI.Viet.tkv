@@ -587,3 +587,44 @@ def utf8_seq_len(text: "str", p: "i32") -> "i32":
             return 4
         return 3
     return 2
+
+def utf8_byte_len(s: "str") -> "i32":
+    # Tong so byte UTF-8 cua chuoi (len() hien la codepoint count — can byte
+    # length cho hb_buffer_add_utf8 va day du byte khi encode).
+    n = len(s)
+    total = 0
+    idx = 0
+    while idx < n:
+        total = total + utf8_seq_len(s, idx)
+        idx = idx + 1
+    return total
+
+def utf8_encode_to_mem(s: "str", mem: "i64") -> "i32":
+    # Encode UTF-8 vao bo nho native (khong ghi NUL). Tra so byte da ghi.
+    # Dung builtin write_u8 + R5 bitwise (>> &); dung cho pinvoke truyen
+    # pointer (khong phu thuoc ABI marshal cua "str").
+    n = len(s)
+    idx = 0
+    pos = 0
+    while idx < n:
+        u = ord(s[idx])
+        if u < 128:
+            write_u8(mem, pos, u)
+            pos = pos + 1
+        elif u < 2048:
+            write_u8(mem, pos, 192 + (u >> 6))
+            write_u8(mem, pos + 1, 128 + (u & 63))
+            pos = pos + 2
+        elif u < 65536:
+            write_u8(mem, pos, 224 + (u >> 12))
+            write_u8(mem, pos + 1, 128 + ((u >> 6) & 63))
+            write_u8(mem, pos + 2, 128 + (u & 63))
+            pos = pos + 3
+        else:
+            write_u8(mem, pos, 240 + (u >> 18))
+            write_u8(mem, pos + 1, 128 + ((u >> 12) & 63))
+            write_u8(mem, pos + 2, 128 + ((u >> 6) & 63))
+            write_u8(mem, pos + 3, 128 + (u & 63))
+            pos = pos + 4
+        idx = idx + 1
+    return pos

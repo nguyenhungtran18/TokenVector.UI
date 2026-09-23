@@ -8,16 +8,18 @@ Phu thuoc: Core, Text (draw_string, atlas_blit_glyph, i18n bake/draw), Viet (utf
 __tkv_import__ = ["TkvUI.Core", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.Platform"]
 # HarfBuzz FFI bindings (require libharfbuzz.dll / libharfbuzz.so / libharfbuzz.dylib)
 __tkv_extern_pinvoke__ = [
-    {"name": "hb_version_string", "dll": "libharfbuzz.dll", "symbol": "hb_version_string", "convention": "cdecl", "params": [], "returns": "str"},
+    {"name": "hb_version_string", "dll": "libharfbuzz.dll", "symbol": "hb_version_string", "convention": "cdecl", "params": [], "returns": "i64"},
     {"name": "hb_version", "dll": "libharfbuzz.dll", "symbol": "hb_version", "convention": "cdecl", "params": ["i32", "i32", "i32"], "returns": "void"},
     {"name": "hb_buffer_create", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_create", "convention": "cdecl", "params": [], "returns": "i64"},
     {"name": "hb_buffer_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
     {"name": "hb_buffer_clear_contents", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_clear_contents", "convention": "cdecl", "params": ["i64"], "returns": "void"},
     {"name": "hb_buffer_add_utf8", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_add_utf8", "convention": "cdecl", "params": ["i64", "str", "i32", "i32", "i32"], "returns": "void"},
+    {"name": "hb_buffer_add_utf8_m", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_add_utf8", "convention": "cdecl", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "void"},
     {"name": "hb_buffer_add_utf16", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_add_utf16", "convention": "cdecl", "params": ["i64", "i64", "i32", "i32", "i32"], "returns": "void"},
     {"name": "hb_buffer_set_direction", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_direction", "convention": "cdecl", "params": ["i64", "i32"], "returns": "void"},
     {"name": "hb_buffer_set_script", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_script", "convention": "cdecl", "params": ["i64", "i32"], "returns": "void"},
-    {"name": "hb_buffer_set_language", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_language", "convention": "cdecl", "params": ["i64", "str"], "returns": "void"},
+    {"name": "hb_buffer_set_language", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_set_language", "convention": "cdecl", "params": ["i64", "i64"], "returns": "void"},
+    {"name": "hb_buffer_guess_segment_properties", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_guess_segment_properties", "convention": "cdecl", "params": ["i64"], "returns": "void"},
     {"name": "hb_buffer_get_length", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_length", "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "hb_buffer_get_glyph_infos", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_glyph_infos", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
     {"name": "hb_buffer_get_glyph_positions", "dll": "libharfbuzz.dll", "symbol": "hb_buffer_get_glyph_positions", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
@@ -27,10 +29,11 @@ __tkv_extern_pinvoke__ = [
     {"name": "hb_face_create", "dll": "libharfbuzz.dll", "symbol": "hb_face_create", "convention": "cdecl", "params": ["i64", "i32"], "returns": "i64"},
     {"name": "hb_face_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_face_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
     {"name": "hb_blob_create", "dll": "libharfbuzz.dll", "symbol": "hb_blob_create", "convention": "cdecl", "params": ["i64", "i32", "i64", "i32", "i64"], "returns": "i64"},
+    {"name": "hb_blob_create_from_file_m", "dll": "libharfbuzz.dll", "symbol": "hb_blob_create_from_file", "convention": "cdecl", "params": ["i64"], "returns": "i64"},
     {"name": "hb_blob_destroy", "dll": "libharfbuzz.dll", "symbol": "hb_blob_destroy", "convention": "cdecl", "params": ["i64"], "returns": "void"},
     {"name": "hb_shape", "dll": "libharfbuzz.dll", "symbol": "hb_shape", "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "void"},
     {"name": "hb_script_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_script_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
-    {"name": "hb_language_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_language_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
+    {"name": "hb_language_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_language_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i64"},
     {"name": "hb_direction_from_string", "dll": "libharfbuzz.dll", "symbol": "hb_direction_from_string", "convention": "cdecl", "params": ["str", "i32"], "returns": "i32"},
 ]
 
@@ -78,47 +81,53 @@ BIDI_MAX_LEVEL = 125
 DIR_LTR = 0
 DIR_RTL = 1
 
-# HarfBuzz direction constants
-HB_DIRECTION_LTR = 0
-HB_DIRECTION_RTL = 1
-HB_DIRECTION_TTB = 2
-HB_DIRECTION_BTT = 3
+# HarfBuzz direction constants (GIA TRI THAT tu hb-common.h / verify bang
+# hb_direction_from_string tren libharfbuzz 14.5.0: ltr=4 rtl=5 ttb=6 btt=7;
+# 0 = INVALID — cu LTR=0/RTL=1 truoc day khong dung, set_direction vo nghia).
+HB_DIRECTION_INVALID = 0
+HB_DIRECTION_LTR = 4
+HB_DIRECTION_RTL = 5
+HB_DIRECTION_TTB = 6
+HB_DIRECTION_BTT = 7
 
-# HarfBuzz script constants (subset)
-HB_SCRIPT_COMMON = 0
-HB_SCRIPT_INHERITED = 1
-HB_SCRIPT_ARABIC = 2
-HB_SCRIPT_HEBREW = 3
-HB_SCRIPT_SYRIAC = 4
-HB_SCRIPT_THAANA = 5
-HB_SCRIPT_DEVANAGARI = 6
-HB_SCRIPT_BENGALI = 7
-HB_SCRIPT_GURMUKHI = 8
-HB_SCRIPT_GUJARATI = 9
-HB_SCRIPT_ORIYA = 10
-HB_SCRIPT_TAMIL = 11
-HB_SCRIPT_TELUGU = 12
-HB_SCRIPT_KANNADA = 13
-HB_SCRIPT_MALAYALAM = 14
-HB_SCRIPT_SINHALA = 15
-HB_SCRIPT_THAI = 16
-HB_SCRIPT_LAO = 17
-HB_SCRIPT_TIBETAN = 18
-HB_SCRIPT_MYANMAR = 19
-HB_SCRIPT_GEORGIAN = 20
-HB_SCRIPT_HANGUL = 21
-HB_SCRIPT_ETHIOPIC = 22
-HB_SCRIPT_CHEROKEE = 23
-HB_SCRIPT_UNIFIED_CANADIAN_ABORIGINAL_SYLLABICS = 24
-HB_SCRIPT_OGHAM = 25
-HB_SCRIPT_RUNIC = 26
-HB_SCRIPT_KHMER = 27
-HB_SCRIPT_MONGOLIAN = 28
-HB_SCRIPT_HIRAGANA = 28
-HB_SCRIPT_KATAKANA = 29
-HB_SCRIPT_BOPOMOFO = 29
-HB_SCRIPT_HAN = 30
-HB_SCRIPT_LATIN = 31
+# HarfBuzz script constants — tag ISO 15924 (hb_script_t = HB_TAG), lay dung
+# gia tri tu hb_script_from_string tren dll 14.5.0 (khong phai so nho 0..31;
+# set_script voi so nho = script rong, khong co GSUB script-ruled features).
+# Zyyy=COMMON, Qaai=INHERITED, con lai nhu code ISO tuong ung.
+HB_SCRIPT_COMMON = 1517910393
+HB_SCRIPT_INHERITED = 1365336425
+HB_SCRIPT_ARABIC = 1098015074
+HB_SCRIPT_HEBREW = 1214603890
+HB_SCRIPT_SYRIAC = 1400468067
+HB_SCRIPT_THAANA = 1416126817
+HB_SCRIPT_DEVANAGARI = 1147500129
+HB_SCRIPT_BENGALI = 1113943655
+HB_SCRIPT_GURMUKHI = 1198879349
+HB_SCRIPT_GUJARATI = 1198877298
+HB_SCRIPT_ORIYA = 1332902241
+HB_SCRIPT_TAMIL = 1415671148
+HB_SCRIPT_TELUGU = 1415933045
+HB_SCRIPT_KANNADA = 1265525857
+HB_SCRIPT_MALAYALAM = 1298954605
+HB_SCRIPT_SINHALA = 1399418472
+HB_SCRIPT_THAI = 1416126825
+HB_SCRIPT_LAO = 1281453935
+HB_SCRIPT_TIBETAN = 1416192628
+HB_SCRIPT_MYANMAR = 1299803506
+HB_SCRIPT_GEORGIAN = 1197830002
+HB_SCRIPT_HANGUL = 1214344807
+HB_SCRIPT_ETHIOPIC = 1165256809
+HB_SCRIPT_CHEROKEE = 1130915186
+HB_SCRIPT_UNIFIED_CANADIAN_ABORIGINAL_SYLLABICS = 1130458739
+HB_SCRIPT_OGHAM = 1332175213
+HB_SCRIPT_RUNIC = 1383427698
+HB_SCRIPT_KHMER = 1265134962
+HB_SCRIPT_MONGOLIAN = 1299148391
+HB_SCRIPT_HIRAGANA = 1214870113
+HB_SCRIPT_KATAKANA = 1264676449
+HB_SCRIPT_BOPOMOFO = 1114599535
+HB_SCRIPT_HAN = 1214344809
+HB_SCRIPT_LATIN = 1281455214
 
 # HarfBuzz buffer flags
 HB_BUFFER_FLAG_DEFAULT = 0
@@ -560,8 +569,21 @@ class BidiStackFrame:
 # =========================================================
 
 def hb_version_string_ex() -> "str":
-    """Lay version string cua HarfBuzz library."""
-    return hb_version_string()
+    """Lay version string cua HarfBuzz library.
+    NOTE: khong khai returns="str" — marshaler CLR CoTaskMemFree len con tro
+    static cua HB -> heap corruption (0xC0000374). Tra i64 raw + read_ansi."""
+    p = hb_version_string()
+    if p == 0:
+        return ""
+    n = 0
+    while n < 32:
+        b = mem_read_u32(p + n) & 255
+        if b == 0:
+            break
+        n = n + 1
+    if n == 0:
+        return ""
+    return read_ansi(p, 0, n)
 
 def hb_version_ex() -> "list[i32]":
     """Lay version (major, minor, micro). Ghi vao bo nho that (ban cu truyen
@@ -590,12 +612,21 @@ def hb_buffer_clear_contents_ex(buf: "HbBuffer") -> "i32":
     return 1
 
 def hb_buffer_add_utf8_ex(buf: "HbBuffer", text: "str", item_offset: "i32", item_length: "i32") -> "i32":
-    """Them text UTF-8 vao buffer."""
-    n = len(text)
+    # Them text vao buffer qua pointer UTF-8 encode tay (R2): khong phu thuoc
+    # ABI marshal "str", text_length = BYTE length (len() hien la codepoint).
+    # hb_buffer_add_utf8 decode dong bo trong call -> free an toan sau do.
+    blen = utf8_byte_len(text)
+    if blen <= 0:
+        return 1
+    mem = mem_alloc(blen + 4)
+    if mem == 0:
+        return 0
+    real = utf8_encode_to_mem(text, mem)
     item_len = item_length
     if item_len < 0:
-        item_len = n - item_offset
-    hb_buffer_add_utf8(buf.handle, text, n, item_offset, item_len)
+        item_len = real - item_offset
+    hb_buffer_add_utf8_m(buf.handle, mem, real, item_offset, item_len)
+    rc = mem_free(mem)
     return 1
 
 def hb_buffer_add_utf16_ex(buf: "HbBuffer", text: "str", item_offset: "i32", item_length: "i32") -> "i32":
@@ -614,8 +645,15 @@ def hb_buffer_set_script_ex(buf: "HbBuffer", script: "i32") -> "i32":
     return 1
 
 def hb_buffer_set_language_ex(buf: "HbBuffer", lang: "str") -> "i32":
-    """Dat language cho buffer (ISO 639 code, vd: 'en', 'ar', 'he')."""
-    hb_buffer_set_language(buf.handle, lang)
+    """Dat language cho buffer. hb_language_t = pointer INTERNED (i64) —
+    truyen str truc tiep = garbage pointer (deref crash/sai feature).
+    Chuyen qua hb_language_from_string truoc; rong -> bo qua (giu default)."""
+    if lang == "":
+        return 1
+    lh = hb_language_from_string(lang, -1)
+    if lh == 0:
+        return 0
+    hb_buffer_set_language(buf.handle, lh)
     return 1
 
 def hb_buffer_get_length_ex(buf: "HbBuffer") -> "i32":
@@ -679,18 +717,98 @@ def hb_direction_from_string_ex(dir_str: "str", length: "i32") -> "i32":
     """Chuyen string direction thanh HB_DIRECTION_* constant."""
     return hb_direction_from_string(dir_str, length)
 
-# Helper: Tao font tu file TTF/OTF
+# Helper: Tao font tu file TTF/OTF (hb_blob_create_from_file doc file trong
+# dll; path encode UTF-8 + NUL vao R2 — khong phu thuoc marshal str).
+# NOTE: face/blob khong track theo HbFont -> leak cho den khi process ket;
+# dung hb_shape_full (bytes) / hb_shape_text (full lifecycle) cho cu call.
 def hb_font_from_file(font_path: "str", font_size: "f64") -> "HbFont":
-    """Tao HbFont tu file TTF/OTF.
-    Note: Can file I/O de doc file, day la placeholder."""
-    return HbFont(0)
+    """Tao HbFont tu file TTF/OTF. font_size <= 0 -> scale = upem (font units)."""
+    if hb_lib_present() == 0:
+        return HbFont(0)
+    plen = utf8_byte_len(font_path)
+    if plen <= 0:
+        return HbFont(0)
+    pm = mem_alloc(plen + 4)
+    if pm == 0:
+        return HbFont(0)
+    real = utf8_encode_to_mem(font_path, pm)
+    write_u8(pm, real, 0)
+    blob = hb_blob_create_from_file_m(pm)
+    rc = mem_free(pm)
+    if blob == 0:
+        return HbFont(0)
+    face = hb_face_create_ex(blob, 0)
+    if face == 0:
+        rc = hb_blob_destroy_ex(blob)
+        return HbFont(0)
+    font = hb_font_create_ex(face)
+    if font.handle == 0:
+        rc = hb_face_destroy_ex(face)
+        rc = hb_blob_destroy_ex(blob)
+        return HbFont(0)
+    if font_size > 0.0:
+        sc = int(font_size)
+        rc = hb_font_set_scale_ex(font, sc, sc)
+    return font
 
-# Helper: Shape text voi HarfBuzz
-def hb_shape_text(text: "str", font_path: "str", font_size: "f64", direction: "i32" = 0, script: "i32" = 0, language: "str" = "") -> "list[HbGlyphInfo]":
-    """High-level helper: shape text voi HarfBuzz.
-    Tra ve list HbGlyphInfo."""
-    # Placeholder - can implement khi co file I/O
-    return []
+# Helper: Shape text voi HarfBuzz (font tu file, full lifecycle — khong leak).
+# direction/script = 0 -> guess tu text (hb_buffer_guess_segment_properties);
+# language rong -> default. Out flat lists (nha style), tra so glyph / 0.
+def hb_shape_text(text: "str", font_path: "str", font_size: "f64", out_gids: "list[i32]", out_advs: "list[i32]", out_clusters: "list[i32]", direction: "i32" = 0, script: "i32" = 0, language: "str" = "") -> "i32":
+    """Shape 1 doan text bang font file. Tra so glyph, 0 neu thieu DLL/file."""
+    if hb_lib_present() == 0:
+        return 0
+    plen = utf8_byte_len(font_path)
+    if plen <= 0:
+        return 0
+    pm = mem_alloc(plen + 4)
+    if pm == 0:
+        return 0
+    real = utf8_encode_to_mem(font_path, pm)
+    write_u8(pm, real, 0)
+    blob = hb_blob_create_from_file_m(pm)
+    rc = mem_free(pm)
+    if blob == 0:
+        return 0
+    face = hb_face_create_ex(blob, 0)
+    if face == 0:
+        rc = hb_blob_destroy_ex(blob)
+        return 0
+    font = hb_font_create_ex(face)
+    if font.handle == 0:
+        rc = hb_face_destroy_ex(face)
+        rc = hb_blob_destroy_ex(blob)
+        return 0
+    if font_size > 0.0:
+        sc = int(font_size)
+        rc = hb_font_set_scale_ex(font, sc, sc)
+    buf = hb_buffer_create_ex()
+    rc = hb_buffer_add_utf8_ex(buf, text, 0, 0 - 1)
+    hb_buffer_guess_segment_properties(buf.handle)
+    if direction != 0:
+        rc = hb_buffer_set_direction_ex(buf, direction)
+    if script != 0:
+        rc = hb_buffer_set_script_ex(buf, script)
+    if language != "":
+        rc = hb_buffer_set_language_ex(buf, language)
+    rc = hb_shape_ex(font, buf, 0, 0)
+    n = hb_buffer_get_length_ex(buf)
+    infos = hb_buffer_get_glyph_infos(buf.handle, 0)
+    poss = hb_buffer_get_glyph_positions(buf.handle, 0)
+    i = 0
+    while i < n:
+        gid = mem_read_u32(infos + i * 20)
+        cl = mem_read_u32(infos + i * 20 + 8)
+        xa = mem_read_i32(poss + i * 20)
+        out_gids.append(int(gid))
+        out_advs.append(xa)
+        out_clusters.append(int(cl))
+        i = i + 1
+    rc = hb_buffer_destroy_ex(buf)
+    rc = hb_font_destroy_ex(font)
+    rc = hb_face_destroy_ex(face)
+    rc = hb_blob_destroy_ex(blob)
+    return n
 
 # =========================================================
 # Bidi + HarfBuzz Integration Helpers
@@ -749,18 +867,25 @@ def hb_shape_full(text: "str", font_bytes: "list[i64]", direction: "i32", script
         return 0
     buf = hb_buffer_create_ex()
     rc = hb_buffer_add_utf8_ex(buf, text, 0, 0 - 1)
-    rc = hb_buffer_set_direction_ex(buf, direction)
-    rc = hb_buffer_set_script_ex(buf, script)
-    rc = hb_buffer_set_language_ex(buf, language)
+    hb_buffer_guess_segment_properties(buf.handle)
+    if direction != 0:
+        rc = hb_buffer_set_direction_ex(buf, direction)
+    if script != 0:
+        rc = hb_buffer_set_script_ex(buf, script)
+    if language != "":
+        rc = hb_buffer_set_language_ex(buf, language)
     rc = hb_shape_ex(font, buf, 0, 0)
     n = hb_buffer_get_length_ex(buf)
     infos = hb_buffer_get_glyph_infos(buf.handle, 0)
     poss = hb_buffer_get_glyph_positions(buf.handle, 0)
     i = 0
+    # hb_glyph_info_t / hb_glyph_position_t = 20 byte (5 x i32/u32);
+    # cluster o +8 (khong phai +4 = mask). Stride cu i*8/i*16 la bug goc
+    # "glyph 2+ = 0" (doc sai struct — verify ground truth bang ctypes).
     while i < n:
-        gid = mem_read_u32(infos + i * 8)
-        cl = mem_read_u32(infos + i * 8 + 4)
-        xa = mem_read_i32(poss + i * 16)
+        gid = mem_read_u32(infos + i * 20)
+        cl = mem_read_u32(infos + i * 20 + 8)
+        xa = mem_read_i32(poss + i * 20)
         out_gids.append(int(gid))
         out_advs.append(xa)
         out_clusters.append(int(cl))
@@ -948,8 +1073,9 @@ def shape_run_fallback(text: "str", start: "i32", end: "i32", out_adv: "list[i32
     return ng
 
 def shape_run_hb(text: "str", start: "i32", end: "i32", font_bytes: "list[i64]", script: "i32", direction: "i32", language: "str", out_gids: "list[i32]", out_adv: "list[i32]", out_cl: "list[i32]") -> "i32":
-    # Shape 1 run qua HarfBuzz (ve 0 khi vang DLL). Cluster tra ve TUYET DOI
-    # (offset +start) de map cursor. Tra so glyph.
+    # Shape 1 run qua HarfBuzz (ve 0 khi vang DLL). Cluster tra ve TUYET DOU
+    # byte offset (khop HB UTF-8 clusters): chuyen start (codepoint index)
+    # thanh byte truoc khi + vao cluster tuong doi.
     if start < 0:
         start = 0
     n = len(text)
@@ -958,13 +1084,18 @@ def shape_run_hb(text: "str", start: "i32", end: "i32", font_bytes: "list[i64]",
     if start >= end:
         return 0
     sub = text[start:end]
+    byte_start = 0
+    bi = 0
+    while bi < start:
+        byte_start = byte_start + utf8_seq_len(text, bi)
+        bi = bi + 1
     base_cl = len(out_cl)
     cnt = hb_shape_full(sub, font_bytes, direction, script, language, out_gids, out_adv, out_cl)
     if cnt <= 0:
         return 0
     k = int(0)
     while k < cnt:
-        out_cl[base_cl + k] = out_cl[base_cl + k] + start
+        out_cl[base_cl + k] = out_cl[base_cl + k] + byte_start
         k = k + 1
     return cnt
 
@@ -1538,8 +1669,72 @@ def bidi_selftest() -> "str":
         text_check_i(acc, "hb shape lat count", hbn2, 5)
         text_check_i(acc, "hb shape lat cluster4", hbc2[4], 4)
         text_check_gt(acc, "hb shape lat adv0", hba2[0], 0)
+        # single-char consistency (bat stride sai: gid don phai khop gid[0]/[1])
+        hgo = []
+        hao = []
+        hco = []
+        hbn3 = hb_shape_full("א", i18n_font_bytes_he(), HB_DIRECTION_LTR, HB_SCRIPT_HEBREW, "he", hgo, hao, hco)
+        text_check_i(acc, "hb shape one count", hbn3, 1)
+        text_check_i(acc, "hb shape one gid = heb gid0", hgo[0], hbg[0])
+        hbp = []
+        hap = []
+        hcp = []
+        hbn4 = hb_shape_full("ב", i18n_font_bytes_he(), HB_DIRECTION_LTR, HB_SCRIPT_HEBREW, "he", hbp, hap, hcp)
+        text_check_i(acc, "hb shape one gid = heb gid1", hbp[0], hbg[1])
+        # hằng số module == giá trị thật từ dll (hb_*_from_string)
+        text_check_i(acc, "hb dll dir ltr", hb_direction_from_string_ex("ltr", -1), HB_DIRECTION_LTR)
+        text_check_i(acc, "hb dll dir rtl", hb_direction_from_string_ex("rtl", -1), HB_DIRECTION_RTL)
+        text_check_i(acc, "hb dll script Latn", hb_script_from_string_ex("Latn", -1), HB_SCRIPT_LATIN)
+        text_check_i(acc, "hb dll script Arab", hb_script_from_string_ex("Arab", -1), HB_SCRIPT_ARABIC)
+        text_check_i(acc, "hb dll script Hebr", hb_script_from_string_ex("Hebr", -1), HB_SCRIPT_HEBREW)
+        text_check_gt(acc, "hb version dai", len(hb_version_string_ex()), 4)
+        # font tu file + bake ground truth (arial.ttf — ctypes cung dll 14.5.0)
+        arial = "C:\\Windows\\Fonts\\arial.ttf"
+        if tkv_has_file(arial) == 1:
+            ag = []
+            aa = []
+            ac = []
+            an = hb_shape_text("ABC", arial, 0, ag, aa, ac, 0, 0, "")
+            text_check_i(acc, "hb arial ABC n", an, 3)
+            text_check_i(acc, "hb arial ABC gid0", ag[0], 36)
+            text_check_i(acc, "hb arial ABC gid2", ag[2], 38)
+            text_check_i(acc, "hb arial ABC adv0", aa[0], 1366)
+            text_check_i(acc, "hb arial ABC adv2", aa[2], 1479)
+            text_check_i(acc, "hb arial ABC cl1", ac[1], 1)
+            hg = []
+            ha = []
+            hc = []
+            hn2 = hb_shape_text("Hello", arial, 0, hg, ha, hc, 0, 0, "")
+            text_check_i(acc, "hb arial Hello n", hn2, 5)
+            text_check_i(acc, "hb arial Hello gid0", hg[0], 43)
+            text_check_i(acc, "hb arial Hello adv1", ha[1], 1139)
+            text_check_i(acc, "hb arial Hello adv2", ha[2], 455)
+            mg = []
+            ma = []
+            mc = []
+            mn = hb_shape_text("مرحبا", arial, 0, mg, ma, mc, 0, 0, "")
+            text_check_i(acc, "hb arial arab n", mn, 5)
+            text_check_i(acc, "hb arial arab gid0", mg[0], 910)
+            text_check_i(acc, "hb arial arab gid4", mg[4], 995)
+            text_check_i(acc, "hb arial arab adv0", ma[0], 470)
+            text_check_i(acc, "hb arial arab adv3", ma[3], 1001)
+            text_check_i(acc, "hb arial arab cl0", mc[0], 8)
+            text_check_i(acc, "hb arial arab cl4", mc[4], 0)
     else:
         text_check_i(acc, "hb shape vang lib -> 0", hbn, 0)
+
+    # --- UTF-8 byte length + encode (pure, khong can DLL) ---
+    text_check_i(acc, "utf8 byte len Hello", utf8_byte_len("Hello"), 5)
+    text_check_i(acc, "utf8 byte len heb", utf8_byte_len("אב"), 4)
+    text_check_i(acc, "utf8 byte len arab", utf8_byte_len("مرحبا"), 10)
+    text_check_i(acc, "utf8 byte len viet", utf8_byte_len("ệ"), 3)
+    hbm = mem_alloc(8)
+    hbw = utf8_encode_to_mem("é", hbm)
+    hbv = mem_read_u32(hbm)
+    hbfr = mem_free(hbm)
+    text_check_i(acc, "utf8 encode e byte len", hbw, 2)
+    text_check_i(acc, "utf8 encode e b0", hbv & 255, 195)
+    text_check_i(acc, "utf8 encode e b1", (hbv >> 8) & 255, 169)
     # --- P2-B shaping orchestration (pure, khong can DLL) ---
     text_check_i(acc, "shape unit lat", shape_unit_script("A"), HB_SCRIPT_LATIN)
     text_check_i(acc, "shape unit digit", shape_unit_script("5"), HB_SCRIPT_COMMON)
@@ -1600,7 +1795,9 @@ def bidi_selftest() -> "str":
         hcl = []
         hn = shape_run_hb("אב", 0, 4, i18n_font_bytes_he(), HB_SCRIPT_HEBREW, HB_DIRECTION_RTL, "he", hgids, hadv, hcl)
         text_check_i(acc, "shape hb heb n", hn, 2)
-        text_check_i(acc, "shape hb heb cl1", hcl[1], 2)
+        # RTL -> thu tu VISUAL: glyph truoc = b (cluster byte 2), glyph sau = a (0)
+        text_check_i(acc, "shape hb heb cl0", hcl[0], 2)
+        text_check_i(acc, "shape hb heb cl1", hcl[1], 0)
     else:
         hgids = []
         hadv = []

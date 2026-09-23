@@ -8,7 +8,7 @@
 
 | Hạng mục trong plan | Trạng thái | Ở đâu |
 |---|---|---|
-| Phase 1 — HarfBuzz shaping, font atlas, fallback chain, bidi/RTL, IME | **Cơ bản xong** — UAX#9 port (Bidi 112) + UTF-8 split + fallback chain `font_family_resolve` + baked glyph thật Hebrew/Arabic/CJK (Text 160) + IME Win32 (dispatcher/TextInput/demo); còn: HarfBuzz thật (cần lib DLL, hiện guard), emoji màu (cần cmap12), LRU/DPI | `TkvUI.Text/Bidi/Viet/I18nData/Widgets.tkv` |
+| Phase 1 — HarfBuzz shaping, font atlas, fallback chain, bidi/RTL, IME | **Cơ bản xong** — UAX#9 port (Bidi 112) + UTF-8 split + fallback chain `font_family_resolve` + baked glyph thật Hebrew/Arabic/CJK (Text 160) + IME Win32 (dispatcher/TextInput/demo) + **HarfBuzz thật打通 (2026-09-23, Bidi 194/194)**; còn: wire draw path (leaf module + atlas lazy-bake), emoji màu (cần cmap12), LRU/DPI | `TkvUI.Text/Bidi/Viet/I18nData/Widgets.tkv` |
 | Phase 2 — GPU backend (D3D11/Metal/Vulkan, shader pipeline) | **Một phần** — abstraction + factory + pick + probe 44/44 (gồm resolve entry thật `vkGetInstanceProcAddr(NULL)`); **device ops 11/11 stub** + **shader pipeline abstraction 9/9** (module/layout/graphics/compute pipeline) + **D3D11/Metal stub 4/4**; GPU 66/66; tạo instance/device còn chặn ở đọc out-handle (gap compiler, cùng họ với registry); shader compile/Dx11/Metal thật cần host GPU thật. | `TkvUI.Gpu.tkv` |
 | Phase 3 — Accessibility tree (UIA/AT-SPI/NSAccessibility/AccessibilityNodeInfo) | **Một phần** — data model + commit/diff 38/38; chưa bridge OS, chưa `a11y_node` integration trong Widgets | `TkvUI.A11y.tkv` |
 | Phase 4 — Tooling & DX (VS Code ext, hot reload, inspector, tkvpkg, doc gen) | **Một phần** — `tools/verify.sh` 15 case + suite umbrella; extension/hot reload/inspector/pkg/docgen chưa | `tools/verify.sh`, `TokenVector.UI.tkv` |
@@ -24,7 +24,7 @@
 
 | Target | Tasks | Deliverable |
 |--------|-------|-------------|
-| **HarfBuzz shaping** | Pinvoke `hb_buffer_add_utf8`, `hb_shape`, `hb_buffer_get_glyph_infos`; add `TextShaper` class | `TextShaper.shape(text, font, features)` → `list[GlyphInfo]` → **ĐANG BLOCKED (2026-09-18)**: DLL `libharfbuzz.dll` load được, pinvoke `hb_buffer_add_utf8`/`hb_shape`/`hb_buffer_get_glyph_infos` gọi được, single-char shaping đúng (glyph id, cluster byte-based, advance với scale). **NHƯNG** multi-char (`"אב"`, `"AA"`, `"AAA"`) bị bug: glyph id thứ 2+ trả 0 (nên khác 0), cluster/advance chỉ đúng khi set scale; nguyên nhân: buffer stride/out-array index mismatch trong FFI (cần đọc struct glyph_info/position - gap compiler đọc out-buffer). Cần upstream: primitive đọc struct hoặc fix FFI marshal. Tạm dùng fallback bitmap/sequence-aware đã làm. |
+| **HarfBuzz shaping** | Pinvoke `hb_buffer_add_utf8`, `hb_shape`, `hb_buffer_get_glyph_infos`; add `TextShaper` class | **DONE (2026-09-23)** — không cần upstream: bug "glyph 2+ = 0" là **stride struct sai trong code** (`hb_glyph_info_t`=20B, cluster@+8 — không phải gap compiler đọc out-buffer như từng đoán); kèm 3 bug đã fix: hằng `HB_DIRECTION_*`/`HB_SCRIPT_*` sai (0/1 + số nhỏ → 4/5 + tag ISO 15924), `add_utf8` cần byte-length (`utf8_byte_len`/`utf8_encode_to_mem` R2), `hb_language_t`=pointer i64 + `hb_version_string` str-return heap corruption 0xC0000374. Bake Arial exact khớp ctypes, Bidi **194/194**, skip-sạch 157 khi thiếu dll (`tools/fetch_harfbuzz.ps1`, HarfBuzz 14.5.0 MIT). Còn: wire draw path (leaf module + atlas lazy-bake HB gids). |
 | **Font atlas** | `stb_truetype` pinvoke → bake glyphs to `PixelSurface` atlas; LRU eviction | `FontAtlas.get_glyph(rune, size)` → `Rect2D + advance` |
 | **Fallback chain** | FontConfig-like resolver: primary → Noto Sans → Noto Emoji → system | `FontFamily.resolve(rune)` → `FontFace` |
 | **Bidi/RTL** | Pinvoke `fribidi_log2vis` or port Unicode Bidi Algorithm (UAX #9) | `TextShaper.set_direction(RTL/LTR/auto)` |
@@ -152,6 +152,6 @@ selftest 299 check, packaging .tkvpkg/.nupkg đầy đủ.
 
 ### Thứ tự đề xuất (cập nhật 2026-09-18: 3 việc cũ xong cả — present mmap, TTF milestone, FocusManager)
 
-3 việc tiếp theo làm được, xếp theo giá trị/công sức: **(1) Multi-window wiring** (`SurfacePool` + `RenderLoop` đã sẵn, headless-test được) → **(2) GPU shader pipeline thật** (`D3DCompile`/`vkCreateShaderModule`/`MTLLibrary` cần host GPU thật, bindings sẵn) → **(3) HarfBuzz shaping thật** (bindings+guard sẵn, cần lib DLL để test sống).
+3 việc tiếp theo làm được, xếp theo giá trị/công sức: **(1) Multi-window wiring** (`SurfacePool` + `RenderLoop` đã sẵn, headless-test được) → **(2) GPU shader pipeline thật** (`D3DCompile`/`vkCreateShaderModule`/`MTLLibrary` cần host GPU thật, bindings sẵn) → **(3) Wire HarfBuzz vào draw path** (core打通 2026-09-23 — cần leaf `TkvUI.HarfBuzz` + atlas lazy-bake HB gids).
 
 **Resource estimate**: 1–2 core devs (compiler + runtime), 1 platform specialist per OS, 1 tooling dev. Total ~12–18 months to parity with Avalonia/Uno on core criteria.

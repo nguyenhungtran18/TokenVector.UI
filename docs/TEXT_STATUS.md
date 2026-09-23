@@ -22,18 +22,16 @@
 
 ---
 
-## 11.2 Complex Script Shaping (Indic/Thai/Arabic full) — 🔴 CHƯA LÀM
+## 11.2 Complex Script Shaping (Indic/Thai/Arabic full) — 🟡 CORE ĐÃ打通, CÒN WIRE
 
 **Hiện trạng:**
-- Bidi UAX#9 + visual reorder: DONE (`TkvUI.Bidi.tkv`, 112/112 PASS)
-- HarfBuzz FFI stub: có (`TkvUI.Bidi.tkv` — `hb_*` pinvoke)
-- **Shaping engine chưa có**: Indic (Devanagari/Bengali/etc), Thai, Arabic full contextual forms
+- Bidi UAX#9 + visual reorder: DONE (`TkvUI.Bidi.tkv`, **194/194 PASS**)
+- **HarfBuzz 14.5 thật: ĐÃ打通 (2026-09-23)** — pinvoke `hb_*` + `hb_shape_full`/`hb_shape_text`, bake Arial exact (gid/adv/cluster khớp ctypes, Ả Rập RTL joining), `tools/fetch_harfbuzz.ps1` (MIT), skip-sạch 157/157 khi thiếu dll
+- **Còn thiếu:** wire vào draw path — `TkvUI.Text` không import được `TkvUI.Bidi` (vòng import) → cần leaf `TkvUI.HarfBuzz` + atlas lazy-bake gid do HB trả về (không chỉ isolated forms)
 
-**Blocker:** Cần shaping engine (HarfBuzz đầy đủ hoặc tự viết shaping tables)
+**Workaround hiện tại (khi thiếu dll):** Arabic/Hebrew dùng glyph baked sẵn (`i18n_baked`), không shaping runtime.
 
-**Workaround hiện tại:** Arabic/Hebrew dùng glyph baked sẵn (`i18n_baked`), không shaping runtime.
-
-**Mục tiêu:** `text_atlas_draw_i18n` hỗ trợ shaping đúng cho Indic/Thai/Arabic full.
+**Mục tiêu:** `text_atlas_draw_i18n` hỗ trợ shaping đúng cho Indic/Thai/Arabic full khi có dll.
 
 ---
 

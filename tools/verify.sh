@@ -72,7 +72,15 @@ run_case effects    TkvUI.Effects.tkv  effects_selftest  EFFECTS_OK
 run_case input      TkvUI.Input.tkv    input_selftest    INPUT_OK
 run_case layout     TkvUI.Layout.tkv   layout_selftest   LAYOUT_OK
 run_case widgets    TkvUI.Widgets.tkv  widget_selftest   WIDGETS_OK
-run_case media      TkvUI.Media.tkv    media_selftest     MEDIA_OK
+run_case media      TkvUI.Media.tkv    media_selftest    MEDIA_OK
+
+# harfbuzz: copy dll (+glib/intl) ben canh exe trong OUT (CLR probe exedir);
+# thieu dll -> hb_lib_present=0, selftest Bidi van PASS (nhanh hon).
+for f in libharfbuzz.dll libglib-2.0-0.dll libintl-8.dll; do
+  if [ -f "build/$f" ]; then
+    cp -f "build/$f" "$OUT/" 2>/dev/null || true
+  fi
+done
 run_case bidi       TkvUI.Bidi.tkv     bidi_selftest     BIDI_OK
 run_case gpu        TkvUI.Gpu.tkv      gpu_selftest      GPU_OK
 run_case a11y       TkvUI.A11y.tkv     a11y_selftest     A11Y_OK

@@ -7,7 +7,7 @@
 > đối thủ 2026-09-22 (`docs/COMPETITORS.md` §2b).
 >
 > Quy tắc nghiệm thu chung: sau mỗi fix, `tools/verify.sh` vẫn
-> `TKVUI_VERIFY_OK` (hiện 49/0/2) + acceptance test của chính yêu cầu đó PASS.
+> `TKVUI_VERIFY_OK` (hiện 51/0/2) + acceptance test của chính yêu cầu đó PASS.
 
 ---
 
@@ -15,8 +15,8 @@
 
 | # | Yêu cầu | Gap cũ | Mở mặt trận | Mức |
 |---|---|---|---|---|
-| R1 | Struct marshal qua pinvoke (vào + ra) | A2-một phần | H.264 decode, HarfBuzz full, text-measure chuẩn | **P0** |
-| R2 | Out-buffer/mảng: `alloc` + đọc/ghi + extern nhận mảng | A2 + C9 | Clipboard OS, Vulkan enumerate, HarfBuzz arrays, registry đọc | **P0** |
+| R1 | Struct marshal qua pinvoke (vào + ra) | A2-một phần | H.264 decode (đã mở bằng shim C#), text-measure chuẩn — **HarfBuzz glyph arrays KHÔNG còn chờ** (đọc tay stride20 qua R2,打通 2026-09-23) | **P0** |
+| R2 | Out-buffer/mảng: `alloc` + đọc/ghi + extern nhận mảng | A2 + C9 | Clipboard OS, Vulkan enumerate, registry đọc — **HarfBuzz arrays đã dùng** (mem_read/write_u8) | **P0** |
 | R3 | `extern_method` reference đúng assembly identity | A2 (đoạn identity) | C# shim (OpenH264/AccessKit): build+call được như đã chứng minh | **P0** |
 | R4 | Bug D6: method trùng tên BCL resolve sai trong loop | D6 (mới) | Mọi app code (đang phải workaround `qa_put1`) | **P0 (bug, rẻ)** |
 | R5 | Bitwise `&`, `\|`, `>>`, `<<` | B1 | Codec nhanh ~10× (MJPEG-HD realtime), blur/blend 1.5–2× | **P1** |
@@ -40,7 +40,7 @@ biến trung gian, pinvoke gán biến) và D1/D2/D5 (đã có quy tắc thực 
 **Vấn đề:** không truyền struct vào / nhận struct ra qua pinvoke. Chặn:
 `OpenH264.Initialize(SDecodingParam*)`, `DecodeFrame2(..., SBufferInfo*)`
 + 3 con trỏ YUV (`docs/OPENH264.md`), `GetTextExtentPoint32A` (SIZE),
-HarfBuzz (`hb_glyph_info_t`), XImage/XEvent.
+XImage/XEvent. (HarfBuzz `hb_glyph_info_t` đã không còn — đọc stride20 tay qua R2.)
 
 **Cú pháp đề xuất (tối thiểu, đủ dùng):**
 ```python

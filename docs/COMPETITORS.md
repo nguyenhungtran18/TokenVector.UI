@@ -28,7 +28,7 @@
 |---|---|---|---|
 | Binary/deploy | suite 649 KB, app ~400 KB single EXE (cần .NET FW) | Slint (MCU < 300 KiB RAM, wasm subset font); egui wasm demo gọn | **Thắng trên Windows/.NET**; thua wafun đa nền |
 | Startup/RAM | 31 ms / 27.6 MB peak | Slint (thiết kế cho MCU), egui (nhẹ) | Hòa về triết lý, chưa đo đối đầu 2 ông này |
-| Text/shaping | atlas batch 9.4ms/rep (thắng PyQt6 18.1ms warm, 1.9×); shaping engine thuần (Arabic/Thai/Devanagari/Bengali/Tamil + kern + composite + CBDT bake) | Qt (HarfBuzz/full) | **Thắng PyQt6 về tốc độ ASCII**; thua về HarfBuzz full/GSUB-GPOS |
+| Text/shaping | atlas batch 9.4ms/rep (thắng PyQt6 18.1ms warm, 1.9×); engine thuần (Arabic/Thai/Devanagari/Bengali/Tamil + kern + composite + CBDT bake) + **HarfBuzz 14.5打通 (2026-09-23)** optional qua `libharfbuzz.dll` (bake Arial exact, RTL joining) | Qt (HarfBuzz/full) | **Thắng PyQt6 về tốc độ ASCII**; HarfBuzz打通 thu hẹp gap complex-script — còn thiếu: wire draw path + GSUB/GPOS đầy đủ khi thiếu dll (fallback engine cũ) |
 | Widgets | ~43 (native 28 + Ant 15): calendar/wizard/dock/MDI/richtext/tree-combo/color-picker/font-dialog/statusbar/checkbox/radio/groupbox + item-view framework + stylesheet engine | Qt ~1000 classes | Thua xa về số lượng; đủ cho app CRUD/form |
 | SQL persistence | **Binary page 4KB + B-tree + WAL-lite + multi-WHERE + JOIN** (51/51) | Không ai có built-in | **Thắng (niche)** |
 | H.264 decode | **Baseline decode打通** (C# shim + OpenH264 Cisco, selftest 8/8 + round-trip encode→decode 11/12, 2026-09-23) | QtMultimedia/ffmpeg (full profile) | Thua breadth (Baseline-only, không playback/Mux); thắng ở built-in nhỏ |
@@ -57,7 +57,7 @@ PyQt 6.11.0/Qt 6.11.2, tái chạy 2026-09-23). Modal-exec và playback thật k
 | App assembly (MainWindow) | QtAppPort 52/52: menus/toolbar/statusbar/dock-less + RichEdit + dialogs + print + recent + exit | `mainwin.app` PASS: QMainWindow + 3 menus + 2 toolbars + statusbar + dock + QTextEdit cut/copy/paste + recent-less | Parity coverage app chuẩn; Qt hơn hẳn breadth (~1000 classes) và dock/MDI dùng sẵn (TkvUI có DockPanel/MdiArea nhưng port này chưa cần) |
 | Widgets render | native 28 + Ant ~15, selftest native 190 + widgets 101 | `widgets.render17` PASS (17 widget render ra QImage non-blank) | TkvUI đủ CRUD/form; Qt hơn xa số lượng + style native |
 | Dialogs | NativeDialog (show/hide/hit/result) + DlgFile/Color/Font (NATIVEDLG 39/39) | `dialogs.instantiate6` PASS (Msg/File/Color/Font/Input/Progress, không exec modal) | Parity instantiate; cả 2 đều không test modal headless |
-| Text Việt/bidi | bitmap 134 glyph precomposed + shaping engine (Arabic/Thai/Devanagari…) | `text.vi-bidi` PASS (HarfBuzz render Việt/Arabic/Thai ra pixels) | Qt thắng shaping full; TkvUI thắng tốc độ ASCII 1.9× (số 2026-09-20) |
+| Text Việt/bidi | bitmap 134 glyph precomposed + shaping engine (Arabic/Thai/Devanagari…) + HarfBuzz 14.5 optional (Bidi 194/194) | `text.vi-bidi` PASS (HarfBuzz render Việt/Arabic/Thai ra pixels) | Qt thắng shaping full khi thiếu dll; TkvUI thắng tốc độ ASCII 1.9× (số 2026-09-20) |
 | SQL | 132/132 + kill-9 + round-trip thắng 2.4× (xem §2) | `sql.crud` PASS (memory + file, 100 rows) + filebench 195 ms | TkvUI thắng niche (built-in + crash-safe + nhanh); Qt thắng SQL full (engine SQLite đầy đủ) |
 | PDF/print | PDF writer 63/63 + shell-print thật (ShellExecuteA live) | `print.pdf` PASS (QPdfWriter >1 KB) | Parity PDF; TkvUI hơn shell-print thật, Qt hơn print engine (preview, printer enum) |
 | Clipboard | OS thật Win32 12/12 (ASCII/Việt/emoji round-trip, CF_TEXT+UNICODE) | `clipboard.roundtrip` PASS | TkvUI thắng trên Windows (R2 mở 2026-09-22); Qt thắng cross-platform |
@@ -96,7 +96,7 @@ PyQt 6.11.0/Qt 6.11.2, tái chạy 2026-09-23). Modal-exec và playback thật k
 | Phase | Task | Status | Blocker |
 |---|---|---|---|
 | **11.1 Font Fallback** | ✅ DONE (26/26 PASS) | — |
-| **11.2 Complex Script** | 🔴 Research (Indic/Thai shaping) | HarfBuzz full integration |
+| **11.2 Complex Script** | 🟡 Core打通 (HarfBuzz 14.5 pinvoke, Bidi 194/194) — còn: wire draw path + atlas lazy-bake HB gids | thiếu leaf module + atlas design |
 | **11.3 TTF Embed PDF** | 🔴 BLOCKED (byte array) | tkvc gap |
 | **11.4 Fuzz Shaping** | ✅ DONE (FUZZ_OK 7/7) | — |
 | **12.1 DesignerApp** | ✅ DONE (headless + windowed) | — |
@@ -109,11 +109,9 @@ PyQt 6.11.0/Qt 6.11.2, tái chạy 2026-09-23). Modal-exec và playback thật k
 ## 7. Thứ tự ưu tiên đề xuất
 
 1. **Font fallback mở rộng** (emoji, color font, variable font) — niche value cao
-2. **Phase 11.2 Complex Script** — Research HarfBuzz shaping tables
+2. **Wire HarfBuzz vào draw path** (leaf `TkvUI.HarfBuzz` + atlas lazy-bake HB gids — core打通2026-09-23)
 3. **12.3 CI Matrix** — CI matrix Win+Ubuntu+WASM
 4. **docs/COMPETITORS.md finalize** — Gap list cập nhật
-5. **Phase 11.2 Complex Script** — HarfBuzz full integration
-4. **12.3 CI Matrix** — GitHub Actions matrix Win+Ubuntu+WASM
 5. **Emoji/Color font support** (11.1 extension)
 
 ---
@@ -137,7 +135,7 @@ PyQt 6.11.0/Qt 6.11.2, tái chạy 2026-09-23). Modal-exec và playback thật k
 | Clipboard OS | cross-platform | **Win32 thật 12/12** (R2 mở 2026-09-22) | ✅ Thắng Windows, thua cross-platform |
 | Accessibility | Native UIA/AT-SPI | **HWND mirror + JSON provider** (COM bridge cần C# shim) | ⚠️ Partial (cải thiện từ 0) |
 
-**Kết luận (2026-09-23, refresh H.264):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest + H.264 Baseline decode打通 (mới), clipboard Windows** — **thua ở widget breadth (~43 vs ~1000), HarfBuzz full shaping, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem, media breadth (Main/High + playback)**. Compiler: R1 struct (scalar)/R2/R3 identity/vtable/R4/R5/R6/R9/R10/R12 **đã mở**; còn đóng: struct lồng/fixed-array, COM call-in (CCW), R7 Linux (môi trường). Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence, decode Baseline nhỏ).
+**Kết luận (2026-09-23, refresh H.264 + HarfBuzz):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest + H.264 Baseline decode打通 (mới), clipboard Windows, shaping core打通 qua HarfBuzz 14.5 (mới)** — **thua ở widget breadth (~43 vs ~1000), shaping wire draw-path đầy đủ, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem, media breadth (Main/High + playback)**. Compiler: R1 struct (scalar)/R2/R3 identity/vtable/R4/R5/R6/R9/R10/R12 **đã mở**; còn đóng: struct lồng/fixed-array, COM call-in (CCW), R7 Linux (môi trường). Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence, decode Baseline nhỏ).
 
 ---
 
