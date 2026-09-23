@@ -72,6 +72,7 @@ run_case effects    TkvUI.Effects.tkv  effects_selftest  EFFECTS_OK
 run_case input      TkvUI.Input.tkv    input_selftest    INPUT_OK
 run_case layout     TkvUI.Layout.tkv   layout_selftest   LAYOUT_OK
 run_case widgets    TkvUI.Widgets.tkv  widget_selftest   WIDGETS_OK
+run_case breadth    TokenVector.UI.tkv widgets_breadth_selftest WIDGETS_BREADTH_OK
 run_case media      TkvUI.Media.tkv    media_selftest    MEDIA_OK
 
 # harfbuzz: copy dll (+glib/intl) ben canh exe trong OUT (CLR probe exedir);

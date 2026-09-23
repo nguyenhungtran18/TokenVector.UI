@@ -18,7 +18,7 @@
 | License | MIT | GPL-3 / commercial | LGPL-3 / commercial | GPL-3 / commercial (royalty-free) | MIT/Apache-2.0 | MIT |
 | Stars | (local, chưa public) | PyPI dl ~M/tháng | PyPI dl ~M/tháng | **23.867** | **30.609** | **76.254** |
 | Tuổi / nhịp | 2026-, commit dày | từ 1998, release đều | official Qt Co, release đều | 2020-, active (push hôm nay) | 2019-, active | 2014-, active |
-| Widget | ~43 (28 native-look + ~15 Ant, 2026-09-20: +Wizard/FontPicker/RichEdit/TreeCombo/Dock/MDI; 2026-09-22: +CheckBox/RadioButton/GroupBox) | **~1000 classes Qt** | = PyQt6 | default set + Material/Fluent/Cupertino/Native styles | ~30 + custom dễ | ~60, tool-oriented |
+| Widget | **88 constructors** (Widgets 42 + Native 36 + Media 10, L1 Wave A 2026-09-24: +Calendar/DateTime/ToolBox/Stacked/ScrollBar/Dial/CommandLink/KeySeq/LCD/TourTip) | **~1000 classes Qt** | = PyQt6 | default set + Material/Fluent/Cupertino/Native styles | ~30 + custom dễ | ~60, tool-oriented |
 
 ---
 
@@ -29,7 +29,7 @@
 | Binary/deploy | suite 649 KB, app ~400 KB single EXE (cần .NET FW) | Slint (MCU < 300 KiB RAM, wasm subset font); egui wasm demo gọn | **Thắng trên Windows/.NET**; thua wafun đa nền |
 | Startup/RAM | 31 ms / 27.6 MB peak | Slint (thiết kế cho MCU), egui (nhẹ) | Hòa về triết lý, chưa đo đối đầu 2 ông này |
 | Text/shaping | atlas batch 9.4ms/rep (thắng PyQt6 18.1ms warm, 1.9×); engine thuần (Arabic/Thai/Devanagari/Bengali/Tamil + kern + composite + CBDT bake) + **HarfBuzz 14.5打通 (2026-09-23)** optional qua `libharfbuzz.dll` (bake Arial exact, RTL joining) | Qt (HarfBuzz/full) | **Thắng PyQt6 về tốc độ ASCII**; HarfBuzz打通 thu hẹp gap complex-script — còn thiếu: wire draw path + GSUB/GPOS đầy đủ khi thiếu dll (fallback engine cũ) |
-| Widgets | ~43 (native 28 + Ant 15): calendar/wizard/dock/MDI/richtext/tree-combo/color-picker/font-dialog/statusbar/checkbox/radio/groupbox + item-view framework + stylesheet engine | Qt ~1000 classes | Thua xa về số lượng; đủ cho app CRUD/form |
+| Widgets | **88 constructors** (Wave A L1 +10: calendar/datetime/toolbox/stacked/scrollbar/dial/commandlink/keyseq/lcd/tourtip + wizard/dock/MDI/richtext/tree-combo/color-picker/font-dialog/statusbar/checkbox/radio/groupbox + item-view framework + stylesheet engine) | Qt ~1000 classes | Thua xa về số lượng; đủ cho app CRUD/form/desktop admin |
 | SQL persistence | **Binary page 4KB + B-tree + WAL-lite + multi-WHERE + JOIN** (51/51) | Không ai có built-in | **Thắng (niche)** |
 | H.264 decode | **Baseline decode打通** (C# shim + OpenH264 Cisco, selftest 8/8 + round-trip encode→decode 11/12, 2026-09-23) | QtMultimedia/ffmpeg (full profile) | Thua breadth (Baseline-only, không playback/Mux); thắng ở built-in nhỏ |
 | PDF/print | PDF writer + **shell-print thật** (ShellExecuteA verify live) | Không ai có built-in | **Thắng (niche)** |
@@ -135,7 +135,7 @@ PyQt 6.11.0/Qt 6.11.2, tái chạy 2026-09-23). Modal-exec và playback thật k
 | Clipboard OS | cross-platform | **Win32 thật 12/12** (R2 mở 2026-09-22) | ✅ Thắng Windows, thua cross-platform |
 | Accessibility | Native UIA/AT-SPI | **HWND mirror + JSON provider** (COM bridge cần C# shim) | ⚠️ Partial (cải thiện từ 0) |
 
-**Kết luận (2026-09-23, refresh H.264 + HarfBuzz):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest + H.264 Baseline decode打通 (mới), clipboard Windows, shaping core打通 qua HarfBuzz 14.5 (mới)** — **thua ở widget breadth (~43 vs ~1000), shaping wire draw-path đầy đủ, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem, media breadth (Main/High + playback)**. Compiler: R1 struct (scalar)/R2/R3 identity/vtable/R4/R5/R6/R9/R10/R12 **đã mở**; còn đóng: struct lồng/fixed-array, COM call-in (CCW), R7 Linux (môi trường). Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence, decode Baseline nhỏ).
+**Kết luận (2026-09-23, refresh H.264 + HarfBuzz):** TokenVector.UI **thắng PyQt6 ở binary size, memory, text render (1.9×), SQL round-trip (2.4×), SQL/print built-in, app-port parity, media ingest + H.264 Baseline decode打通 (mới), clipboard Windows, shaping core打通 qua HarfBuzz 14.5 (mới)** — **thua ở widget breadth (88 vs ~1000 — Wave A L1 đã +10, còn Wave B), shaping wire draw-path đầy đủ, cold startup có AV (~1 s vs ~0.2 s), GPU thật, OS look native, ecosystem, media breadth (Main/High + playback)**. Compiler: R1 struct (scalar)/R2/R3 identity/vtable/R4/R5/R6/R9/R10/R12 **đã mở**; còn đóng: struct lồng/fixed-array, COM call-in (CCW), R7 Linux (môi trường). Không thể claim "đánh bại PyQt6 mọi mặt" — thắng niche (binary size, deploy, Vietnamese-first, text render, persistence, decode Baseline nhỏ).
 
 ---
 

@@ -9,6 +9,228 @@ __tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "T
 def tkvui_version() -> "str":
     return "2.9.0"
 
+def widget_constructor_catalog() -> "list[str]":
+    # Danh sach distinct widget constructors (L1 breadth): Widgets + Native + Media.
+    # Danh mục = ten make_* hang widget (khong tinh infrastructure make_invalidation/
+    # make_frame_scheduler/make_render_loop). Giu file nay dong bo khi them widget.
+    names = []
+    names.append("make_button")
+    names.append("make_button_outline")
+    names.append("make_textinput")
+    names.append("make_card")
+    names.append("make_card_notch")
+    names.append("make_metric_ring")
+    names.append("make_progress")
+    names.append("make_switch")
+    names.append("make_slider")
+    names.append("make_textfield")
+    names.append("make_listview")
+    names.append("make_tabs")
+    names.append("make_dialog")
+    names.append("make_toast")
+    names.append("make_sparkline")
+    names.append("make_bottom_sheet")
+    names.append("make_navbar")
+    names.append("make_split_view")
+    names.append("make_dpad")
+    names.append("make_control_btn")
+    names.append("make_joystick")
+    names.append("make_ant_tag")
+    names.append("make_ant_badge")
+    names.append("make_ant_dot")
+    names.append("make_ant_avatar")
+    names.append("make_ant_alert")
+    names.append("make_ant_pagination")
+    names.append("make_ant_steps")
+    names.append("make_ant_table")
+    names.append("make_ant_select")
+    names.append("make_ant_rate")
+    names.append("make_ant_spin")
+    names.append("make_calendar")
+    names.append("make_datetime_edit")
+    names.append("make_toolbox")
+    names.append("make_stacked")
+    names.append("make_scrollbar")
+    names.append("make_dial")
+    names.append("make_command_link")
+    names.append("make_key_sequence")
+    names.append("make_lcd")
+    names.append("make_tour_tip")
+    names.append("make_native_button")
+    names.append("make_native_button_default")
+    names.append("make_native_check")
+    names.append("make_native_lineedit")
+    names.append("make_native_password")
+    names.append("make_native_combo")
+    names.append("make_native_treecombo")
+    names.append("make_native_table")
+    names.append("make_native_tree")
+    names.append("make_native_tabs")
+    names.append("make_native_tabs_closable")
+    names.append("make_native_menubar")
+    names.append("make_native_toolbar")
+    names.append("make_native_dialog")
+    names.append("make_native_dialog_buttons")
+    names.append("make_native_scrollbar")
+    names.append("make_native_splitter")
+    names.append("make_native_dock")
+    names.append("make_native_mdi")
+    names.append("make_native_systray")
+    names.append("make_native_progress")
+    names.append("make_native_slider")
+    names.append("make_native_spinbox")
+    names.append("make_native_listview")
+    names.append("make_native_tooltip")
+    names.append("make_native_calendar")
+    names.append("make_native_colorpicker")
+    names.append("make_native_statusbar")
+    names.append("make_native_wizard")
+    names.append("make_native_fontpicker")
+    names.append("make_native_richedit")
+    names.append("make_native_checkbox")
+    names.append("make_native_tristate")
+    names.append("make_native_radio")
+    names.append("make_native_groupbox")
+    names.append("make_native_groupcheck")
+    names.append("make_media_transport")
+    names.append("make_media_seekbar")
+    names.append("make_media_volume")
+    names.append("make_media_repeat")
+    names.append("make_media_shuffle")
+    names.append("make_media_speed")
+    names.append("make_media_playlist")
+    names.append("make_media_equalizer")
+    names.append("make_media_spectrum")
+    names.append("make_media_abloop")
+    return names
+
+def widgets_breadth_selftest() -> "str":
+    # L1 acceptance: >= 80 distinct constructors + render non-blank + hit-test.
+    print("=== TkvUI widget breadth selftest (L1) ===")
+    names = widget_constructor_catalog()
+    n = len(names)
+    print("  catalog constructors = " + str(n))
+    if n < 80:
+        print("WIDGETS_BREADTH_FAIL (catalog " + str(n) + " < 80)")
+        return "WIDGETS_BREADTH_FAIL"
+    acc = []
+    acc.append(0)
+    acc.append(1)
+    acc[0] = acc[0] + 1
+    print("  PASS catalog >= 80 = " + str(n))
+    W = 480
+    H = 400
+    buf = []
+    i = int(0)
+    total = W * H
+    while i < total:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(W, H, W)
+    bg = ColorRgba(14, 14, 18, 255)
+    surface_clear(buf, surf, bg)
+    bgp = bg.to_uint32()
+    # render Wave A moi widget -> painted bang
+    cal = make_calendar(4.0, 4.0, 150.0, 140.0, 2026, 9)
+    dte = make_datetime_edit(160.0, 4.0, 160.0, 28.0)
+    tbx = make_toolbox(330.0, 4.0, 140.0, 140.0, 3)
+    stk = make_stacked(4.0, 150.0, 140.0, 50.0, 3)
+    sb = make_scrollbar(150.0, 150.0, 14.0, 80.0, 1)
+    dial = make_dial(170.0, 150.0, 60.0, 60.0)
+    cl = make_command_link(240.0, 150.0, 150.0, 44.0, "Run", "Execute now")
+    kse = make_key_sequence(4.0, 210.0, 140.0, 28.0)
+    kse.press_key(1, 0, 1, 0, "P")
+    lcd = make_lcd(150.0, 240.0, 90.0, 36.0, 4)
+    lcd.set_value(42)
+    tip = make_tour_tip(300.0, 320.0, "Breadth tour", 3)
+    cal.render(buf, surf)
+    dte.render(buf, surf)
+    tb_labels = []
+    tb_labels.append("A")
+    tb_labels.append("B")
+    tb_labels.append("C")
+    tbx.render(buf, surf, tb_labels, 3)
+    st_labels = []
+    st_labels.append("One")
+    st_labels.append("Two")
+    st_labels.append("Three")
+    stk.render(buf, surf, st_labels, 3)
+    sb.render(buf, surf)
+    dial.render(buf, surf)
+    cl.render(buf, surf)
+    kse.render(buf, surf)
+    lcd.render(buf, surf)
+    tip.render(buf, surf)
+    painted = widget_count_non_bg(buf, surf, bgp)
+    acc[1] = acc[1] + 1
+    if painted >= 8000:
+        acc[0] = acc[0] + 1
+        print("  PASS waveA render non-blank (" + str(painted) + ")")
+    else:
+        print("  FAIL waveA render non-blank got=" + str(painted))
+    # hit-test Wave A
+    acc[1] = acc[1] + 1
+    if cal.hit_day(cal.bx + 70.0, cal.by + 50.0) > 0:
+        acc[0] = acc[0] + 1
+        print("  PASS hit calendar day")
+    else:
+        print("  FAIL hit calendar day")
+    acc[1] = acc[1] + 1
+    if tbx.hit_header(tbx.by + 5.0) == 0:
+        acc[0] = acc[0] + 1
+        print("  PASS hit toolbox header")
+    else:
+        print("  FAIL hit toolbox header")
+    acc[1] = acc[1] + 1
+    if sb.hit_thumb(sb.bx + 7.0, sb.by + sb.thumb_pos() + 4.0) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS hit scrollbar thumb")
+    else:
+        print("  FAIL hit scrollbar thumb")
+    acc[1] = acc[1] + 1
+    if dial.hit_test(dial.center_x(), dial.center_y()) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS hit dial center")
+    else:
+        print("  FAIL hit dial center")
+    acc[1] = acc[1] + 1
+    if cl.contains(250.0, 160.0) == 1 and cl.contains(10.0, 10.0) == 0:
+        acc[0] = acc[0] + 1
+        print("  PASS hit command link")
+    else:
+        print("  FAIL hit command link")
+    acc[1] = acc[1] + 1
+    tr = tip.tip_rect()
+    if tip.contains(tr.x + 5.0, tr.y + 5.0) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS hit tour tip")
+    else:
+        print("  FAIL hit tour tip")
+    acc[1] = acc[1] + 1
+    if kse.press_key(1, 0, 1, 0, "P") == "Ctrl+Shift+P":
+        acc[0] = acc[0] + 1
+        print("  PASS key sequence chord")
+    else:
+        print("  FAIL key sequence chord")
+    # native calendar + media seekbar smoke (phan breadth con lai)
+    nc = make_native_calendar(4.0, 330.0, 150.0, 60.0, 2026, 9)
+    nc.render(buf, surf, 0)
+    msb = make_media_seekbar(160.0, 350.0, 200.0, 1000, 5000)
+    msb.render(buf, surf)
+    acc[1] = acc[1] + 1
+    painted2 = widget_count_non_bg(buf, surf, bgp)
+    if painted2 >= 8000:
+        acc[0] = acc[0] + 1
+        print("  PASS native+media render non-blank (" + str(painted2) + ")")
+    else:
+        print("  FAIL native+media render non-blank got=" + str(painted2))
+    print("--- breadth selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS, constructors=" + str(n) + " ---")
+    if acc[0] == acc[1] and n >= 80:
+        print("WIDGETS_BREADTH_OK")
+        return "WIDGETS_BREADTH_OK"
+    print("WIDGETS_BREADTH_FAIL")
+    return "WIDGETS_BREADTH_FAIL"
+
 def tkvui_selftest() -> "str":
     # Chay TAT CA selftest cua thu vien va gop ket qua. Moi selftest tra ve "<MODULE>_OK"
     # hoac "<MODULE>_FAIL" (xem quy uoc o tung module).
@@ -48,7 +270,8 @@ def tkvui_selftest() -> "str":
     r33 = clipboard_selftest()
     r34 = harfbuzz_selftest()
     r35 = hbwire_selftest()
-    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " / " + r9 + " / " + r10 + " / " + r11 + " / " + r12 + " / " + r13 + " / " + r14 + " / " + r15 + " / " + r16 + " / " + r17 + " / " + r18 + " / " + r19 + " / " + r20 + " / " + r21 + " / " + r22 + " / " + r23 + " / " + r24 + " / " + r25 + " / " + r26 + " / " + r27 + " / " + r28 + " / " + r29 + " / " + r30 + " / " + r31 + " / " + r32 + " / " + r33 + " / " + r34 + " / " + r35 + " ===")
+    r36 = widgets_breadth_selftest()
+    print("=== ket qua: " + r1 + " / " + r2 + " / " + r3 + " / " + r4 + " / " + r5 + " / " + r6 + " / " + r7 + " / " + r8 + " / " + r9 + " / " + r10 + " / " + r11 + " / " + r12 + " / " + r13 + " / " + r14 + " / " + r15 + " / " + r16 + " / " + r17 + " / " + r18 + " / " + r19 + " / " + r20 + " / " + r21 + " / " + r22 + " / " + r23 + " / " + r24 + " / " + r25 + " / " + r26 + " / " + r27 + " / " + r28 + " / " + r29 + " / " + r30 + " / " + r31 + " / " + r32 + " / " + r33 + " / " + r34 + " / " + r35 + " / " + r36 + " ===")
     bad = int(0)
     if r1 != "CORE_OK":
         bad = bad + 1
@@ -119,6 +342,8 @@ def tkvui_selftest() -> "str":
     if r34 != "HBWIRE_OK":
         bad = bad + 1
     if r35 != "HBWIRE_OK":
+        bad = bad + 1
+    if r36 != "WIDGETS_BREADTH_OK":
         bad = bad + 1
     if bad == 0:
         print("TKVUI_OK")

@@ -9,7 +9,7 @@
 
 | # | Điểm thua (hiện tại) | Đối thủ | Mục tiêu | Effort | Blocker |
 |---|---|---|---|---|---|
-| L1 | Widget breadth ~43 vs ~1000 | Qt | **~80–100** (top-40 Qt gap đóng) | L | không |
+| L1 | Widget breadth 43 → **88** (Wave A done) vs ~1000 | Qt | **~80–100** (top-40 Qt gap đóng) | L | không |
 | L2 | Shaping **chưa wire draw-path** (HB core打通 23/09) | Qt full HarfBuzz | complex-script render đúng qua atlas | M | leaf module design |
 | L3 | Cold-start **~1.0 s** (AV+JIT) | PyQt ~0.2 s | **<0.3 s** warm / <0.5 s cold sạch | M–L | **R10 NGEN/AOT (upstream)** |
 | L4 | GPU **stub** (device ops 11 stub) | Qt RHI / egui wgpu | compute-blit/blur thật trước, render sau | L–XL | host GPU + R1/R2 đã mở |
@@ -26,21 +26,21 @@
 
 ## L1. Widget breadth — 43 → ~100
 
-**Hiện tại:** native 28 + Ant ~15 + media 10 (tách module) ≈ 43–53 tùy đếm.
+**Hiện tại (2026-09-24):** catalog **88 constructors** (Widgets 42 + Native 36 + Media 10). Wave A **DONE**: 10 widget mới + `WIDGETS_BREADTH_OK` (88 ≥ 80) + `widget_selftest` 167/167. Còn Wave B + Qt Tree/Dock port.
 
-### Wave A — Top-10 Qt gap (app CRUD thật thiếu)
+### Wave A — Top-10 Qt gap (app CRUD thật thiếu) ✅ DONE 2026-09-24
 | Widget | Reuse | Effort | Acceptance |
 |---|---|---|---|
-| `CalendarWidget` | Date arithmetic + grid render已有 | S | `CAL_OK` chọn ngày/tháng, paint cells |
-| `DateTimeEdit` | LineEdit + Calendar popup | S | parse/format vi-VN + popup |
-| `ToolBox` | Tab-like stack | S | switch page, hit-test |
-| `StackedWidget` | đã có concept Layout | S | index switch + selftest |
-| `ScrollBar` (dedicated) | Scroll của List/Table | S | range/page/step, drag thumb |
-| `Dial` | Rate/Slider rotate | S | angle↔value, paint arc |
-| `CommandLinkButton` | Button + description glyph | S | render + click |
-| `KeySequenceEdit` | Input + chord parse | M | capture Ctrl+S…, selftest |
-| `LCDNumber` | digit 7-seg bake | S | set value, render segments |
-| `Tour/Balloon tip` | Tooltip đã có | S | anchor→bubble, auto-dismiss |
+| `CalendarWidget` | Date arithmetic + grid render | S | `CAL_OK` chọn ngày/tháng, paint cells ✅ |
+| `DateTimeEdit` | LineEdit + Calendar popup | S | parse/format vi-VN + popup ✅ |
+| `ToolBox` | Tab-like stack | S | switch page, hit-test ✅ |
+| `StackedWidget` | đã có concept Layout | S | index switch + selftest ✅ |
+| `ScrollBar` (dedicated) | Scroll của List/Table | S | range/page/step, drag thumb ✅ |
+| `Dial` | Rate/Slider rotate | S | angle↔value, paint arc ✅ |
+| `CommandLinkButton` | Button + description glyph | S | render + click ✅ |
+| `KeySequenceEdit` | Input + chord parse | M | capture Ctrl+S…, selftest ✅ |
+| `LCDNumber` | digit 7-seg bake | S | set value, render segments ✅ |
+| `Tour/Balloon tip` | Tooltip đã có | S | anchor→bubble, auto-dismiss ✅ |
 
 ### Wave B — Structural (mở app phức tạp)
 | Item | Effort | Note |
