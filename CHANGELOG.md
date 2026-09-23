@@ -4,6 +4,8 @@ Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy t�
 
 ## Unreleased (chưa commit)
 
+- **Struct/R3-full verify xanh, fix-list viết lại theo actual** (tkvc exe 17:35): `__tkv_struct__` dict + `new_Name()` + `"Name*"` + field access — `GetCursorPos` rc=1 + tọa độ thật (bẫy đã gặp: list-string bị lờ im, `Name()` không tồn tại, truyền `list` báo sai kiểu); R3 full-inline parse đúng, verify 50; Q-1 `len()` giữ chars (chủ ý); R11 theo maintainer đã có. Còn lại thật: struct lồng/fixed-array, expose-COM tự verify, R7 Linux.
+
 - **Vtable dispatch sửa xong, verify độc lập bằng COM thật** (tkvc exe 17:05): `CoCreateInstance` FileOpenDialog (GUID qua R2 buffers) + `AddRef` slot 1 cho r1=2/r2=3 (d=1) + `Release` slot 2 sạch — VTCOM 4/4, khớp số maintainer. R8 mở một phần (dispatch + method đơn giản); struct params vẫn chờ R1. Đường shim C# + R2 buffers cho OpenH264 giờ thông hoàn toàn.
 
 - **Nhóm B tiếp: `ord()` mở → dùng thật; R3 re-probe vẫn đóng** (tkvc 23/09 13:21): `fb_is_emoji`/`fb_is_color_font` chuyển `char_code` → `ord()`, ranges chết nay sống (✚ → đúng 4; fallback 37/37); `bidi_is_surrogate` giữ kẹp biên vì `ConvertToUtf32` ném với lone surrogate. Re-probe R3 bằng DLL `csc.exe`: vẫn `FileLoadException` identity Framework đóng dấu sai — struct/COM/identity tiếp tục chờ. Astral grouping không cần `ord()` (đã xong trước).

@@ -4,48 +4,41 @@
 > trên exe 17:05 — mục nào mở rồi chuyển xuống §D, không hỏi lại.
 > Spec đầy đủ + acceptance test: `docs/UPSTREAM_REQUIREMENTS.md` (R1–R12).
 
-## A. Cần 1 câu trả lời (không sửa code)
+## A. Đã có câu trả lời (không cần sửa gì thêm)
 
-### Q-1. Ngữ nghĩa `len()` — chủ ý hay regression?
-- Build 22:14 đổi `len()` từ bytes UTF-8 sang chars/units (bằng chứng:
-  test `vi_seq_len_at("Việt", 0, 6)` crash; đã migrate toàn bộ text family
-  sang char-semantics, verify 50/0/2 xanh lại).
-- Hỏi: **giữ chars (xong)** hay **revert về bytes (báo để repo revert theo)**.
+### Q-1. Ngữ nghĩa `len()` — ✅ CHỦ Ý, GIỮ CHARS
+- Maintainer xác nhận giữ chars. Migration của repo đứng yên, mục này đóng.
 
-## B. Cần sửa thật (đã chứng minh không có đường vòng)
+## B. Còn lại (sau vòng verify 23/09 tối)
 
-### F-2. Struct marshal qua pinvoke (R1) — CHƯA CÓ GÌ MỚI
-- `__tkv_struct__` vẫn bị bỏ qua im lặng; `extern_method` trả `IntPtr` vẫn
-  `MissingMethodException`. Không file feature mới nào trong dist.
-- Chặn còn lại: OpenH264 **trực tiếp** (`Initialize`/`DecodeFrame2`),
-  HarfBuzz full, `GetTextExtentPoint32A`, struct X11/Vulkan, method COM
-  có struct params.
-- Tạm bypass được: shim C# (R3-tuple + R2 đã mở) — đang đi đường này cho
-  H.264, nhưng direct-integration vẫn cần R1.
-- Giải pháp + acceptance (`GetCursorPos`/`GetSystemTime`): §R1 trong
-  `UPSTREAM_REQUIREMENTS.md`, giữ nguyên.
+### F-2. Struct marshal qua pinvoke (R1) — ✅ MỞ, VERIFY ĐỘC LẬP
+- Syntax thật (mò bằng probe + message lỗi, khác đề xuất ban đầu ở chỗ
+  constructor): `__tkv_struct__ = [{"name": "Point",
+  "fields": [["x", "i32"], ["y", "i32"]]}]` + `p = new_Point()` +
+  pinvoke param `"Point*"` + đọc/ghi `p.x`. Bẫy đã gặp: khai list string
+  thì lờ im lặng; `Point(0,0)` không tồn tại; truyền `list` báo sai kiểu
+  (message tiếng Việt chỉ rõ cần biến kiểu struct).
+- Verify: `GetCursorPos` rc=1 + tọa độ thật (x=897 y=513 lúc đo).
+- Giới hạn còn lại (theo maintainer, chưa tự kiểm): field chỉ scalar
+  blittable — struct lồng/fixed-array chưa có. `SBufferInfo.pData[3]` của
+  OpenH264 rơi vào giới hạn này → đường **shim C# vẫn là chính** cho H.264
+  (marshal phức tạp nằm trong C#, `.tkv` chỉ trao kiểu cơ bản + R2).
 
-### F-4 còn lại. Implement COM interface trong `.tkv` (R8-phần-2)
-- Vtable CALLS đã mở + verify độc lập (AddRef d=1, xem §D) — phần này xong.
-- Còn thiếu: (a) method có struct params (chờ R1); (b) implement một COM
-  interface bằng class `.tkv` để COM gọi NGƯỢC vào (cần cho UIA provider
-  đầy đủ — hiện chỉ gọi RA ngoài được, chưa expose được).
-- Giải pháp đề xuất: hoặc emit CCW/vtable cho record có đánh dấu
-  (VD: `__tkv_com_class__`), hoặc document chính thức "chỉ gọi ra" để repo
-  chốt kiến trúc host-shim implement phía C#.
+### F-4 còn lại. Expose COM / struct params (R8-phần-2, thu hẹp dần)
+- Vtable CALLS đã mở + verify độc lập (AddRef d=1) — xong.
+- Theo maintainer: expose COM đã mở (F4c cũ, `com_call0(p, 3)` → 7,
+  `this` nguyên vẹn) — repo CHƯA TỰ VERIFY, để ticket probe tiếp theo.
+- Còn thiếu sau đó: method có struct params (nay R1 đã mở cho scalar —
+  kiểm tiếp khi cần) → UIA provider đủ sẽ triển khai khi 2 điểm trên xanh.
 
-### F-3 còn lại. Form full-identity inline emit IL sai cú pháp (nhẹ)
-- Tuple đã là form chính thức và chạy (PROBER3A_OK) — mục này ưu tiên thấp,
-  ghi để khỏi quên: với method `assembly` = full identity string, IL emit
-  ra `.assembly extern R3Test, Version=...` không quote → lỗi assemble.
-- Giải pháp: hoặc parse identity ra version/token đúng, hoặc báo lỗi rõ
-  "dùng tuple thay vì inline" lúc build thay vì emit IL hỏng.
+### F-3 còn lại. Form full-identity inline — ✅ SỬA XONG, VERIFY 50
+- Tuple đã chạy từ trước (PROBER3A_OK); nay full-inline cũng parse đúng
+  (tên, token, version) và chạy ra 50. Cả 3 form xanh.
 
-### R11. Diagnostics an toàn (chưa kiểm, có thể vẫn thiếu)
-- Biến chưa khai báo phải lỗi compile (hiện nghi vẫn silent); function vượt
-  ~256 locals phải báo rõ (hiện crash ngẫu nhiên, repo tự check bằng
-  `tools/check_locals.py`).
-- Giải pháp + acceptance (2 file repro): §R11.
+### R11. Diagnostics — THEO MAINTAINER ĐÃ CÓ (chưa tự kiểm)
+- Biến undeclared → lỗi compile kèm số dòng; >240 locals → chặn rõ ràng.
+- Repo giữ `tools/check_locals.py` chạy tay cho chắc; sẽ bỏ khi nào tự
+  verify thấy message mới.
 
 ## C. Chờ môi trường, không phải compiler (ghi nhận)
 
@@ -66,7 +59,11 @@
   `chr(0xD7FF)`/`chr(0xE000)` — đừng "sửa hộ" chỗ này).
 - R10 `--target library` + `--subsystem` (đã smoke: DLL 29KB ra đúng).
 - R12 `reserve()` (build + chạy OK, chưa áp dụng rộng).
-- R3-tuple `[(name, None, None)]` (PROBER3A_OK); bare form ra Framework
-  identity là by-design.
+- R3-tuple `[(name, None, None)]` (PROBER3A_OK) + full-identity inline
+  (parse tên/token/version, verify 50); bare form ra Framework identity
+  là by-design.
+- R1 struct: `__tkv_struct__` dict + `new_Name()` + param `"Name*"` +
+  field access (verify `GetCursorPos` rc=1 + tọa độ thật); giới hạn còn
+  lại: field scalar blittable (lồng/fixed-array chưa có).
 - Vtable dispatch `(iface_var, slot, ...args)` (VTCOM 4/4 trên COM thật;
   iface phải là tên biến đơn — đúng thiết kế).
