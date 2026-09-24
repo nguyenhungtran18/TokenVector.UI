@@ -1,0 +1,84 @@
+# TokenVector.UI (TkvUI) — llms.txt
+
+> Machine-readable summary of this repo for AI assistants.
+> Human docs: README.md (EN), README.vi.md (VI). Version 1.0.0, MIT.
+> Status 2026-09-24: verify 55 PASS / 0 FAIL / 2 SKIPPED (`TKVUI_VERIFY_OK`).
+
+## What this is
+
+Cross-platform UI library written **100% in TokenVector (`.tkv`)** — zero
+third-party runtime deps (no Skia/SDL/WPF/Qt). Rasterizer, font stack,
+effects, layout, widgets, SQLite engine, PDF writer, GIF/TKVV/MJPEG/MP4
+codecs are all `.tkv`, compiled by `tkvc.exe` → CIL/.NET IL → `.exe`.
+93 widget constructors (Widgets 42 + Native 41 + Media 10).
+GitHub: https://github.com/nguyenhungtran18/TokenVector.UI
+
+## Layout
+
+- `TokenVector.UI.tkv` — umbrella: imports the suite, `main()` runs it all.
+- `TkvUI.*.tkv` — 49 library modules, all registered in `tkvui.pkg.json`
+  (`modules[]` with `file`, `imports`, `summary`, `selftest`). New root
+  `TkvUI.*.tkv` files MUST be registered there (CI `purity-tkv` enforces it).
+- `examples/` — `.tkv` demos/benchmarks/Qt ports ONLY (CI rejects other
+  extensions). Import library via `"../TokenVector.UI"` style paths.
+- `tools/` — `verify.sh`, `package.sh`, `pack_nupkg.ps1`, asset generators
+  (`*_gen.py`), bench scripts, `tkvv_capture.html` harness.
+- `docs/` — see index below. `docs/img/` holds README screenshots.
+- `build/`, `dist/` — gitignored artifacts (exe/il/stage/nupkg/tkvpkg).
+
+## Commands (need `tkvc.exe`; default `D:\TokenVector\3.code\dist\tkvc.exe`, override via `$TKVC`)
+
+```bash
+TKVC=/path/to/tkvc.exe bash tools/verify.sh   # full suite headless -> TKVUI_VERIFY_OK
+$TKVC build TkvUI.Layout.tkv --entry layout_selftest --out build/layout_test.exe
+$TKVC build TokenVector.UI.tkv --out build/tkvui_suite.exe && build/tkvui_suite.exe  # -> TKVUI_OK
+bash tools/package.sh --verify                 # -> dist/*.tkvpkg (+ .sha256)
+powershell -ExecutionPolicy Bypass -File tools/pack_nupkg.ps1  # -> dist/*.nupkg
+```
+
+CI (`.github/workflows/ci.yml`, static only — no tkvc on runners): root/
+examples purity, `tkvui.pkg.json` registration check, JSON validity,
+shell/python/powershell syntax, docs relative-link check.
+
+## Writing `.tkv` — compiler constraints (tkvc)
+
+Full list: `docs/TkvUI.Roadmap.md` §0. Known gaps + workarounds:
+`docs/COMPILER_GAPS.md`. Non-negotiable subset:
+
+- No `bool` type → use `i32` 0/1. No ternary (`a if b else c`, `?:`) → `if/else` blocks. No `pass`. No single-line `if`.
+- Bitwise historically restricted — check `docs/COMPILER_GAPS.md` B1/R5 for current status before using `& | >> <<`.
+- Records: NO `list` fields (pass buffers as params); positional ctor with ALL fields in declared order; field types must be records declared in the SAME file (imported record types OK for params/returns only); never call a method named `update`.
+- No chained attribute access (`a.b.c`, or `.x` on a call result) → hoist to locals. Flat fields only.
+- Every file needs ≥ 1 top-level function WITH return annotation, or build fails (`File khong co ham top-level`).
+- `__tkv_import__` merges files: NO duplicate function/class names across the merged set; each module keeps only its own code.
+- Imports resolve relative to the SOURCE FILE's directory (not CWD).
+- `int(x)` takes integer literals only; be explicit with `float(...)`; never mix computed-int × computed-f64 (silent garbage); init counters with `int(0)` (TkvInt rules, P2).
+- Module-level constants are invisible inside record methods (`KeyError`) → use numeric literals there.
+- pinvoke/extern functions WITH returns must be assigned (`rc = f(...)`), never bare statements. Keep i64 addresses/offsets pure i64.
+- `list.append()` on an empty list mis-infers element type for method params (gap D1) → use literals (`[int(0), ...]`) or `nv_alloc_i32`/`nv_alloc_f64` helpers.
+- Auto CLI entry supports scalar params/returns only; verify modules via selftest entries (`*_selftest` → `*_OK` markers).
+- Keep functions < 240 locals; run `tools/check_locals.py`.
+
+## Module catalog (imports DAG — depend only downward)
+
+Core → Graphics/Text/Viet/I18nData → Effects/Platform/Events → Input/Layout
+→ Widgets (+Native/Theme) → Media/Data → SQLite/Printing → A11y(+Bridge/Uia/Atspi)
+→ Font/Fallback/Discovery/EmojiData/Shaping/Bidi → Video/GifData/Tkvv(+Data/HD/Clip/ClipMp4/Play)/Mjpg(+Data/HDData)/Mp4(+Data/RData) → H264(shim-gated) → NativeDlg/Ime/Clipboard/KitTest/MicroBench(bench-only).
+Umbrella `TokenVector.UI.tkv` defines the suite import set; optional modules
+(Font, H264, bench/content assets) are pkg-registered but NOT in the umbrella.
+
+## Docs index
+
+- `docs/API.md` — module/function index. `docs/INTEGRATION.md` — embedding guide.
+- `docs/TkvUI.Roadmap.md` — roadmap + §0 constraints. `docs/COMPILER_GAPS.md` — compiler gaps.
+- `docs/LEVEL_PLAN.md` — L1–L10 leveling plan. `docs/COMPETITORS.md` — competitor matrix (§9 deep dive).
+- `docs/BENCH.md` — benchmarks (PyQt6 head-to-head reproduced locally; Slint/egui/ImGui = public docs only).
+- `docs/INTEGRATION.md`, `docs/TUTORIAL_CRUD.md`, `docs/SQL_PERSISTENCE.md`, `docs/TEXT_RENDER_OPTIMIZATION.md` + `TEXT_STATUS.md`, `docs/OPENH264.md`, `docs/A11Y_NVDA.md`, `docs/WASM_STATUS.md`, `docs/UPSTREAM_REQUIREMENTS.md` (R1–R12 tkvc asks), `docs/PHASE11_2_COMPLEX_SCRIPT.md`.
+- `CHANGELOG.md`, `RELEASE_NOTES.md`, `DEVELOPMENT_PLAN.md`, `CONTRIBUTING.md`.
+
+## Platform reality (2026-09-24)
+
+Win32 = production (ULW/DIB). X11/Cocoa = stubs (blocked: tkvc pinvoke needs
+`.dll` suffix). Android/iOS = host contracts (need real devices; CI skips).
+HarfBuzz shaping = optional DLL wire, clean skip. GPU = abstraction only,
+present is CPU. Cold start ~1.0s (no NGEN). NVDA needs real UIA provider (L7).

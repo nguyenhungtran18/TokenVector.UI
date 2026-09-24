@@ -22,7 +22,7 @@ jobs:
           bad = []
           # 1. Root: chi .tkv/.md/.json/.nuspec/.gitignore duoc phep ngoai tools/docs/examples/...
           keep_root_ext = ('.tkv', '.md', '.json', '.nuspec', '.gitignore')
-          keep_root_names = ('LICENSE',)
+          keep_root_names = ('LICENSE', 'llms.txt')
           for fn in os.listdir('.'):
               if os.path.isdir(fn) or fn.startswith('.'):
                   continue
