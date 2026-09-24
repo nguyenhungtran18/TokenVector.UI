@@ -2,23 +2,25 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>TokenVector.UI</id>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <title>TokenVector.UI (TkvUI)</title>
     <authors>Nguyen Hung Tran</authors>
     <owners>nguyenhungtran18</owners>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">MIT</license>
-    <projectUrl>https://github.com/nguyenhungtran18/TokenVector</projectUrl>
-    <iconUrl>https://img.shields.io/badge/version-1.0.0-blue</iconUrl>
+    <projectUrl>https://github.com/nguyenhungtran18/TokenVector.UI</projectUrl>
+    <icon>logo.png</icon>
     <readme>README.md</readme>
     <description>Cross-platform UI library written 100% in TokenVector (.tkv) with zero third-party runtime dependencies: software rasterizer, bitmap+TTF font (Vietnamese-first 134 precomposed glyphs), effects, flex/grid layout, 93 widget constructors (42 widgets + 41 native-look + 10 media-player), theme engine, model/view, pure-.tkv SQLite + PDF writer, A11y/UIA/AT-SPI bridges, Telex/VNI IME, GIF/TKVV/MJPEG/MP4 codecs, packaging and WASM tooling. Compiled with tkvc.exe.</description>
     <summary>UI library for the TokenVector compiler: rasterizer, layout, 93 widgets, SQLite, PDF, media codecs, native Win32 windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
-    <releaseNotes>1.0.0 (2026-09-24): first packaged release. verify 55/0/2 TKVUI_VERIFY_OK (~2200+ checks). Catalog 93 constructors (Widgets 42 + Native 41 + Media 10). Wave A+B: calendar/datetime/toolbox/stacked/scrollbar/dial/commandlink/keyseq/lcd/tourtip + dock float/tab, MDI tile, ribbon, property grid, tree multi-select, context menu. Qt ports QtAppPort 52/52 + QtTreeDockPort 31/31. HarfBuzz wire text_atlas_draw_shaped. Built-in SQLite 132/132 + PDF 63/63. GIF/TKVV/MJPEG/MP4 pure .tkv. Bench vs PyQt6: text 9.4ms (~1.9x), paint 1000 btn ~30ms, SQL file RT 81ms (~2.4x). Full details: RELEASE_NOTES.md.</releaseNotes>
+    <releaseNotes>1.0.1 (2026-09-24): package identity (embedded TokenVector logo icon, repo URLs fixed), 49 pkg modules (H264/MicroBench/TkvvPlay/TkvvClip/TkvvClipMp4 registered). No library code change, verify 55/0/2. 1.0.0: first packaged release. verify 55/0/2 TKVUI_VERIFY_OK (~2200+ checks). Catalog 93 constructors (Widgets 42 + Native 41 + Media 10). Wave A+B: calendar/datetime/toolbox/stacked/scrollbar/dial/commandlink/keyseq/lcd/tourtip + dock float/tab, MDI tile, ribbon, property grid, tree multi-select, context menu. Qt ports QtAppPort 52/52 + QtTreeDockPort 31/31. HarfBuzz wire text_atlas_draw_shaped. Built-in SQLite 132/132 + PDF 63/63. GIF/TKVV/MJPEG/MP4 pure .tkv. Bench vs PyQt6: text 9.4ms (~1.9x), paint 1000 btn ~30ms, SQL file RT 81ms (~2.4x). Full details: RELEASE_NOTES.md.</releaseNotes>
     <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
     <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform media-player ttf winforms sqlite pdf ime vietnamese harfbuzz</tags>
-    <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
+    <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector.UI" />
   </metadata>
   <files>
+    <!-- Package icon (TokenVector language logo) -->
+    <file src="docs\img\logo.png" target="logo.png" />
     <!-- Docs / readme / license / changelog / release notes -->
     <file src="README.md" target="README.md" />
     <file src="README.vi.md" target="README.vi.md" />

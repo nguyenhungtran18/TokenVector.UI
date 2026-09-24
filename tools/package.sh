@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dong goi TkvUI thanh release artifact .tkvpkg (file zip + manifest + sha256).
 #
-#   bash tools/package.sh            -> dist/TokenVector.UI-1.0.0.tkvpkg (+ .sha256)
+#   bash tools/package.sh            -> dist/TokenVector.UI-<version>.tkvpkg (+ .sha256)
 #   bash tools/package.sh --verify   -> sau khi dong goi, build suite tu ban giai nen
 #
 # Version doc tu tkvui.pkg.json. Artifact chua: 9 module .tkv + umbrella + manifest
@@ -61,7 +61,10 @@ if [ "${1:-}" = "--verify" ]; then
     unzip -q "$PKG" -d "$TMP" 2>/dev/null
   fi
   if [ ! -f "$TMP/$NAME/tkvui.pkg.json" ]; then
-    powershell -NoProfile -Command "Expand-Archive -Force -Path '$PKG' -DestinationPath '$TMP'" >/dev/null 2>&1
+    # Expand-Archive chi nhan duoi .zip -> copy tam sang .zip
+    cp "$PKG" "$TMP/pkg.zip"
+    "$POWERSHELL" -NoProfile -Command "Expand-Archive -Force -Path '$TMP/pkg.zip' -DestinationPath '$TMP'" >/dev/null 2>&1
+    rm -f "$TMP/pkg.zip"
   fi
   if [ -f "$TMP/$NAME/tkvui.pkg.json" ]; then
     SRCDIR="$TMP/$NAME"

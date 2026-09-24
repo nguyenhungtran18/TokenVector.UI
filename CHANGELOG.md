@@ -2,6 +2,14 @@
 
 Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy từ `tkvui_version()` trong `TokenVector.UI.tkv`.
 
+## 1.0.1 (2026-09-24) — package identity + CI fixes
+
+- NuGet: logo ngôn ngữ TokenVector (`docs/img/logo.png` → `<icon>`) + sửa `projectUrl`/`repository` về repo `TokenVector.UI`; bỏ `iconUrl` deprecated.
+- `tkvui.pkg.json`: đăng ký 5 module còn thiếu (H264/MicroBench/TkvvPlay/TkvvClip/TkvvClipMp4, 44 → **49 modules**); CI `purity-tkv` xanh.
+- `tools/tkvv_capture.html` chuyển `examples/` → `tools/` (đúng chỗ tooling).
+- Docs: thêm `llms.txt` (tóm tắt repo cho AI); gộp `COMPILER_FIX_LIST.md` vào `COMPILER_GAPS.md`.
+- Không đổi code `.tkv` thư viện — verify giữ **55/0/2**.
+
 ## 1.0.0 (2026-09-24) — first packaged release
 
 Release notes đầy đủ: **`RELEASE_NOTES.md`**. Gói: `dist/TokenVector.UI.1.0.0.nupkg` (DLL + `tkv/` sources + README EN/VI) và `dist/TokenVector.UI-1.0.0.tkvpkg`.

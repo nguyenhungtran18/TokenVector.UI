@@ -1,7 +1,7 @@
 {
   "name": "TokenVector.UI",
   "alias": "TkvUI",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cross-platform UI library written 100% in TokenVector (.tkv) - zero dependency: software rasterizer, bitmap+TTF font, effects, flex/grid layout, 93 widget constructors (42 widgets + 41 native-look + 10 media), theme engine, model/view/SQLite, PDF printing, A11y bridge, font fallback, native dialogs, IME Telex/VNI, UIA/AT-SPI providers, GIF/TKVV/MJPEG/MP4 codecs, packaging/WASM tooling.",
   "license": "MIT",
   "repository": "https://github.com/nguyenhungtran18/TokenVector",
@@ -72,7 +72,7 @@
   "verify": {
     "script": "tools/verify.sh",
     "env": { "TKVC": "/d/TokenVector/3.code/dist/tkvc.exe" },
-    "last_result": "50 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-22, full tools/verify.sh: 31 module cases incl. +clipboard, suite TKVUI_OK 33/33, 17 examples; android/ios no device; Clipboard 12/12 OS that, FontDiscovery registry that 18/18)"
+    "last_result": "55 PASS / 0 FAIL / 2 SKIPPED (TKVUI_VERIFY_OK 2026-09-24, ~2200+ checks; android/ios need real devices)"
   },
   "package": {
     "script": "tools/package.sh",

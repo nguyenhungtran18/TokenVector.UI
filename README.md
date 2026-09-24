@@ -1,7 +1,9 @@
 # TokenVector.UI (TkvUI)
 
+<img src="docs/img/logo.png" alt="TokenVector logo" width="96" />
+
 ![Verify](https://img.shields.io/badge/verify-55%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Catalog](https://img.shields.io/badge/widgets-93%20constructors-brightgreen)
 
@@ -15,7 +17,7 @@ English | [Tiếng Việt](README.vi.md)
 
 | Area | Status (2026-09-24) |
 |---|---|
-| **Version** | **1.0.0** (`tkvui_version()` in `TokenVector.UI.tkv`) |
+| **Version** | **1.0.1** (`tkvui_version()` in `TokenVector.UI.tkv`) |
 | **Verify** | **55 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 57 cases; Android/iOS need real devices) |
 | **Checks** | **~2200+** assertions across the suite |
 | **Widget catalog** | **93 constructors** — Widgets 42 + Native 41 + Media 10 (`WIDGETS_BREADTH_OK` 15/15) |

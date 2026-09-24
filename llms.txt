@@ -1,7 +1,7 @@
 # TokenVector.UI (TkvUI) — llms.txt
 
 > Machine-readable summary of this repo for AI assistants.
-> Human docs: README.md (EN), README.vi.md (VI). Version 1.0.0, MIT.
+> Human docs: README.md (EN), README.vi.md (VI). Version 1.0.1, MIT.
 > Status 2026-09-24: verify 55 PASS / 0 FAIL / 2 SKIPPED (`TKVUI_VERIFY_OK`).
 
 ## What this is
