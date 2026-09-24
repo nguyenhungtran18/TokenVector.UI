@@ -177,210 +177,189 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 ---
 
 > **L∆∞u √Ω:** File n√†y ch·ªâ d√πng ƒë·ªÉ tracking internal. Kh√¥ng d√πng ƒë·ªÉ marketing/public claim n·∫øu ch∆∞a verify l·∫°i s·ªë li·ªáu.
+
 ---
 
-## 9. –?i chi?u chi ti?t t?ng m?c (2026-09-24 ó khÙng tÛm t?t)
+## 9. ƒê·ªëi chi·∫øu chi ti·∫øt t·ª´ng m·ª•c (2026-09-24 ‚Äî kh√¥ng t√≥m t·∫Øt)
 
-> M?i m?c: **d?nh nghia ? TkvUI l‡m gÏ (b?ng ch?ng s?) ? t?ng d?i th? ? verdict ? gap cÚn l?i**.
-> S? TkvUI l?y t? `tools/verify.sh` l?n cu?i **55/0/2** (2026-09-24), selftest in-log, `docs/BENCH.md`.
-> S? PyQt6 l?y bench chu?n ho· 2026-09-19/20 + probe `func_pyqt_probe.py` 9/9.
-> S? Slint/egui/ImGui: docs cÙng khai + GitHub 2026-09-24 ó **khÙng do runtime trÍn m·y n‡y** (khÙng c‡i) ? ghi "chua do".
+> M·ªói m·ª•c: **ƒë·ªãnh nghƒ©a ‚Üí TkvUI l√†m g√¨ (b·∫±ng ch·ª©ng s·ªë) ‚Üí t·ª´ng ƒë·ªëi th·ªß ‚Üí verdict ‚Üí gap c√≤n l·∫°i**.
+> S·ªë TkvUI: `tools/verify.sh` **55/0/2** (2026-09-24) + selftest in-log + `docs/BENCH.md`.
+> S·ªë PyQt6: bench chu·∫©n ho√° 2026-09-19/20 + probe `func_pyqt_probe.py` 9/9.
+> S·ªë Slint/egui/ImGui: docs/GitHub 2026-09-24 ‚Äî **ch∆∞a ƒëo runtime tr√™n m√°y n√†y** ‚Üí ghi "ch∆∞a ƒëo".
 
-### 9.1 NgÙn ng?, runtime, mÙ hÏnh
+### 9.1 Ng√¥n ng·ªØ, runtime, m√¥ h√¨nh
 
-| H?ng m?c | TokenVector.UI | PyQt6 / PySide6 | Slint | egui | Dear ImGui |
+| H·∫°ng m·ª•c | TokenVector.UI | PyQt6 / PySide6 | Slint | egui | Dear ImGui |
 |---|---|---|---|---|---|
-| NgÙn ng? vi?t app | **`.tkv`** (TokenVector dialect) ? `tkvc` ? **CIL/.NET IL** ? `.exe` | **Python 3** + binding sang Qt C++ | **`.slint` markup** + logic Rust/C++/JS/Python | **Rust** | **C++** |
-| Runtime khi ch?y | **CLR / .NET Framework 4.x** (JIT; NGEN chua b?t) | CPython + Qt DLL (~15ñ20 MB+) | Native (Rust/C++ compiled) | Native (Rust) | Native (C++) |
-| MÙ hÏnh retained/immediate | **Retained** (UIElement tree, invalidation, frame scheduler) | **Retained** (QObject widget tree) | **Retained** (declared scene) | **Immediate** (v? l?i m?i frame) | **Immediate** (v? l?i m?i frame) |
-| Zero native dep bÍn ngo‡i | **CÛ** ó raster/font/layout/widget t? vi?t; optional: `libharfbuzz.dll`, OpenH264 shim C# | **KhÙng** ó ship Qt DLL + Python | link stack Slint/winit/femtovg | winit/wgpu/glow | user ch?n backend (GL/DX/Vulkan) |
-| Compiler/linter riÍng | **CÛ** ó `tkvc` + r‡ng bu?c Roadmap ß0 (c?m bitwise cu, ternary, `pass`, list-append quirk D1Ö) | KhÙng (CPython runtime) | rustc + slint compiler | rustc | cmake/MSVC |
+| Ng√¥n ng·ªØ vi·∫øt app | **`.tkv`** ‚Üí `tkvc` ‚Üí **CIL/.NET IL** ‚Üí `.exe` | **Python 3** + binding Qt C++ | **`.slint` markup** + Rust/C++/JS/Python | **Rust** | **C++** |
+| Runtime | **CLR / .NET FW 4.x** (JIT; NGEN ch∆∞a b·∫≠t) | CPython + Qt DLL (~15‚Äì20 MB+) | Native Rust/C++ | Native Rust | Native C++ |
+| Retained / immediate | **Retained** (UIElement + invalidation + frame scheduler) | **Retained** (QObject tree) | **Retained** (declared scene) | **Immediate** | **Immediate** |
+| Zero native dep ngo√†i | **C√≥** ‚Äî raster/font/layout/widget t·ª± vi·∫øt; optional `libharfbuzz.dll` + OpenH264 C# shim | **Kh√¥ng** ‚Äî ship Qt + Python | stack Slint/winit/femtovg | winit/wgpu/glow | backend do user (GL/DX/Vulkan) |
+| Compiler ri√™ng | **C√≥** ‚Äî `tkvc` + Roadmap ¬ß0 (c·∫•m ternary, list-append D1‚Ä¶) | Kh√¥ng | rustc + slint compiler | rustc | cmake/MSVC |
 
 **Verdict:**
-- **–?c nh?t:** TkvUI l‡ framework **100% m?t ngÙn ng? t?-host** (UI+raster+SQL+PDF+codec d?u `.tkv`) ó PyQt ph? thu?c Python+Qt, Slint/egui/ImGui l‡ binding/wrapper quanh h? sinh th·i cÛ s?n.
-- **Thua DX/IDE:** khÙng cÛ Language Server, IntelliSense, hot-reload nhu Slint Live Preview hay Python REPL.
-- **Risk:** compiler `.tkv` cÚn gap (struct l?ng, COM-in, ternary, `.so`) ? blocker L7/L8.
+- **ƒê·ªôc nh·∫•t:** m·ªôt stack self-host `.tkv` t·ª´ raster ‚Üí SQL ‚Üí PDF ‚Üí codec.
+- **Thua DX/IDE:** kh√¥ng c√≥ LSP/hot-reload nh∆∞ Slint Live Preview.
+- **Risk:** gap compiler (struct l·ªìng, COM-in, `.so`) ‚Üí blocker L7/L8.
 
 ---
 
-### 9.2 License & ph‚n ph?i thuong m?i
+### 9.2 License & ph√¢n ph·ªëi th∆∞∆°ng m·∫°i
 
 | | TokenVector.UI | PyQt6 | PySide6 | Slint | egui | Dear ImGui |
 |---|---|---|---|---|---|---|
-| License code | **MIT** | **GPL-3** ho?c **commercial** | **LGPL-3** ho?c commercial | **GPL-3** ho?c **royalty-free** (desktop) / commercial (embedded) | **MIT / Apache-2.0** | **MIT** |
-| App proprietary d˘ng free? | **CÛ (MIT)** | Ch? paid commercial | **CÛ (LGPL)** v?i di?u ki?n dynamic link | Desktop free qua royalty-free; **embedded thu?ng c?n commercial** | **CÛ** | **CÛ** |
-| Patent/codec di kËm | OpenH264 **t?i binary Cisco** (BSD-2 + Cisco tr? MPEG-LA); **c?m x264 GPL** | Qt modules t˘y | = | khÙng ship codec | khÙng | khÙng |
+| License | **MIT** | **GPL-3** / commercial | **LGPL-3** / commercial | GPL-3 / **royalty-free desktop** / commercial embedded | **MIT / Apache-2.0** | **MIT** |
+| App proprietary free? | **C√≥ (MIT)** | Ch·ªâ paid | **C√≥ (LGPL)** dynamic link | Desktop free; **embedded th∆∞·ªùng c·∫ßn commercial** | **C√≥** | **C√≥** |
+| Codec/patent k√®m | OpenH264 binary Cisco (BSD-2 + Cisco tr·∫£ MPEG-LA); **c·∫•m x264 GPL** | Qt modules t√πy | = | kh√¥ng ship codec | kh√¥ng | kh√¥ng |
 
-**Verdict:** TkvUI **c˘ng h?ng freedom v?i egui/ImGui** (MIT), **nh? hon PyQt GPL**, **linh ho?t hon Slint embedded**. –i?m b·n h‡ng enterprise nh?: khÙng ph?i tr? Qt commercial license.
+**Verdict:** TkvUI **c√πng h·∫°ng freedom egui/ImGui**, **nh·∫π h∆°n PyQt GPL**, **linh ho·∫°t h∆°n Slint embedded**.
 
 ---
 
-### 9.3 C?ng d?ng, tu?i d?i, nh?p ph·t tri?n
+### 9.3 C·ªông ƒë·ªìng, tu·ªïi ƒë·ªùi, nh·ªãp ph√°t tri·ªÉn
 
 | | TokenVector.UI | PyQt6/PySide6 | Slint | egui | Dear ImGui |
 |---|---|---|---|---|---|
-| Tu?i | **~1 nam** (2026-, **46 commits** local) | Qt t? **1998**; binding Python l‚u d?i | **2020ñ** | **2019ñ** | **2014ñ** |
-| Stars (tra 2026-09-24) | **0** (chua public) | PyPI download ~M/th·ng (khÙng stars repo) | **~23.7k** | **~30.5k** | **~76k** (2026-09-19) |
-| Contributors | 1 (local) | Qt Company + c?ng d?ng l?n | **276** (Slint) | h‡ng tram | **583** (OpenHub) |
-| Open issues s?ng | 0 | h‡ng nghÏn across Qt | ~700+ | ~900+ | h‡ng nghÏn PR/issue |
-| Release cadence | v2.9.0, commit d‡y daily local | Qt 2◊/nam | 57 releases, 1.17.x | release d?u (0.36.x) | release d?u |
-| Docs/tutorial | README + `docs/*` + `TUTORIAL_CRUD` + screenshots | official.qt.io r?t d‡y | slint.dev + book | egui.rs + book | ossus docs + demos |
+| Tu·ªïi | **~1 nƒÉm**, **46 commits** local, v2.9.0 | Qt t·ª´ **1998** | **2020‚Äì** | **2019‚Äì** | **2014‚Äì** |
+| Stars (2026-09-24) | **0** (ch∆∞a public) | PyPI ~M download/th | **~23.7k** | **~30.5k** | **~76k** |
+| Contributors | 1 | Qt Company + r·∫•t l·ªõn | **276** | h√†ng trƒÉm | **583** |
+| Open issues s·ªëng | 0 | ngh√¨n+ across Qt | ~700+ | ~900+ | ngh√¨n+ |
+| Docs scale | README + docs/* + tutorial + 2 screenshot | official.qt.io gold | slint.dev + book | egui.rs | docs + demos |
 
-**Verdict: THUA n?ng (L10).** KhÙng cÛ external user = khÙng cÛ bug report th?t, khÙng cÛ trust signal. **Vi?c c?n l‡m:** public repo + topics + NuGet.org + 3 GIF live.
+**Verdict: THUA n·∫∑ng (L10).** C·∫ßn public repo + NuGet.org + external user th·∫≠t.
 
 ---
 
-### 9.4 Widget breadth ó li?t kÍ chi ti?t theo nhÛm
+### 9.4 Widget breadth ‚Äî li·ªát k√™ theo nh√≥m (93 constructors)
 
-**TkvUI catalog = 93 constructors distinct** (d?m `widget_constructor_catalog()` trong umbrella; Widgets 42 + Native 41 + Media 10).
+**ƒê·∫øm:** umbrella `widget_constructor_catalog()` = **93** distinct (Widgets 42 + Native 41 + Media 10).
 
-#### 9.4.1 NhÛm form / input (d?i chi?u Qt)
+#### 9.4.1 Form / input
 
-| TkvUI (constructor) | PyQt6 class tuong duong | Ch?t lu?ng TkvUI | Verdict |
+| TkvUI | PyQt6 | Ch·∫•t l∆∞·ª£ng | Verdict |
 |---|---|---|---|
-| `make_native_button` / `_default` / `make_button` / `make_button_outline` | `QPushButton` / `QToolButton` | hover/press/disabled/default ring, hit-test | **–?** |
-| `make_native_check` + `make_native_checkbox` / `make_native_tristate` | `QCheckBox` (tristate) | 2-state + tri-state | **–?** |
-| `make_native_radio` + group | `QRadioButton` + `QButtonGroup` | group id field | **–?** |
-| `make_native_lineedit` / `make_native_password` / `make_textinput` | `QLineEdit` (+EchoMode) | placeholder, mask password `*` | **–?** (chua validator regex d?y d? nhu Qt) |
-| `make_textfield` | `QLineEdit` style variant | | OK |
-| `make_native_combo` | `QComboBox` | popup list, open/close | **–?** (chua editable combo) |
-| `make_native_treecombo` | `QComboBox` with TreeView | combo + tree popup | **CÛ** ó Qt cÛ nhung Ìt app d˘ng |
-| `make_native_spinbox` | `QSpinBox` | min/max/step | **–?** (chua QDateTimeSpinBox) |
-| `make_native_slider` / `make_slider` | `QSlider` | value, groove | **–?** |
-| `make_dial` | `QDial` | ±135∞ arc | **CÛ** (Wave A) |
-| `make_native_scrollbar` / `make_scrollbar` | `QScrollBar` | orient, page/step | **–?** |
-| `make_switch` | `QCheckBox` styled / Material Switch | toggle anim | **CÛ** |
-| `make_key_sequence` | `QKeySequenceEdit` | chord Ctrl/Alt/Shift/Meta | **CÛ** (Wave A) |
-| `make_native_password` | QLineEdit Password | | OK |
+| `make_native_button` / `_default` / `make_button` / `make_button_outline` | `QPushButton`/`QToolButton` | hover/press/disabled/default | **ƒê·ªß** |
+| `make_native_check` / `make_native_checkbox` / `make_native_tristate` | `QCheckBox` tristate | 2-state + tri | **ƒê·ªß** |
+| `make_native_radio` + group | `QRadioButton` + `QButtonGroup` | group id | **ƒê·ªß** |
+| `make_native_lineedit` / `make_native_password` / `make_textinput` | `QLineEdit` | placeholder, mask | **ƒê·ªß** (thi·∫øu regex validator ƒë·∫ßy ƒë·ªß) |
+| `make_native_combo` | `QComboBox` | popup open/close | **ƒê·ªß** (thi·∫øu editable+completer) |
+| `make_native_treecombo` | QComboBox+tree | combo tree popup | **C√≥** |
+| `make_native_spinbox` | `QSpinBox` | min/max/step | **ƒê·ªß** (thi·∫øu Double/DateTime spin) |
+| `make_native_slider` / `make_slider` | `QSlider` | groove+value | **ƒê·ªß** |
+| `make_dial` | `QDial` | ¬±135¬∞ arc | **C√≥** (Wave A) |
+| `make_native_scrollbar` / `make_scrollbar` | `QScrollBar` | orient/page/step | **ƒê·ªß** |
+| `make_switch` | styled checkbox | toggle | **C√≥** |
+| `make_key_sequence` | `QKeySequenceEdit` | Ctrl/Alt/Shift/Meta chord | **C√≥** (Wave A) |
+| `make_command_link` | `QCommandLinkButton` | label+description | **C√≥** (Wave A) |
+| `make_datetime_edit` | `QDateTimeEdit` | format vi-VN + calendar popup | **C√≥** (Wave A) |
 
-**Thi?u vs Qt (khÙng cÛ trong 93):** `QTextEdit` full rich (cÛ `NativeRichEdit` nhung limited), `QPlainTextEdit` riÍng, `QComboBox` editable+completer, `QDateTimeEdit` full calendar popup variants, `QTimeEdit`, `QDoubleSpinBox` riÍng, `QCommandLinkButton` ? **d„ cÛ** `make_command_link`, `QKeySequenceEdit` ? **d„ cÛ**.
+**Thi·∫øu vs Qt trong nh√≥m n√†y:** editable combo+completer, QDoubleSpinBox ri√™ng, full validators, QDateTimeEdit variants ƒë·∫ßy ƒë·ªß.
 
-#### 9.4.2 NhÛm display / feedback
+#### 9.4.2 Display / feedback
 
 | TkvUI | PyQt6 | Verdict |
 |---|---|---|
-| `make_native_progress` / `make_progress` | `QProgressBar` | –? |
-| `make_native_tooltip` | `QToolTip` | –? (state machine show/hide) |
-| `make_toast` | khÙng core (c˘ng lib snack) | **TkvUI cÛ s?n** |
-| `make_lcd` (7-seg) | `QLCDNumber` | **CÛ** (Wave A) |
-| `make_metric_ring` / `make_sparkline` / Ant chart | `QChart` (module riÍng) | TkvUI bundle; Qt c?n QtCharts license/module |
-| `make_ant_badge` / `dot` / `tag` / `avatar` | khÙng core Ant | **Niche design-system** |
-| `make_native_statusbar` | `QStatusBar` | –? (part labels) |
-| `make_tour_tip` | `QTour` (k? t? Qt 6.8, module) | **CÛ** ó parity m?i hon nhi?u b?n Qt cu |
+| `make_native_progress` / `make_progress` | `QProgressBar` | **ƒê·ªß** |
+| `make_native_tooltip` | `QToolTip` | **ƒê·ªß** |
+| `make_toast` | kh√¥ng core | **TkvUI c√≥ s·∫µn** |
+| `make_lcd` | `QLCDNumber` | **C√≥** (Wave A) |
+| `make_metric_ring` / `make_sparkline` / Ant* | QChart (module ri√™ng) | TkvUI bundle; Qt c·∫ßn QtCharts |
+| `make_ant_badge`/`dot`/`tag`/`avatar` | kh√¥ng core | niche design-system |
+| `make_native_statusbar` | `QStatusBar` | **ƒê·ªß** |
+| `make_tour_tip` | `QTour` (Qt ‚â•6.8) | **C√≥** ‚Äî nhi·ªÅu b·∫£n Qt c≈© ch∆∞a c√≥ |
 
-#### 9.4.3 NhÛm container / navigation
+#### 9.4.3 Container / navigation / chrome
 
 | TkvUI | PyQt6 | Wave | Verdict |
 |---|---|---|---|
-| `make_native_tabs` / `_closable` / `make_tabs` | `QTabBar`/`QTabWidget` | pre | –? (chua movable tabs) |
-| `make_toolbox` | `QToolBox` | A | **–?** |
-| `make_stacked` | `QStackedWidget` | A | **–?** |
-| `make_split_view` / `make_native_splitter` | `QSplitter` | pre | –? (ratio + orient) |
-| `make_card` / `notch` | Frame + layout | pre | OK |
-| `make_bottom_sheet` | khÙng core | pre | Mobile-ish niche |
-| `make_navbar` | `QMenuBar` kh·c | pre | Mobile navbar |
-| `make_dialog` / `make_native_dialog` / `buttons` | `QDialog`+`QMessageBox` | pre | Modal-exec **khÙng headless test** |
-| `make_native_dock` / `make_native_dock_float` | `QDockWidget` | **B** | **CÛ float+tab+gutter** ó thi?u save/restore geometry, floating MDI children z-order nhu Qt |
-| `make_native_mdi` + `tile_horizontal` | `QMdiArea` cascade/tile | **B** | **CÛ tile_h** ó thi?u tile_grid, cascade offset, maximize |
-| `make_native_ribbon` | `QCommandBar`/QML ribbon / 3rd party | **B** | **CÛ** group tabs + large/small ó thi?u gallery, contextual tabs |
-| `make_native_propgrid` | Qt Property Browser (examples) / 3rd party | **B** | **CÛ** 2-col + category collapse + edit ó thi?u multi-line, custom editors, sorting |
-| `make_native_wizard` | `QWizard` | pre/A | linear next/back/cancel ó thi?u watermark, registerPage graph |
-| `make_native_groupbox` / `groupcheck` | `QGroupBox` checkable | pre | –? |
+| `make_native_tabs` / `_closable` / `make_tabs` | `QTabWidget` | pre | **ƒê·ªß** (thi·∫øu movable tabs) |
+| `make_toolbox` | `QToolBox` | A | **ƒê·ªß** |
+| `make_stacked` | `QStackedWidget` | A | **ƒê·ªß** |
+| `make_split_view` / `make_native_splitter` | `QSplitter` | pre | **ƒê·ªß** ratio+orient |
+| `make_card` / `notch` | Frame+layout | pre | OK |
+| `make_bottom_sheet` / `make_navbar` | kh√¥ng core | pre | mobile-ish niche |
+| `make_dialog` / `make_native_dialog` / `buttons` | `QDialog`+`QMessageBox` | pre | modal-exec **kh√¥ng headless** |
+| `make_native_dock` / `make_native_dock_float` | `QDockWidget` | **B** | **float+tab+gutter** ‚Äî thi·∫øu save/restore geometry, z-order s√¢u |
+| `make_native_mdi` + `tile_horizontal` | `QMdiArea` | **B** | **tile_h** ‚Äî thi·∫øu tile_grid, cascade, maximize |
+| `make_native_ribbon` | QCommandBar / 3rd party | **B** | group tabs + large/small ‚Äî thi·∫øu gallery, contextual tabs |
+| `make_native_propgrid` | Qt Property Browser examples | **B** | 2-col + category collapse + edit ‚Äî thi·∫øu multi-line/custom editors/sort |
+| `make_native_wizard` | `QWizard` | A | linear next/back ‚Äî thi·∫øu watermark/graph register |
+| `make_native_groupbox` / `groupcheck` | `QGroupBox` | pre | **ƒê·ªß** |
+| `make_native_menubar` / `toolbar` / `contextmenu` / `systray` | QMenuBar/QToolBar/QMenu/QSystemTrayIcon | pre/**B** | QtAppPort 52/52; ContextMenu Wave B items+sep+activate ‚Äî thi·∫øu icons/submenu/shortcut labels |
+| `make_native_richedit` | `QTextEdit`/`QTextDocument` | pre | **limited** ‚Äî thua xa Qt rich text |
+| `make_native_colorpicker` / `fontpicker` / `calendar` / `make_calendar` | QColorDialog/QFontDialog/QCalendarWidget | pre/A | picker widgets + NativeDlg |
 
 #### 9.4.4 Item-view / model
 
 | TkvUI | PyQt6 | Verdict |
 |---|---|---|
-| `make_native_table` + `TkvUI.Data` MvTable + proxy sort/filter | `QTableView`+`QSortFilterProxyModel` | **–? CRUD** (76/76) |
-| `make_native_tree` / `make_native_tree_multi` (expand, ctrl/shift multi, anchor range) | `QTreeView`/`QTreeWidget` | **Wave B** ó multi-sel parity policy; thi?u drag-drop, header sections resize, editing delegates trÍn cell |
-| `make_native_listview` / `make_listview` | `QListView` | virtualized-ish (item_h ◊ count) |
-| SqlTableModel | `QSqlTableModel` | TkvUI built-in vs Qt sql module |
+| `make_native_table` + Data proxy sort/filter **76/76** | `QTableView`+`QSortFilterProxyModel` | **ƒê·ªß CRUD** |
+| `make_native_tree` / `make_native_tree_multi` (expand, ctrl/shift, anchor range) | `QTreeView`/`QTreeWidget` | **Wave B multi-sel** ‚Äî thi·∫øu drag-drop, header resize, cell delegates |
+| `make_native_listview` / `make_listview` | `QListView` | item_h√ócount virtualization nh·∫π |
+| SqlTableModel | `QSqlTableModel` | built-in vs Qt sql module |
 
-#### 9.4.5 Menu / chrome app
+#### 9.4.5 Media widgets (10)
 
-| TkvUI | PyQt6 | Verdict |
-|---|---|---|
-| `make_native_menubar` | `QMenuBar` | open menu, hit item ó **QtAppPort 52/52** |
-| `make_native_toolbar` | `QToolBar` | –? |
-| `make_native_contextmenu` | `QMenu` popup | **Wave B** items+separators+activate ó thi?u icons, shortcut labels, submenu |
-| `make_native_systray` | `QSystemTrayIcon` | cÛ factory ó Win32 `Shell_NotifyIcon` m?c wrapper |
-| `make_native_richedit` | `QTextEdit`/`QTextDocument` | limited rich (bold/basic) ó **thua xa** Qt rich text engine |
-| `make_native_colorpicker` | `QColorDialog` | picker widget ó dialog qua NativeDlg |
-| `make_native_fontpicker` | `QFontDialog` | list fonts + preview |
-| `make_native_calendar` / `make_calendar` | `QCalendarWidget` | Gregorian Zeller, hit-day |
-| `make_datetime_edit` | `QDateTimeEdit` | format vi-VN + calendar popup |
+Transport, SeekBar, Volume, Repeat, Shuffle, Speed, Playlist, Equalizer N-band, Spectrum, ABLoop ‚Äî `media_selftest 80/80`.
 
-#### 9.4.6 Media widgets (10)
+QtMultimedia: engine codec/HW m·∫°nh nh∆∞ng **UI player 10 widget kh√¥ng s·∫µn** nh∆∞ TkvUI. ‚Üí **H√≤a ‚ÄúUI form‚Äù, thua ‚Äúdecode/playback‚Äù**.
 
-| TkvUI | PyQt6 QtMultimedia |
-|---|---|
-| Transport, SeekBar, Volume, Repeat, Shuffle, Speed, Playlist, Equalizer(10-band), Spectrum, ABLoop | `QMediaPlayer`+`QAudioOutput`+widgets Ìt (d˘ng QML/custom nhi?u) |
+#### T·ªïng breadth
 
-**Verdict media widgets:** TkvUI **bundle UI player d?y d? 10 widget** (Media selftest 80/80); Qt **engine m?nh hon** (codec, HW accel) nhung **UI player khÙng s?n** nhu v?y. HÚa ìUI formî, thua ìdecode/playbackî.
-
-#### T?ng breadth
-
-| | Qt | TkvUI | T? l? |
+| | Qt | TkvUI | T·ª∑ l·ªá rough |
 |---|---|---|---|
-| Classes/constructors rough | **~1000** | **93** | **~9%** |
-| –? app CRUD/admin/IDE-ish form | 100% | **d? core + Wave B dock/MDI/tree/ribbon/propgrid** | coverage ~**70ñ80% use-case** (u?c lu?ng theo Qt Application Example + Tree/Dock example ported) |
-| Chua cÛ n?i b?t | ó | Chart full, WebView, QGraphicsView, QML, Quick3D, DataViz, SerialPort, Network widgets, PrintPreview widget d?y d? | |
+| Classes/constructors | **~1000** | **93** | **~9%** |
+| Use-case CRUD/admin/IDE-ish | 100% | core + Wave B dock/MDI/tree/ribbon/propgrid + 2 Qt ports | coverage ~**70‚Äì80% use-case** (∆∞·ªõc l∆∞·ª£ng theo Application Example + Tree/Dock port) |
+| V·∫Øng m·∫∑t n·ªïi b·∫≠t | ‚Äî | WebView, QGraphicsView, QML/Quick, DataViz, SerialPort, Network widgets, PrintPreview ƒë·∫ßy ƒë·ªß | ‚Äî |
 
-**KhÙng claim parity 1:1** (d„ ch?t trong LEVEL_PLAN).
+**Kh√¥ng claim parity 1:1** (ƒë√£ ch·ªët LEVEL_PLAN).
 
 ---
 
-### 9.5 Text render & shaping (chi ti?t)
+### 9.5 Text render & shaping
 
-| H?ng m?c | TokenVector.UI | PyQt6 (Qt text) | Slint | egui | ImGui |
+| H·∫°ng m·ª•c | TokenVector.UI | PyQt6 (Qt text) | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| Ki?u font | Bitmap 5◊7 ASCII + **134 Vi?t precomposed** + TTF parser/raster + i18n baked (Hebrew/Arabic/CJK) + emoji 12 BMP | System fonts full (QFont) | fontdue/parley (full OTF) | fontdue/ab_glyph | stb_truetype / freetype user |
-| Atlas | Pre-baked + lazy-bake gid (HB wire L2) | glyph cache h? th?ng | GPU/atlas | texture atlas | dynamic |
-| **–o ASCII 21.6K chars** | **9.4 ms** (atlas blit, GetTickCount) | **13.7ñ18.1 ms** `QPainter.drawText` | chua do | chua do | chua do |
-| Speedup | **1.9◊ nhanh hon PyQt** (bench chu?n ho·) | baseline | ó | ó | ó |
-| Shaping engine thu?n | Arabic/Thai/Deva/Bengali/Tamil **91/91** | subset | shaper riÍng | limited | limited |
-| **HarfBuzz** | **14.5 optional DLL** + **wire draw path `text_atlas_draw_shaped` (L2 DONE 2026-09-24)**; thi?u DLL ? fallback engine cu skip-s?ch 157/157 | **Qt built HarfBuzz always on** | via rustybuzz/harfbuzz crate | rustybuzz optional | user |
-| Bidi UAX#9 | **194/194** visual reorder | cÛ | cÛ | partial | partial |
-| GSUB/GPOS d?y d? | qua HB khi cÛ DLL; fallback **khÙng full** | full | full HB | HB crate | khÙng |
-| Wrap/ellipsis/align | cÛ (theo t? + ellipsis) | full (QTextLayout) | full | basic | basic |
-| Rich text | Limited RichEdit | **QTextDocument** full HTML subset | TextEdit limited | markdown optional | markdown optional |
-| Vietnamese-first | **134 glyph precomposed + Telex/VNI IME 37/37** | ph? thu?c font system + input method OS | khÙng special | khÙng | khÙng |
+| Font | Bitmap 5√ó7 + **134 Vi·ªát precomposed** + TTF parser + i18n baked + emoji 12 BMP | System QFont full | fontdue/parley full OTF | fontdue/ab_glyph | stb_truetype |
+| Atlas | Pre-baked + lazy-bake gid (HB wire L2) | glyph cache OS | GPU/atlas | texture atlas | dynamic |
+| **ƒêo ASCII 21.6K chars** | **9.4 ms** | **13.7‚Äì18.1 ms** | ch∆∞a ƒëo | ch∆∞a ƒëo | ch∆∞a ƒëo |
+| T·ªëc ƒë·ªô | **~1.9√ó nhanh h∆°n PyQt** | baseline | ‚Äî | ‚Äî | ‚Äî |
+| Shaping thu·∫ßn | Arabic/Thai/Deva/Bengali/Tamil **91/91** | subset | shaper ri√™ng | limited | limited |
+| **HarfBuzz** | **14.5 optional + wire `text_atlas_draw_shaped` (L2 DONE)**; thi·∫øu DLL ‚Üí fallback 157/157 skip-s·∫°ch | **Qt always-on HarfBuzz** | rustybuzz/HB crate | rustybuzz optional | user |
+| Bidi UAX#9 | **194/194** | c√≥ | c√≥ | partial | partial |
+| GSUB/GPOS ƒë·∫ßy ƒë·ªß | qua HB khi c√≥ DLL; fallback **kh√¥ng full** | full | full | HB crate | kh√¥ng |
+| Wrap/ellipsis | c√≥ | QTextLayout full | full | basic | basic |
+| Rich text | limited RichEdit | **QTextDocument** full | limited | markdown opt | markdown opt |
+| Vi·ªát + IME | **134 precomposed + Telex/VNI 37/37** | ph·ª• thu·ªôc font+IME OS | kh√¥ng special | kh√¥ng | kh√¥ng |
 
-**Verdict chi ti?t:**
-- **Th?ng t?c d? ASCII** (9.4 vs 18.1 ms) ó do l?i du?c, gi? trong BENCH.
-- **Th?ng niche Vi?t** (precomposed bitmap khÙng c?n font OS).
-- **HB wire d„ dÛng gap L2** ó complex script render qua atlas khi cÛ DLL; **thua Qt** khi thi?u DLL (Qt luÙn linked HB).
-- **Thua rich text** v‡ **font shaping edge cases** (variable font, hinting, color emoji full).
-- CÚn: Thai/Deva **box fallback** khi thi?u DLL; do l?i ASCII bench sau Wave B.
+**Verdict:** **Th·∫Øng ASCII 1.9√ó** + **niche Vi·ªát**; HB wire **ƒë√≥ng L2**; **thua** khi thi·∫øu DLL vs Qt always-HB; **thua rich text** + hinting/variable/emoji color full. C√≤n: Thai/Deva box fallback, ƒëo l·∫°i bench.
 
 ---
 
 ### 9.6 Layout engine
 
-| | TkvUI (`TkvUI.Layout`) | Qt | Slint | egui | ImGui |
+| | TkvUI.Layout | Qt | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| Flex row/col | **CÛ** + wrap + cross-align + justify | `QBoxLayout` (+wrap m?i) | row/col??? | horizontal/vertical | SameLine/Columns |
-| Grid + span | **CÛ** `GridStyle` + span | `QGridLayout` | GridLayout |_table | Table |
-| Stack | **CÛ** | `QStackedLayout` | `StackedWidget` | ó | ó |
-| DPI helpers | **CÛ** | native QScreen | logical px | pixels | pixels |
-| Constraint solver /%</> | validator co b?n | khÙng (d˘ng nested) | percent | ó | ó |
-| Selftest | **50/50** | ó | ó | ó | ó |
+| Flex row/col | **C√≥** + wrap + cross-align + justify | QBoxLayout | row/col | horizontal/vertical | SameLine |
+| Grid + span | **C√≥** | QGridLayout | Grid | _table | Table |
+| Stack | **C√≥** | QStackedLayout | Stacked | ‚Äî | ‚Äî |
+| DPI helpers | **C√≥** | QScreen | logical px | pixels | pixels |
+| Selftest | **50/50** | ‚Äî | ‚Äî | ‚Äî | ‚Äî |
 
-**Verdict:** Layout **d? app form**; Qt deeper (splitter c‚n b?ng, anchor ph?c t?p, QML layout). Slint declarative uu tiÍn designer. TkvUI **hÚa tier utility**, thua tooling.
+**Verdict:** **ƒê·ªß form app**; Qt deep h∆°n (anchor/QML); Slint declarative ∆∞u designer. **H√≤a utility**.
 
 ---
 
-### 9.7 Graphics / rasterizer / effects
+### 9.7 Graphics / raster / effects
 
 | | TkvUI | PyQt6 | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| Raster | **T? vi?t** Bresenham, round-rect band-split, arc sin/cos, poly, clip, image blit ó `graphics_selftest 29/29` | QPainter ? engine Qt (Raster/OpenGL/Vulkan) | femtovg/skia-like + GPU | mesh triangles GPU | same ImGui draw lists |
-| Pixel format | **`list[i64]`** 8B/px (i32 ho„n ó Ph? l?c M1) | QImage 4B/px typical | RGBA8 | RGBA8 | RGBA8 |
-| Effects | box_blur, **half-res 2.1◊**, kawase 3-pass, backdrop, specular, drop-shadow ó `effects 32/32` | QGraphicsBlurEffect, QtGui | trung bÏnh effects | imgui-based blur Ìt | user |
-| Compositing | SrcOver t? vi?t, ULW Win32 | QPainter composition modes full | Porter-Duff | blend | blend |
-| GPU path | **stub 11/11 device ops** | **Qt RHI** (D3D/Metal/Vulkan/GL) | **wgpu/femtovg GPU** | **wgpu/glow production** | backend user (DX11 ph? bi?n) |
+| Raster | **T·ª± vi·∫øt** Bresenham, round-rect band-split, arc, poly, clip, blit ‚Äî graphics **29/29** | QPainter ‚Üí Qt engine | femtovg/GPU | mesh GPU | draw lists GPU |
+| Pixel | **`list[i64]`** 8B/px (i32 ho√£n) | QImage ~4B/px | RGBA8 | RGBA8 | RGBA8 |
+| Effects | box, **half-res 2.1√ó**, kawase, backdrop, specular, shadow ‚Äî effects **32/32** | QGraphicsBlurEffect | trung b√¨nh | √≠t built-in | user |
+| GPU path | **stub device ops** | **Qt RHI** | **GPU** | **wgpu/glow production** | DX11/GL/Vulkan backend user |
 
-**Verdict:** CPU raster **nhanh cho widget paint** (render 1000 button ~30 ms vs PyQt ~43 ms). **Thua n?ng GPU** (L4) ó Slint/egui/Qt ship GPU; TkvUI chua present 1 frame qua GPU th?t.
+**Verdict:** CPU widget paint **nhanh** (30 vs 43 ms/1000). **Thua GPU (L4)** ‚Äî ch∆∞a present 1 frame GPU th·∫≠t.
 
 ---
 
@@ -388,43 +367,43 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | egui | ImGui |
 |---|---|---|---|---|
-| Hit-test | `hit_test_tree` topmost-first + per-widget `hit_*` | `QWidget.childAt` / event propagation | immediate sense() | ItemHovered |
-| Dispatcher | capture, gesture tap/pan/pinch ó `input 41/41` | full event loop + filters | context input | IO AddKeyEvent |
-| Focus | FocusManager Tab/Shift-Tab ó widgets selftest | `QWidget.focus` + tab order | focus state | NavInput |
-| Keyboard | chord parser (Wave A KeySeq) | QKeySequence full | modifiers | Nav + keys |
-| **IME Vi?t** | **Telex/VNI composition Win32 Imm* ó ime 37/37** | qua platform input context | limited | limited |
-| Touch | GestureRecognizer | QTouchEvent | pointer | touch optional |
+| Hit-test | `hit_test_tree` topmost + per-widget `hit_*` | childAt + propagation | sense() | ItemHovered |
+| Dispatcher | capture + gesture tap/pan/pinch ‚Äî input **41/41** | full event loop + filters | context input | IO events |
+| Focus | FocusManager Tab/Shift-Tab | QWidget.focus + tab order | focus state | NavInput |
+| Chord/keys | KeySeq Wave A | QKeySequence full | modifiers | Nav+keys |
+| **IME Vi·ªát** | **Telex/VNI Imm* ‚Äî ime 37/37** | platform IME | limited | limited |
+| Touch | GestureRecognizer | QTouchEvent | pointer | optional |
 
-**Verdict:** Input **d? desktop + touch contract**; IME Vi?t **niche th?ng** (Qt ph? thu?c OS IME). Chua cÛ drag-drop gi?a widget, accessibility actions trÍn input.
-
----
-
-### 9.9 Persistence ó SQL chi ti?t
-
-| H?ng m?c | TokenVector.UI (`TkvUI.SQLite` + Data) | PyQt6 QSQLITE | Slint | egui | ImGui |
-|---|---|---|---|---|---|
-| Engine | **T? vi?t** page 4KB + B-tree + WAL-lite + dual-slot file `TKVSQL1` | **SQLite C lib** full | khÙng | khÙng | khÙng |
-| Selftest | **132/132** + crash matrix + **kill-9 12 cycle** | qua probe `sql.crud` | ó | ó | ó |
-| Features | CRUD, multi-WHERE, **JOIN**, snapshot tx, rowid index, SqlTableModel, SqlQuery, SqlRelation | full SQL standard | ó | ó | ó |
-| Round-trip 1000 rows file | **~81 ms** | **~195 ms** | ó | ó | ó |
-| In-mem CRUD total | **~8 ms/rep** | ~14 ms/rep | ó | ó | ó |
-| Crash safety | dual-slot: corrupt 1 slot v?n load; kill-9 tested | SQLite journal/WAL official | ó | ó | ó |
-| SQL dialect completeness | **subset m?nh enough CRUD** ó khÙng full SQL (window fn, CTE d?y d?Ö) | SQLite full | ó | ó | ó |
-
-**Verdict: TH?NG niche + 2.4◊ speed** (ghi nh?n fsync). **Thua completeness** (SQLite l‡ standard de facto). Slint/egui/ImGui **khÙng cÛ** ? TkvUI d?c quy?n nhÛm n‡y.
+**Verdict:** ƒê·ªß desktop + touch contract; **IME Vi·ªát niche th·∫Øng**. Ch∆∞a drag-drop cross-widget / a11y actions.
 
 ---
 
-### 9.10 PDF / In ?n
+### 9.9 Persistence ‚Äî SQL
+
+| H·∫°ng m·ª•c | TkvUI.SQLite | PyQt6 QSQLITE | Slint/egui/ImGui |
+|---|---|---|---|
+| Engine | **T·ª± vi·∫øt** page 4KB + B-tree + WAL-lite + dual-slot `TKVSQL1` | **SQLite full** | **kh√¥ng** |
+| Selftest | **132/132** + crash matrix + **kill-9 √ó12** | probe `sql.crud` | ‚Äî |
+| Features | CRUD, multi-WHERE, **JOIN**, snapshot tx, rowid index, SqlTableModel/Query/Relation | full SQL | ‚Äî |
+| File RT 1000 rows | **~81 ms** | **~195 ms** | ‚Äî |
+| In-mem total/rep | **~8 ms** | ~14 ms | ‚Äî |
+| Crash safety | dual-slot corrupt-1-slot OK | SQLite journal/WAL | ‚Äî |
+| Completeness | **subset CRUD m·∫°nh** ‚Äî kh√¥ng full SQL (CTE/window‚Ä¶) | SQLite de facto standard | ‚Äî |
+
+**Verdict: TH·∫ÆNG niche + 2.4√ó** (ghi nh·∫≠n fsync). **Thua completeness** vs SQLite. Slint/egui/ImGui **0** ‚Üí ƒë·ªôc quy·ªÅn nh√≥m n√†y.
+
+---
+
+### 9.10 PDF / In ·∫•n
 
 | | TkvUI | PyQt6 | Slint/egui/ImGui |
 |---|---|---|---|
-| PDF writer | **T? vi?t** `PdfDocument`+xref+Base14 fonts+paths+tables ó **printing 63/63** | `QPdfWriter`/`QPdfEngine` | khÙng |
-| Shell print | **`ShellExecuteA` th?t** verified live | `QPrinter` + print dialog full (preview, printer enum, page ranges) | khÙng |
-| Print preview | PrintPreview widget co b?n | **QPrintPreviewDialog** production | ó |
-| HTML?PDF | khÙng | QTextDocument print | ó |
+| PDF writer | **T·ª± vi·∫øt** xref+Base14+paths+tables ‚Äî printing **63/63** | QPdfWriter/Engine | **kh√¥ng** |
+| Shell print | **`ShellExecuteA` live** | QPrinter + dialog full | ‚Äî |
+| Preview | PrintPreview c∆° b·∫£n | **QPrintPreviewDialog** production | ‚Äî |
+| HTML‚ÜíPDF | kh√¥ng | QTextDocument print | ‚Äî |
 
-**Verdict:** **–?c quy?n cÛ PDF+print built-in** so v?i Slint/egui/ImGui. **Parity PDF file** v?i PyQt; **thua print engine** (preview/printer discovery).
+**Verdict: ƒê·ªôc quy·ªÅn c√≥ PDF+print** vs Slint/egui/ImGui. **Parity PDF file**; **thua print engine** (preview/printer enum).
 
 ---
 
@@ -432,10 +411,10 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | egui | ImGui |
 |---|---|---|---|---|
-| API | `TkvUI.Clipboard` **Win32 CF_TEXT+UNICODE** ó **12/12** ASCII/Vi?t/emoji RT | `QClipboard` cross-plat | winit clipboard | glfw/win32 backend |
-| Cross-plat | **Win32 th?t**, X11/Cocoa stub | **Win/mac/X11/Wayland** | multi | multi |
+| API | Win32 CF_TEXT+UNICODE **12/12** ASCII/Vi·ªát/emoji | QClipboard multi-OS | winit clipboard | backend |
+| Ph·∫°m vi | **Win32 th·∫≠t**, X11/Cocoa stub | Win/mac/X11/Wayland | multi | multi |
 
-**Verdict:** Windows **d? round-trip**; **thua ph?m vi OS** v?i Qt/egui.
+**Verdict:** Windows **ƒë·ªß RT**; **thua multi-OS**.
 
 ---
 
@@ -443,25 +422,25 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint/egui | Dear ImGui |
 |---|---|---|---|---|
-| C‚y a11y | `TkvUI.A11y` role/label/value/states/bounds ó a11y **41/41** | `QAccessible` + UIA/AT-SPI native | **AccessKit** (shared) | **khÙng** ? "blank window" |
-| Bridge | HWND mirror + JSON + A11yBridge **94/94** + UIA/AT-SPI stubs **33+22** | native | AccessKit adapters | ó |
-| Test | **KitTest 16/16** (query+act trÍn widget th?t) | binding tests | **egui_kittest** query c‚y screen reader | ó |
-| NVDA th?t | Phase 9.1: title/chrome OK; **widget custom 0 utterance** | button d?c du?c (WinForms control) | AccessKit ? NVDA (egui production) | fail |
-| K? ho?ch | **L7: C# COM shim UiaHost** ho?c AccessKit C bindings | ó | ó | ó |
+| C√¢y a11y | A11y model **41/41** role/label/value | QAccessible native | **AccessKit** shared | **kh√¥ng** ‚Üí "blank window" |
+| Bridge | HWND mirror + JSON + A11yBridge **94/94** + UIA/AT-SPI **33+22** | native | AccessKit adapters | ‚Äî |
+| Test | **KitTest 16/16** query+act | binding tests | **egui_kittest** | ‚Äî |
+| NVDA th·∫≠t | Phase 9.1: chrome OK; **widget custom 0 utterance** | control ƒë·ªçc ƒë∆∞·ª£c | AccessKit ‚Üí NVDA production | fail |
+| K·∫ø ho·∫°ch | **L7 C# COM shim UiaHost** ho·∫∑c AccessKit C | ‚Äî | ‚Äî | ‚Äî |
 
-**Verdict:** TkvUI **? gi?a**: cÛ model+test, **chua nÛi chuy?n du?c NVDA v?i widget custom**. Qt/AccessKit **th?ng**. ImGui **thua c? ta** (0 a11y) ó m?i di?m hi?m TkvUI th?ng ImGui.
+**Verdict:** **·ªû gi·ªØa** ‚Äî c√≥ model+test, **ch∆∞a n√≥i NVDA v·ªõi widget custom**. Qt/AccessKit **th·∫Øng**. ImGui **thua c·∫£ ta**.
 
 ---
 
 ### 9.13 GPU
 
-| | TkvUI | PyQt6 (RHI) | Slint | egui | ImGui |
+| | TkvUI | PyQt6 RHI | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| API surface | abstraction + factory + probe Vulkan/D3D11/Metal ó gpu **66/66** nhung **device ops stub** | RHI th?t multi-backend | femtovg?GPU | **wgpu** (Vulkan/DX/Metal/GL) | DX11/GL/Vulkan backends ph? bi?n |
-| Compute | chua (plan L4 blur kernel) | Qt compute limited | khÙng focus | wgpu compute | khÙng focus |
-| Present | ULW CPU Blit | GPU swapchain | GPU | GPU | GPU |
+| Surface | abstraction+probe Vulkan/D3D11/Metal ‚Äî gpu **66/66** nh∆∞ng **ops stub** | RHI multi-backend | femtovg‚ÜíGPU | **wgpu** production | DX11/GL/Vulkan ph·ªï bi·∫øn |
+| Compute | ch∆∞a (plan L4 blur) | limited | kh√¥ng focus | wgpu compute | kh√¥ng focus |
+| Present | ULW CPU blit | swapchain | GPU | GPU | GPU |
 
-**Verdict: THUA (L4).** C?n host GPU + implement compute-blit tru?c, render sau. Chua do Slint/egui fps th?t trÍn m·y n‡y.
+**Verdict: THUA (L4).** Ch∆∞a ƒëo Slint/egui fps th·∫≠t tr√™n m√°y n√†y.
 
 ---
 
@@ -469,11 +448,11 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| Ch?y trÍn web | **WASI interp wasmtime DATA_OK** + browser canvas demo (`WASM_STATUS.md`) | Pyodide (heavy) | **wasm production** demos | **eframe wasm** official | wasm demos |
-| AOT/size | AOT closed (upstream),AppBundle ~12.4 MB interp | Pyodide tens of MB | opt small | decent | good |
-| Interactive app full | partial (selftest pure-compute; canvas frame demo) | partial | full UI | full UI | full UI |
+| Web | **WASI interp wasmtime DATA_OK** + browser canvas | Pyodide heavy | **wasm production** | **eframe wasm** | demos |
+| AOT/size | AOT closed; AppBundle ~12.4 MB | PyODIDE tens MB | opt small | decent | good |
+| App full UI web | partial (pure-compute + canvas frame) | partial | **full** | **full** | **full** |
 
-**Verdict:** **HÚa tier interpreter** v?i Pyodide; **thua Slint/egui** (production wasm, small size). KhÙng claim ìweb app productionî.
+**Verdict:** **H√≤a tier interpreter** (Pyodide); **thua Slint/egui production wasm**.
 
 ---
 
@@ -481,14 +460,14 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | Backend | TkvUI | PyQt6 | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| **Windows** | **Win32 ULW+DIB th?t** (platform 82/82, multi-window 2 HWND) | full | full | full | full |
-| **Linux X11/Wayland** | **stub** ó blocker **R7 `.so` linter tkvc** | full | full | full | full |
-| **macOS Cocoa** | **stub** (WinForms vehicle t?m) | full | full | full | full |
-| **Android** | contract host-driven (verify **SKIP** c?n thi?t b?) | full | mobile stories | via NDK user | backends |
-| **iOS** | contract host (SKIP) | full | mobile | user | backends |
-| `detect_platform()` | probe th?t 1..6 + env override | QSysInfo | runtime | std::env | ó |
+| **Windows** | **Win32 ULW+DIB th·∫≠t** (platform **82/82**, 2 HWND multi-window) | full | full | full | full |
+| **Linux X11/Wayland** | **stub** ‚Äî blocker **R7 `.so`** | full | full | full | full |
+| **macOS Cocoa** | **stub** | full | full | full | full |
+| **Android** | host contract (verify **SKIP**) | full | mobile | NDK user | backends |
+| **iOS** | host contract (SKIP) | full | mobile | user | backends |
+| detect_platform | probe th·∫≠t 1..6 + env | QSysInfo | runtime | std::env | ‚Äî |
 
-**Verdict: THUA rı (L8).** Ch? Windows production-ready. Qt th?ng tuy?t d?i multi-OS; Slint/egui cung multi. **Acceptance:** `X11_OK` du?i Xvfb khi R7 m?.
+**Verdict: THUA r√µ (L8).** Ch·ªâ Windows production-ready. **Acceptance:** `X11_OK` Xvfb khi R7 m·ªü.
 
 ---
 
@@ -496,51 +475,51 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint | egui |
 |---|---|---|---|---|
-| Theme engine | `TkvUI.Theme` OsPalette 13 roles + Light/Dark/HC ó theme **79/79** + QSS-subset cascade | **native platform style** + QSS + Fusion | Material/Fluent/Cupertino/**Native** styles built-in | ???? customizable, khÙng native Win chrome |
-| Widgets self-drawn | **41 native** (post Wave B) self-draw | 1:1 native khi d˘ng style d˙ng | styled declarative | immediate styled |
-| DPI | token DPI + validators | **QScreen devicePixelRatio full** | logical px | physical + scale factor |
-| Accent color Win11 | **chua** (L5 plan: registry DWM) | qua style engine | themed | themed |
-| Follow OS dark realtime | plan WM_SETTINGCHANGE | cÛ | cÛ | cÛ |
+| Theme | OsPalette 13 roles + Light/Dark/HC ‚Äî theme **79/79** + QSS-subset | **native style** + QSS + Fusion | Material/Fluent/Cupertino/**Native** | custom, kh√¥ng native Win chrome |
+| Widgets | **41 native** self-draw (post Wave B) | 1:1 native ƒë√∫ng style | declarative styled | immediate styled |
+| DPI | token DPI + validator | **QScreen DPR full** | logical px | physical+scale |
+| Accent Win11 | **ch∆∞a** (L5 registry DWM) | style engine | themed | themed |
+| Follow OS dark realtime | plan WM_SETTINGCHANGE | c√≥ | c√≥ | c√≥ |
 
-**Verdict: Partial (L5).** Thua Qt native + Slint multi-style. –? ìmodern flat light/darkî cho app internal; chua claim ìtrÙng nhu app Explorerî.
+**Verdict: Partial (L5).** ƒê·ªß ‚Äúmodern flat light/dark‚Äù; **ch∆∞a claim** ‚Äútr√¥ng nh∆∞ Explorer‚Äù.
 
 ---
 
-### 9.17 Hi?u nang ó b?ng bench d?y d? (BENCH.md chu?n ho·)
+### 9.17 Hi·ªáu nƒÉng ‚Äî bench ƒë·∫ßy ƒë·ªß (BENCH.md chu·∫©n ho√°)
 
-| # | Benchmark | TkvUI | PyQt6 | T? | Verdict |
+| # | Benchmark | TkvUI | PyQt6 | T·ª∑ | Verdict |
 |---|---|---|---|---|---|
-| 6.2 | Text 21.6K chars/block | **9.4 ms** | 13.7ñ18.1 ms | **~1.9◊** | **TH?NG** |
-| 6.3 | Construct 1000 button | **<0.16 ms** | 12.6 ms | **~80◊+** (timer floor) | **TH?NG** |
-| 6.3 | Render 1000 button | **~30 ms** | ~43 ms | **~1.4◊** | **TH?NG** |
-| 6.4 | CRUD in-mem total/rep | **~8 ms** | ~14 ms | **~1.8◊** | **TH?NG** |
-| 6.4c | SQL file RT 1000 rows | **81 ms** | 195 ms | **~2.4◊** | **TH?NG** |
-| 6.1 | Memory load-text peak | **~46 MB** | **15.6 MB** | **thua ~3◊** | **THUA** |
-| 6.1 | Memory idle trivial | **11.0 MB** | 15.6 MB | **th?ng** | **TH?NG** |
-| ó | Cold spawn exe | **~1.0 s** | **~0.2 s** | **thua 5◊** | **THUA (L3)** |
-| 6.5 | Blur half-res | 2.1◊ internal | ó | ó | n?i b? |
-| MJPEG 160◊120 | ~106 fps | ó | ó | niche |
-| MJPEG 720p | ~2 fps | hw decode Qt | ó | **THUA realtime HD** |
-| TKVV 720p path | ~100 fps measured | ó | ó | **TH?NG custom codec** |
+| 6.2 | Text 21.6K chars/block | **9.4 ms** | 13.7‚Äì18.1 ms | **~1.9√ó** | **TH·∫ÆNG** |
+| 6.3 | Construct 1000 button | **<0.16 ms** | 12.6 ms | **~80√ó+** (timer floor) | **TH·∫ÆNG** |
+| 6.3 | Render 1000 button | **~30 ms** | ~43 ms | **~1.4√ó** | **TH·∫ÆNG** |
+| 6.4 | CRUD in-mem total/rep | **~8 ms** | ~14 ms | **~1.8√ó** | **TH·∫ÆNG** |
+| 6.4c | SQL file RT 1000 rows | **81 ms** | 195 ms | **~2.4√ó** | **TH·∫ÆNG** |
+| 6.1 | Memory load-text peak | **~46 MB** | **15.6 MB** | **thua ~3√ó** | **THUA** |
+| ‚Äî | Memory idle trivial | **11.0 MB** | 15.6 MB | **th·∫Øng** | **TH·∫ÆNG** |
+| ‚Äî | Cold spawn exe | **~1.0 s** | **~0.2 s** | **thua 5√ó** | **THUA (L3)** |
+| 6.5 | Blur half-res | 2.1√ó internal | ‚Äî | ‚Äî | n·ªôi b·ªô |
+| ‚Äî | MJPEG 160√ó120 | ~106 fps | ‚Äî | ‚Äî | niche |
+| ‚Äî | MJPEG 720p | ~2 fps | hw decode | ‚Äî | **THUA realtime HD** |
+| ‚Äî | TKVV 720p path | ~100 fps ƒëo | ‚Äî | ‚Äî | **TH·∫ÆNG custom codec** |
 
-**?n d?nh gate:** `BENCH_STABLE_OK` median 3-run (ch?ng flake GetTickCount 16 ms).
+Gate: `BENCH_STABLE_OK` median 3-run (ch·ªëng flake GetTickCount ~16 ms).
 
 ---
 
 ### 9.18 Media / codec / playback
 
-| | TkvUI | PyQt6 QtMultimedia | egui/Slint/ImGui |
+| | TkvUI | PyQt6 QtMultimedia | Slint/egui/ImGui |
 |---|---|---|---|
-| Demux MP4 | **TkvUI.Mp4 62/62** boxes/tracks/sample table | via ffmpeg/phonon stack | khÙng / user gstreamer |
-| Decode H.264 | **Baseline OpenH264 shim 8/8 + RT 11/12** | **full Main/High + HW** | user |
-| GIF | parse+LZW **44/44** | QImageReader | limited |
-| MJPEG | pure .tkv **44/44 + HD 6/6** | limited | ó |
-| Custom TKVV | **56/56 + player 21/21 ~100fps@720p** | ó | ó |
-| Audio playback | **chua** (L6 WASAPI plan) | full | ó |
-| UI widgets 10 | transport?abloop **80/80** | Ìt s?n, hay QML | ó |
-| Clip ingest MP4?TKVV | **ClipPlayer 14/14** | ó | ó |
+| Demux MP4 | **Mp4 62/62** | ffmpeg stack | kh√¥ng / user |
+| H.264 | **Baseline OpenH264 8/8 + RT 11/12** | **Main/High + HW** | user |
+| GIF | **44/44** | QImageReader | limited |
+| MJPEG | pure **44/44 + HD 6/6** | limited | ‚Äî |
+| TKVV custom | **56/56 + player 21/21 ~100fps@720p** | ‚Äî | ‚Äî |
+| Audio clock | **ch∆∞a** (L6 WASAPI plan) | full | ‚Äî |
+| UI 10 widget | transport‚Üíabloop **80/80** | √≠t s·∫µn (hay QML) | ‚Äî |
+| MP4‚ÜíTKVV ingest | **ClipPlayer 14/14** | ‚Äî | ‚Äî |
 
-**Verdict:** Ingest+UI **d? niche player nh?**; **thua Qt** HW decode, audio clock, DRM, adaptive streaming. **KhÙng so** Slint/egui (khÙng media core).
+**Verdict:** Ingest+UI **ƒë·ªß niche player nh·ªè**; **thua Qt** HW/audio/adaptive. Kh√¥ng so Slint/egui (kh√¥ng media core).
 
 ---
 
@@ -548,16 +527,16 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint | egui | ImGui |
 |---|---|---|---|---|---|
-| Unit/selftest headless | **verify 55 case, ~2200+ checks**, LOCALS_OK | pytest / Qt Test | cargo test | cargo test | test Ìt |
-| GUI e2e | **KitTest 16/16** pattern a11y | pytest-qt / offscreen | **playwright-ish demos + CI** | **kittest** official | sample runs |
-| Fuzz | **Fuzz 7/7 shaping** | user | user | user | ó |
-| Bench | **bench_all + bench_stable BENCH_OK** | tools/bench_*_pyqt.py side-by-side | criterion | criterion | ó |
-| CI | `.github/workflows/ci.yml` **static-only** (purity/JSON/shell) ó **chua ch?y suite Win/Ubuntu full** | Qt CI massive | **GitHub Actions build+test+wasm** | Actions + kittest | Actions |
-| Issue templates | **◊3** (benchmark/claim/purity) | GitHub full | full | full | full |
-| Designer | **DesignerApp headless+windowed** | Qt Designer production | **Live Preview + Figma plugin** | inspector/debug | ó |
+| Unit headless | **verify 55 case ~2200+ checks** + LOCALS_OK | pytest / Qt Test | cargo test | cargo test | √≠t |
+| GUI e2e | **KitTest 16/16** | pytest-qt offscreen | CI demos | **kittest** official | manual |
+| Fuzz | **Fuzz 7/7** | user | user | user | ‚Äî |
+| Bench | **bench_all + bench_stable OK** | side-by-side pyqt scripts | criterion | criterion | ‚Äî |
+| CI | `ci.yml` **static-only** ‚Äî **ch∆∞a suite Win/Ubuntu full** | Qt CI massive | **Actions build+test+wasm** | Actions+kittest | Actions |
+| Issue templates | **√ó3** | full | full | full | full |
+| Designer | **DesignerApp headless+windowed** | Qt Designer production | **Live Preview + Figma** | inspector | ‚Äî |
 | Docs API | `docs/API.md` index | **apidox/qt.io** | book | rustdoc | docs |
 
-**Verdict:** Unit **m?nh so v?i kÌch thu?c** (55 cases). **Thua CI e2e + tooling designer** (Slint Live Preview l‡ gold standard). L9 cÚn ch?y full suite trÍn Actions.
+**Verdict:** Unit **m·∫°nh cho k√≠ch th∆∞·ªõc**; **thua CI e2e + designer tooling** (Slint Live Preview gold). L9 c√≤n full suite tr√™n Actions.
 
 ---
 
@@ -565,13 +544,13 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint | egui |
 |---|---|---|---|---|
-| Single EXE app | **549 KBñ3.3 MB** (c?n .NET FW trÍn m·y) | PyInstaller **~15ñ50 MB+** | static musl nh? / RCC | static small |
-| Package manager | **NuGet** `TokenVector.UI.nupkg` + **`.tkvpkg` zip+sha256** | pip | cargo/cmake | cargo |
-| Integrity | `package.sh --verify` PKG_VERIFY_OK | pip hash | crates.io | crates.io |
+| Single EXE | **549 KB‚Äì3.3 MB** (c·∫ßn .NET FW) | PyInstaller **15‚Äì50 MB+** | static musl nh·ªè | static nh·ªè |
+| Package | **NuGet** + **`.tkvpkg`+sha256** | pip | cargo/cmake | cargo |
+| Verify package | `package.sh --verify` PKG_VERIFY_OK | pip hash | crates.io | crates.io |
 | Cold start | **~1.0 s** AV+JIT | **~0.2 s** | native fast | native fast |
-| Idle RAM | **11 MB** | 15.6 MB | th?p (MCU target) | th?p |
+| Idle RAM | **11 MB** | 15.6 MB | MCU target th·∫•p | th·∫•p |
 
-**Verdict:** **Deploy size TH?NG PyQt n?ng**; **startup THUA native+PyQt**. Slint th?ng embedded RAM.
+**Verdict:** **Deploy size TH·∫ÆNG PyQt**; **startup THUA** native+PyQt. Slint th·∫Øng embedded RAM.
 
 ---
 
@@ -579,95 +558,96 @@ v√† **ƒë√£ ƒë√≥ng 2 gap l·ªõn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TkvUI | PyQt6 | Slint | egui |
 |---|---|---|---|---|
-| Quickstart | README verify 1 l?nh | pip install + qml/tutorials?? | book + live preview | book + demo |
-| Tutorial CRUD | **`TUTORIAL_CRUD.md` + CrudDemo** | official examples 1000+ | templates | demo crates |
-| Screenshots | **2 PNG render th?t** + plan 3 GIF | huge gallery | studio | show case |
-| Vietnamese docs | **README + comments VN** | EN/CN/jaÖ | EN | EN |
-| API reference | API.md 27 module summary | **Qt docs industry gold** | rustdoc+md | rustdoc |
-| Roadmap cÙng khai | LEVEL_PLAN + Roadmap + CHANGELOG | Qt roadmap cÙng ty | public | public |
+| Quickstart | README 1 l·ªánh verify | pip + tutorialsÊµ∑Èáè | book + live preview | book + demos |
+| Tutorial CRUD | **TUTORIAL_CRUD + CrudDemo** | official examples 1000+ | templates | demo crates |
+| Screenshots | **2 PNG th·∫≠t** + plan 3 GIF | gallery huge | studio | show case |
+| Vietnamese docs | **README + comments VN** | multi-lang official | EN | EN |
+| API ref | API.md summary 27 module | **Qt docs gold** | rustdoc | rustdoc |
+| Roadmap public | LEVEL_PLAN + Roadmap + CHANGELOG | Qt company roadmap | public | public |
 
-**Verdict:** Docs **d? internal + contribute**, **thua Qt/ecosystem scale**. L10: GIF + video + nuget.org.
+**Verdict:** ƒê·ªß internal+onboard; **thua scale**. L10: GIF + video + nuget.org.
 
 ---
 
-### 9.22 Gi?i h?n compiler `.tkv` ?nh hu?ng so s·nh
+### 9.22 Gi·ªõi h·∫°n compiler `.tkv` ·∫£nh h∆∞·ªüng so s√°nh
 
-| Gap (COMPILER_GAPS) | ?nh hu?ng vs d?i th? | Tr?ng th·i |
+| Gap | ·∫¢nh h∆∞·ªüng | Tr·∫°ng th√°i |
 |---|---|---|
-| KhÙng ternary / bitwise (d„ m? R5) / `pass` | Code verbosity; MJPEG cu ch?m | R5 m?; ternary v?n c?m |
-| List append quirk D1 ? ToI32 crash | Selftest d? fail sai ch? | **d„ bypass** literal/helper `nv_alloc_*` |
-| Struct l?ng / fixed array | KhÙng marshal struct Win32 ph?c t?p th?ng | ch? upstream |
-| COM call-in (CCW) | A11y UIA provider th?t | **L7 ch?n C# shim** |
+| C·∫•m ternary / `pass`; bitwise ƒë√£ m·ªü R5 | verbosity; MJPEG c≈© ch·∫≠m | R5 m·ªü; ternary v·∫´n c·∫•m |
+| List append D1 ‚Üí ToI32 crash | selftest d·ªÖ fail | **ƒë√£ bypass** literal/`nv_alloc_*` |
+| Struct l·ªìng / fixed array | marshal Win32 ph·ª©c t·∫°p | ch·ªù upstream |
+| COM call-in (CCW) | UIA provider th·∫≠t | **L7 ‚Üí C# shim** |
 | `.so` pinvoke | Linux/macOS/mobile | **L8 blocker R7** |
-| Byte array trong record | Embed TTF v‡o PDF | 11.3 BLOCKED |
-| NGEN/AOT (R10) | Cold start L3 | ch? upstream + local nGEN.ps1 |
-| P7.5 list-method ordering | API design rule | tu‚n th? |
+| Byte array record | Embed TTF v√†o PDF | 11.3 BLOCKED |
+| NGEN/AOT (R10) | cold start L3 | upstream + `nGEN.ps1` local |
+| P7.5 list-method order | API design | tu√¢n th·ªß |
 
-**Verdict:** Nhi?u ìthua d?i th?î **khÙng ph?i thi?u ˝ tu?ng** m‡ **d?a compiler m?** ó plan d„ map sang L3/L7/L8 + shim C#.
+**Verdict:** Nhi·ªÅu ‚Äúthua ƒë·ªëi th·ªß‚Äù **do compiler m·∫π**, ƒë√£ map sang L3/L7/L8 + shim C#.
 
 ---
 
-### 9.23 Scorecard chi ti?t theo h?ng m?c (TkvUI vs ìd?i th? t?t nh?tî)
+### 9.23 Scorecard chi ti·∫øt theo h·∫°ng m·ª•c
 
-| # | H?ng m?c | TkvUI | –?i th? m?nh nh?t | K?t qu? (chi ti?t) |
+| # | H·∫°ng m·ª•c | TkvUI | ƒê·ªëi th·ªß m·∫°nh nh·∫•t | K·∫øt qu·∫£ |
 |---|---|---|---|---|
-| 1 | Freedom license | MIT | egui/ImGui MIT | **HÚa nhÛm best** |
-| 2 | NgÙn ng? m?t stack self-host | .tkv to‡n stack | khÙng ai | **–?c quy?n** |
-| 3 | C?ng d?ng | 0 star | ImGui 76k | **Thua 100%** |
-| 4 | Widget count | 93 | Qt ~1000 | **Thua ~10◊** |
-| 5 | Widget d? CRUD/IDE form | Wave A+B cover | Qt | **G?n parity use-case** (2 ports) |
-| 6 | Text ASCII speed | 9.4 ms | PyQt 18.1 | **Th?ng 1.9◊** |
-| 7 | Text complex + HB | HB wire L2 optional | Qt always-HB | **HÚa khi cÛ DLL / thua khi khÙng** |
-| 8 | Vi?t/IME | precomposed+Telex/VNI | Qt ph? thu?c OS | **Th?ng niche** |
+| 1 | Freedom license | MIT | egui/ImGui MIT | **H√≤a best** |
+| 2 | Self-host m·ªôt stack | .tkv to√†n stack | kh√¥ng ai | **ƒê·ªôc quy·ªÅn** |
+| 3 | C·ªông ƒë·ªìng | 0 star | ImGui 76k | **Thua 100%** |
+| 4 | Widget count | 93 | Qt ~1000 | **Thua ~10√ó** |
+| 5 | Widget ƒë·ªß CRUD/IDE form | Wave A+B + 2 ports | Qt | **G·∫ßn parity use-case** |
+| 6 | Text ASCII speed | 9.4 ms | PyQt 18.1 | **Th·∫Øng 1.9√ó** |
+| 7 | Text complex + HB | HB wire L2 optional | Qt always-HB | **H√≤a c√≥ DLL / thua kh√¥ng DLL** |
+| 8 | Vi·ªát/IME | precomposed+Telex/VNI | Qt ph·ª• thu·ªôc OS | **Th·∫Øng niche** |
 | 9 | Rich text | limited | QTextDocument | **Thua** |
-| 10 | Layout | flex/grid/stack | Qt/QML | **HÚa utility / thua deep** |
-| 11 | CPU render widget | 30 ms/1000 | PyQt 43 ms | **Th?ng 1.4◊** |
+| 10 | Layout | flex/grid/stack | Qt/QML | **H√≤a utility** |
+| 11 | CPU render widget | 30 ms/1000 | PyQt 43 ms | **Th·∫Øng 1.4√ó** |
 | 12 | GPU | stub | RHI/wgpu | **Thua** |
-| 13 | SQL | built-in 132 + 2.4◊ | QSQLITE / khÙng ai built-in Slint | **Th?ng niche + speed** |
-| 14 | PDF+print | built-in 63 + shell | QPdf / khÙng ai | **Th?ng cÛ s?n / hÚa PDF / thua preview** |
-| 15 | Clipboard | Win32 12/12 | QClipboard multi-OS | **Th?ng Win / thua multi** |
-| 16 | A11y | mirror+KitTest, NVDA partial | Qt native / AccessKit | **Thua production** |
-| 17 | Media | Baseline+UI 10 widget+TKVV | QtMultimedia full | **Thua breadth / th?ng UI bundle** |
+| 13 | SQL | built-in 132 + 2.4√ó | QSQLITE / Slint 0 | **Th·∫Øng niche+speed** |
+| 14 | PDF+print | built-in 63 + shell | QPdf / Slint 0 | **Th·∫Øng c√≥ s·∫µn** |
+| 15 | Clipboard | Win32 12/12 | QClipboard multi | **Th·∫Øng Win / thua multi** |
+| 16 | A11y | mirror+KitTest, NVDA partial | Qt / AccessKit | **Thua production** |
+| 17 | Media | Baseline + UI 10 + TKVV | QtMultimedia full | **Thua breadth / th·∫Øng UI** |
 | 18 | WASM | WASI interp+canvas | Slint/egui prod | **Thua** |
 | 19 | Cross-plat | Win32 only real | Qt/Slint/egui multi | **Thua** |
 | 20 | OS look | self-drawn 41 + theme 79 | native Qt / Slint styles | **Partial** |
-| 21 | Cold start | 1.0 s | 0.2 s | **Thua 5◊** |
-| 22 | Idle RAM | 11 MB | PyQt 15.6 / Slint MCU | **Th?ng PyQt / thua MCU** |
-| 23 | Load RAM text | 46 MB | 15.6 MB | **Thua 3◊** |
-| 24 | Deploy size | 0.5ñ1.6 MB | PyInstaller 50 MB | **Th?ng** |
-| 25 | Test headless | 55/0/2 ~2200 checks | Qt tests + probe | **M?nh cho size** |
+| 21 | Cold start | 1.0 s | 0.2 s | **Thua 5√ó** |
+| 22 | Idle RAM | 11 MB | PyQt 15.6 / Slint MCU | **Th·∫Øng PyQt / thua MCU** |
+| 23 | Load RAM text | 46 MB | 15.6 MB | **Thua 3√ó** |
+| 24 | Deploy size | 0.5‚Äì1.6 MB | PyInstaller 50 MB | **Th·∫Øng** |
+| 25 | Test headless | 55/0/2 ~2200 | Qt tests + probe | **M·∫°nh cho size** |
 | 26 | CI | static only | full matrix | **Thua** |
 | 27 | Designer | DesignerApp | Qt Designer + Slint preview | **Thua tooling** |
-| 28 | Docs scale | d? internal | qt.io gold | **Thua scale** |
+| 28 | Docs scale | ƒë·ªß internal | qt.io gold | **Thua scale** |
 
 ---
 
-### 9.24 ìAi th?ng n?u app c?a b?n l‡Öî
+### 9.24 ‚ÄúAi th·∫Øng n·∫øu app c·ªßa b·∫°n l√†‚Ä¶‚Äù
 
-| Ki?u app | G?i ˝ th?ng | L˝ do (s? trong file n‡y) |
+| Ki·ªÉu app | Th·∫Øng | L√Ω do (s·ªë trong file) |
 |---|---|---|
-| App CRUD/admin **nh?, single EXE, MySQL-like embedded, ti?ng Vi?t** | **TkvUI** | 549 KB, SQL/PDF built-in, 93 widget d? form, text 1.9◊, license MIT |
-| App desktop **da n?n t?ng Win/Mac/Linux** | **Qt / Slint / egui** | TkvUI X11/Cocoa stub |
-| App c?n **GPU-heavy / game tool immediate** | **egui / ImGui** | TkvUI GPU stub |
-| App **embedded MCU** | **Slint** | RAM/size target Slint |
-| App c?n **accessibility production NVDA** | **Qt / egui+AccessKit** | TkvUI 0 utterance widget |
-| App c?n **~widget rare 1000 class + rich text + charts** | **Qt** | breadth 10◊ |
-| Learning / research **self-hosted stack** | **TkvUI** | 1 ngÙn ng? t? raster?SQL?PDF?codec |
-| Tool n?i b? Windows, quan t‚m **startup 0.2 s** | c‚n nh?c **PyQt** ho?c d?i **L3 NGEN** | cold-start gap |
+| CRUD/admin **nh·ªè, single EXE, ti·∫øng Vi·ªát, built-in SQL/PDF** | **TkvUI** | 549 KB, SQL/PDF built-in, 93 widget ƒë·ªß form, text 1.9√ó, MIT |
+| Desktop **ƒëa n·ªÅn t·∫£ng Win/Mac/Linux** | **Qt / Slint / egui** | TkvUI X11/Cocoa stub |
+| **GPU-heavy / game tool** | **egui / ImGui** | TkvUI GPU stub |
+| **Embedded MCU** | **Slint** | RAM/size target |
+| **A11y production NVDA** | **Qt / egui+AccessKit** | TkvUI 0 utterance widget |
+| **~1000 class + rich text + charts** | **Qt** | breadth 10√ó |
+| Research **self-hosted stack** | **TkvUI** | 1 ng√¥n ng·ªØ raster‚ÜíSQL‚ÜíPDF‚Üícodec |
+| Windows n·ªôi b·ªô, c·∫ßn **startup 0.2 s** | **PyQt** ho·∫∑c ƒë·ª£i **L3 NGEN** | cold-start gap |
 
 ---
 
-### 9.25 Kho?ng c·ch cÚn l?i (gap detail, khÙng l?p LEVEL_PLAN)
+### 9.25 Kho·∫£ng c√°ch c√≤n l·∫°i (gap detail)
 
-1. **Width:** 93 vs ~1000 ó Wave C polish depth t?ng widget (validation, models, delegates, drag-drop) quan tr?ng hon thÍm constructor m?i.
-2. **Depth t?ng control:** editable combo, table cell delegates, tree drag, dock save/restore, MDI cascade/max ó ìm?ng nhung cÛî.
-3. **Runtime platform:** ch? Windows real ó m? `.so` l‡ kho· L8/L9 Ubuntu.
-4. **Perception:** cold-start + load RAM ó NGEN/R12/lazy module.
+1. **Width:** 93 vs ~1000 ‚Äî Wave C **depth** t·ª´ng widget (validation, models, delegates, drag-drop) quan tr·ªçng h∆°n th√™m constructor.
+2. **Depth control:** editable combo, table cell delegates, tree drag, dock save/restore, MDI cascade/max ‚Äî ‚Äúm·ªèng nh∆∞ng c√≥‚Äù.
+3. **Platform:** ch·ªâ Windows real ‚Äî m·ªü `.so` l√† kho√° L8/L9 Ubuntu.
+4. **Perception:** cold-start + load RAM ‚Äî NGEN / R12 / lazy module.
 5. **Trust:** public repo, CI green badge, 1 external issue.
-6. **Media audio path** v‡ FFmpeg Main/High (L6).
-7. **GPU compute** tru?c raster GPU (L4).
+6. **Media audio** + FFmpeg Main/High (L6).
+7. **GPU compute** tr∆∞·ªõc raster GPU (L4).
 8. **NVDA** qua C# shim (L7).
 
 ---
 
-> **Phuong ph·p:** m?i s? TkvUI in ra t? selftest/bench d„ ch?y trÍn m·y dev; m?i s? d?i th? ngo‡i PyQt ghi ngu?n public v‡ **chua reproduce runtime** ó khÙng d˘ng d? claim ìnhanh hon egui/Slintî khi chua c‡i v‡ bench c˘ng workload.
+> **Ph∆∞∆°ng ph√°p:** m·ªçi s·ªë TkvUI in ra t·ª´ selftest/bench ƒë√£ ch·∫°y m√°y dev; s·ªë Slint/egui/ImGui l·∫•y public docs ‚Äî **ch∆∞a reproduce c√πng workload** ‚Üí kh√¥ng claim ‚Äúnhanh h∆°n egui/Slint‚Äù khi ch∆∞a c√†i bench.
+
