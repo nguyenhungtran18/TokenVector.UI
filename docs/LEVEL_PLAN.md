@@ -232,7 +232,7 @@ Tuần 4  ── L8 X11 headless (cần R7 upstream song song)
         ── L10 public + nuget + GIF
 ```
 
-**Gate mỗi tuần:** `tools/verify.sh` vẫn **51+ / 0 FAIL**; thêm case mới vào verify.sh cùng acceptance; cập nhật `COMPETITORS.md` §2/§8 **chỉ khi đo thật**.
+**Gate mỗi tuần:** `tools/verify.sh` vẫn **55+ / 0 FAIL**; thêm case mới vào verify.sh cùng acceptance; cập nhật `COMPETITORS.md` §2/§8 **chỉ khi đo thật**.
 
 ---
 
