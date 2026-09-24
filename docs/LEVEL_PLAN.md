@@ -1,6 +1,6 @@
 # Kế hoạch san bằng — TokenVector.UI vs Đối thủ
 
-> Cập nhật: 2026-09-23. Nguồn: `docs/COMPETITORS.md` (verify 51/0/2), `COMPILER_FIX_LIST.md`, `COMPILER_GAPS.md`.
+> Cập nhật: 2026-09-24. Nguồn: `docs/COMPETITORS.md` (verify 55/0/2), `COMPILER_FIX_LIST.md`, `COMPILER_GAPS.md`.
 > Mục tiêu: biến từng "thua" thành "thắng được" hoặc "hòa có điều kiện" — có acceptance test đo thật.
 
 ---

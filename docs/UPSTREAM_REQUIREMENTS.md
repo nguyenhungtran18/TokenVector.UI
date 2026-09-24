@@ -7,7 +7,7 @@
 > đối thủ 2026-09-22 (`docs/COMPETITORS.md` §2b).
 >
 > Quy tắc nghiệm thu chung: sau mỗi fix, `tools/verify.sh` vẫn
-> `TKVUI_VERIFY_OK` (hiện 51/0/2) + acceptance test của chính yêu cầu đó PASS.
+> `TKVUI_VERIFY_OK` (hiện 55/0/2) + acceptance test của chính yêu cầu đó PASS.
 
 ---
 
