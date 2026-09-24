@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dong goi TkvUI thanh release artifact .tkvpkg (file zip + manifest + sha256).
 #
-#   bash tools/package.sh            -> dist/TokenVector.UI-2.1.0.tkvpkg (+ .sha256)
+#   bash tools/package.sh            -> dist/TokenVector.UI-1.0.0.tkvpkg (+ .sha256)
 #   bash tools/package.sh --verify   -> sau khi dong goi, build suite tu ban giai nen
 #
 # Version doc tu tkvui.pkg.json. Artifact chua: 9 module .tkv + umbrella + manifest
@@ -31,10 +31,11 @@ rm -f "$PKG" "$PKG.sha256"
 # 'docs\x' thay vi thu muc 'docs/'; stage folder + -Path <folder> cho cau truc dung.)
 rm -rf "$STAGE"
 mkdir -p "$STAGE/$NAME"
-cp TokenVector.UI.tkv TkvUI.*.tkv tkvui.pkg.json README.md LICENSE CHANGELOG.md "$STAGE/$NAME/"
+cp TokenVector.UI.tkv TkvUI.*.tkv tkvui.pkg.json README.md README.vi.md LICENSE CHANGELOG.md RELEASE_NOTES.md "$STAGE/$NAME/"
 cp -r docs tools examples "$STAGE/$NAME/"
 
-powershell -NoProfile -Command "Compress-Archive -Force -Path '$STAGE\\$NAME' -DestinationPath '$NAME.tkvpkg.zip'"
+POWERSHELL="$(command -v powershell.exe || command -v powershell || echo powershell.exe)"
+"$POWERSHELL" -NoProfile -Command "Compress-Archive -Force -Path '$STAGE\\$NAME' -DestinationPath '$NAME.tkvpkg.zip'"
 if [ ! -f "$NAME.tkvpkg.zip" ]; then
   echo "Compress-Archive that bai" >&2
   exit 1
@@ -45,7 +46,7 @@ mv "$NAME.tkvpkg.zip" "$PKG"
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "$PKG" > "$PKG.sha256"
 else
-  powershell -NoProfile -Command "(Get-FileHash '$PKG' -Algorithm SHA256).Hash + '  ' + (Split-Path -Leaf '$PKG')" > "$PKG.sha256"
+  "$POWERSHELL" -NoProfile -Command "(Get-FileHash '$PKG' -Algorithm SHA256).Hash + '  ' + (Split-Path -Leaf '$PKG')" > "$PKG.sha256"
 fi
 
 echo "Da dong goi: $PKG"

@@ -2,7 +2,19 @@
 
 Mọi thay đổi đáng chú ý của TokenVector.UI (TkvUI). Version lấy từ `tkvui_version()` trong `TokenVector.UI.tkv`.
 
-## Unreleased (chưa commit)
+## 1.0.0 (2026-09-24) — first packaged release
+
+Release notes đầy đủ: **`RELEASE_NOTES.md`**. Gói: `dist/TokenVector.UI.1.0.0.nupkg` (DLL + `tkv/` sources + README EN/VI) và `dist/TokenVector.UI-1.0.0.tkvpkg`.
+
+- Verify: **55 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, ~2200+ checks).
+- Catalog **93 constructors** (Widgets 42 + Native 41 + Media 10); `WIDGETS_BREADTH_OK` 15/15.
+- Wave A/B (L1): breadth widgets + Dock float/tab + MDI tile + Ribbon + PropertyGrid + Tree multi-sel + ContextMenu; Qt ports `QtAppPort` 52/52, `QtTreeDockPort` 31/31.
+- L2 HarfBuzz wire: `text_atlas_draw_shaped` + `HBWIRE_OK`.
+- Built-in SQLite **132/132**, PDF **63/63**; GIF/TKVV/MJPEG/MP4 pure `.tkv`.
+- Bench vs PyQt6: text 9.4 ms (~1.9×), paint 1000 btn ~30 ms, SQL file RT 81 ms (~2.4×).
+- Docs: README EN + `README.vi.md`, COMPETITORS §9 (25 mục), LEVEL_PLAN L1–L10.
+
+## Unreleased (pre-1.0.0 development history)
 
 - **L1 Wave B — structural widgets + Qt Tree/Dock port** (`TkvUI.Widgets.Native` 255/255 `NATIVE_OK` + umbrella `WIDGETS_BREADTH_OK` 15/15 catalog **93** + `examples/TkvUI.QtTreeDockPort.tkv` **31/31 `QTDOCK_OK`**): `NativeTreeView` multi-sel (`sels_click` plain/ctrl/shift + anchor/range/count + `render_multi`), `NativeDockPanel` float/tab (`set_floating`/`hit_dock_tab`/`select_dock_tab`/`dock_tab_rect` + `make_native_dock_float` dùng w/h thật), `NativeMdiArea.tile_horizontal`, `NativeRibbon` (group tabs + large/small hit), `NativePropertyGrid` (2-col + category collapse + begin/commit edit), `NativeContextMenu` (items + separators + activate). Catalog 88 → **93** (Widgets 42 + Native 41 + Media 10). Fix D1 (`[]`+append → literal/helper cho `list[i32]` vào method). verify.sh +1 case `qtreedock`. Còn lại: Thai/Deva box fallback, ASCII bench đo lại.
 

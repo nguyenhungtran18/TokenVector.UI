@@ -1,7 +1,7 @@
 # TokenVector.UI (TkvUI)
 
 ![Verify](https://img.shields.io/badge/verify-55%20PASS%2F0%20FAIL%2F2%20SKIPPED-green)
-![Version](https://img.shields.io/badge/version-2.9.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Catalog](https://img.shields.io/badge/widgets-93%20constructors-brightgreen)
 
@@ -15,7 +15,7 @@ Rasterizer, font, hiệu ứng, layout, widget, persist (SQLite), trình ghi PDF
 
 | Hạng mục | Trạng thái (2026-09-24) |
 |---|---|
-| **Phiên bản** | **2.9.0** (`tkvui_version()` trong `TokenVector.UI.tkv`) |
+| **Phiên bản** | **1.0.0** (`tkvui_version()` trong `TokenVector.UI.tkv`) |
 | **Verify** | **55 PASS / 0 FAIL / 2 SKIPPED** (`TKVUI_VERIFY_OK`, 57 case; Android/iOS cần thiết bị thật) |
 | **Số assert** | **~2200+** checks trong suite |
 | **Catalog widget** | **93 constructors** — Widgets 42 + Native 41 + Media 10 (`WIDGETS_BREADTH_OK` 15/15) |

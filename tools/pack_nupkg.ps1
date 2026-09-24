@@ -7,7 +7,7 @@
 #      (tkvc sinh .exe; exe .NET van tham chieu duoc nhu thu vien, nhung doi chuan
 #      la .dll -> chep doi ten thanh TokenVector.UI.dll).
 #   2. nuget pack nuget/TokenVector.UI.nuspec (them file DLL vao thu muc pack tam)
-#   3. Ket qua: dist/TokenVector.UI.2.1.0.nupkg
+#   3. Ket qua: dist/TokenVector.UI.1.0.0.nupkg
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -15,7 +15,7 @@ $tkvc = "$env:TKVC"
 if (-not $tkvc -or -not (Test-Path $tkvc)) { $tkvc = "D:\TokenVector\3.code\dist\tkvc.exe" }
 if (-not (Test-Path $tkvc)) { Write-Host "Khong thay tkvc.exe - dat bien moi truong TKVC" -ForegroundColor Red; exit 2 }
 
-$version = "2.1.0"
+$version = "1.0.0"
 $distDir = Join-Path $root "dist"
 $pkgStage = Join-Path $root "build\nupkgstage"
 New-Item -ItemType Directory -Force -Path $distDir, $pkgStage | Out-Null

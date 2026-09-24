@@ -7,7 +7,7 @@ Entry mac dinh 'main' = chay toan bo selftest cua thu vien (headless, khong mo c
 __tkv_import__ = ["TkvUI.Core", "TkvUI.Graphics", "TkvUI.Text", "TkvUI.Viet", "TkvUI.I18nData", "TkvUI.HarfBuzz", "TkvUI.Effects", "TkvUI.Platform", "TkvUI.Events", "TkvUI.Input", "TkvUI.Layout", "TkvUI.Theme", "TkvUI.Widgets", "TkvUI.Widgets.Native", "TkvUI.Media", "TkvUI.Bidi", "TkvUI.Gpu", "TkvUI.A11y", "TkvUI.A11yBridge", "TkvUI.Data", "TkvUI.SQLite", "TkvUI.Printing", "TkvUI.FontFallback", "TkvUI.NativeDlg", "TkvUI.Ime", "TkvUI.Uia", "TkvUI.Atspi", "TkvUI.Shaping", "TkvUI.FontDiscovery", "TkvUI.EmojiData", "TkvUI.KitTest", "TkvUI.VideoGifData", "TkvUI.Video", "TkvUI.TkvvData", "TkvUI.Tkvv", "TkvUI.MjpgData", "TkvUI.Mjpg", "TkvUI.MjpgHDData", "TkvUI.Mp4Data", "TkvUI.Mp4", "TkvUI.Mp4RData", "TkvUI.Clipboard"]
 
 def tkvui_version() -> "str":
-    return "2.9.0"
+    return "1.0.0"
 
 def widget_constructor_catalog() -> "list[str]":
     # Danh sach distinct widget constructors (L1 breadth): Widgets + Native + Media.

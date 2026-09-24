@@ -2,45 +2,53 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>TokenVector.UI</id>
-    <version>2.3.1</version>
+    <version>1.0.0</version>
     <title>TokenVector.UI (TkvUI)</title>
     <authors>Nguyen Hung Tran</authors>
     <owners>nguyenhungtran18</owners>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">MIT</license>
     <projectUrl>https://github.com/nguyenhungtran18/TokenVector</projectUrl>
+    <iconUrl>https://img.shields.io/badge/version-1.0.0-blue</iconUrl>
     <readme>README.md</readme>
-    <description>TokenVector.UI (TkvUI) - Thu vien UI da nen tang 100% TokenVector (.tkv), zero dependency: software rasterizer, bitmap font + TTF parser (verified), effects (Kawase blur/glass), flex/grid layout, 28 widget + 10 media-player widget + Spring animation, cua so native Win32 (UpdateLayeredWindow), WinForms interop. Danh cho tkvc.exe (TokenVector compiler).</description>
-    <summary>UI library for the TokenVector compiler: rasterizer, layout, widgets, media-player UI, native windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
-    <releaseNotes>2.3.1: module media-player TkvUI.Media (10 widget, 80 check), TTF parser/rasterizer verified (110 check text, sua 4 bug), WinForms interop that window/app-level (34 check platform), Ant-inspired widgets (95 check widgets), bilinear half-res upsample. Suite: 444 check PASS.</releaseNotes>
+    <description>Cross-platform UI library written 100% in TokenVector (.tkv) with zero third-party runtime dependencies: software rasterizer, bitmap+TTF font (Vietnamese-first 134 precomposed glyphs), effects, flex/grid layout, 93 widget constructors (42 widgets + 41 native-look + 10 media-player), theme engine, model/view, pure-.tkv SQLite + PDF writer, A11y/UIA/AT-SPI bridges, Telex/VNI IME, GIF/TKVV/MJPEG/MP4 codecs, packaging and WASM tooling. Compiled with tkvc.exe.</description>
+    <summary>UI library for the TokenVector compiler: rasterizer, layout, 93 widgets, SQLite, PDF, media codecs, native Win32 windowing. Import umbrella "TokenVector.UI" from any .tkv app.</summary>
+    <releaseNotes>1.0.0 (2026-09-24): first packaged release. verify 55/0/2 TKVUI_VERIFY_OK (~2200+ checks). Catalog 93 constructors (Widgets 42 + Native 41 + Media 10). Wave A+B: calendar/datetime/toolbox/stacked/scrollbar/dial/commandlink/keyseq/lcd/tourtip + dock float/tab, MDI tile, ribbon, property grid, tree multi-select, context menu. Qt ports QtAppPort 52/52 + QtTreeDockPort 31/31. HarfBuzz wire text_atlas_draw_shaped. Built-in SQLite 132/132 + PDF 63/63. GIF/TKVV/MJPEG/MP4 pure .tkv. Bench vs PyQt6: text 9.4ms (~1.9x), paint 1000 btn ~30ms, SQL file RT 81ms (~2.4x). Full details: RELEASE_NOTES.md.</releaseNotes>
     <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
-    <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform media-player ttf winforms</tags>
+    <tags>tokenvector tkv ui widgets rasterizer flex grid layout win32 cross-platform media-player ttf winforms sqlite pdf ime vietnamese harfbuzz</tags>
     <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
   </metadata>
   <files>
+    <!-- Docs / readme / license / changelog / release notes -->
     <file src="README.md" target="README.md" />
+    <file src="README.vi.md" target="README.vi.md" />
     <file src="LICENSE" target="LICENSE" />
     <file src="CHANGELOG.md" target="CHANGELOG.md" />
+    <file src="RELEASE_NOTES.md" target="RELEASE_NOTES.md" />
     <file src="tkvui.pkg.json" target="tkvui.pkg.json" />
-    <!-- Source thu vien: import bang tkvc -->
-    <file src="TokenVector.UI.tkv" target="tkv\TokenVector.UI.tkv" />
-    <file src="TkvUI.Core.tkv" target="tkv\TkvUI.Core.tkv" />
-    <file src="TkvUI.Graphics.tkv" target="tkv\TkvUI.Graphics.tkv" />
-    <file src="TkvUI.Text.tkv" target="tkv\TkvUI.Text.tkv" />
-    <file src="TkvUI.Effects.tkv" target="tkv\TkvUI.Effects.tkv" />
-    <file src="TkvUI.Platform.tkv" target="tkv\TkvUI.Platform.tkv" />
-    <file src="TkvUI.Events.tkv" target="tkv\TkvUI.Events.tkv" />
-    <file src="TkvUI.Input.tkv" target="tkv\TkvUI.Input.tkv" />
-    <file src="TkvUI.Layout.tkv" target="tkv\TkvUI.Layout.tkv" />
-    <file src="TkvUI.Widgets.tkv" target="tkv\TkvUI.Widgets.tkv" />
-    <file src="TkvUI.Media.tkv" target="tkv\TkvUI.Media.tkv" />
-    <file src="TkvUI.Font.tkv" target="tkv\TkvUI.Font.tkv" />
-    <!-- Tools + docs + examples -->
+    <!-- .NET assembly (built by tools/pack_nupkg.ps1 into build/nupkgstage) -->
     <file src="build\nupkgstage\TokenVector.UI.dll" target="runtimes\any\native\TokenVector.UI.dll" />
+    <!-- Full library sources: import with __tkv_import__ = ["TokenVector.UI"] -->
+    <file src="TokenVector.UI.tkv" target="tkv\TokenVector.UI.tkv" />
+    <file src="TkvUI.*.tkv" target="tkv\" />
+    <!-- Docs -->
+    <file src="docs\API.md" target="docs\API.md" />
+    <file src="docs\INTEGRATION.md" target="docs\INTEGRATION.md" />
+    <file src="docs\TkvUI.Roadmap.md" target="docs\TkvUI.Roadmap.md" />
+    <file src="docs\LEVEL_PLAN.md" target="docs\LEVEL_PLAN.md" />
+    <file src="docs\COMPETITORS.md" target="docs\COMPETITORS.md" />
+    <file src="docs\BENCH.md" target="docs\BENCH.md" />
+    <file src="docs\COMPILER_GAPS.md" target="docs\COMPILER_GAPS.md" />
+    <file src="docs\SQL_PERSISTENCE.md" target="docs\SQL_PERSISTENCE.md" />
+    <file src="docs\OPENH264.md" target="docs\OPENH264.md" />
+    <file src="docs\TUTORIAL_CRUD.md" target="docs\TUTORIAL_CRUD.md" />
+    <file src="docs\WASM_STATUS.md" target="docs\WASM_STATUS.md" />
+    <file src="docs\A11Y_NVDA.md" target="docs\A11Y_NVDA.md" />
+    <!-- Tools -->
     <file src="tools\verify.sh" target="tools\verify.sh" />
     <file src="tools\package.sh" target="tools\package.sh" />
-    <file src="docs\TkvUI.Roadmap.md" target="docs\TkvUI.Roadmap.md" />
-    <file src="docs\INTEGRATION.md" target="docs\INTEGRATION.md" />
+    <file src="tools\pack_nupkg.ps1" target="tools\pack_nupkg.ps1" />
+    <!-- Examples -->
     <file src="examples\*.tkv" target="examples\" />
   </files>
 </package>

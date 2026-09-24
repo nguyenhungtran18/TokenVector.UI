@@ -1,8 +1,8 @@
 {
   "name": "TokenVector.UI",
   "alias": "TkvUI",
-  "version": "2.9.0",
-  "description": "Thu vien UI da nen tang 100% TokenVector (.tkv) - zero dependency: rasterizer, font bitmap, effects, layout flex/grid, 28 widget + 16 native-look widget, media player, theme engine, model/view/SQLite, PDF printing, A11y bridge, font fallback, native dialogs, IME, UIA/AT-SPI provider, packaging/WASM tooling.",
+  "version": "1.0.0",
+  "description": "Cross-platform UI library written 100% in TokenVector (.tkv) - zero dependency: software rasterizer, bitmap+TTF font, effects, flex/grid layout, 93 widget constructors (42 widgets + 41 native-look + 10 media), theme engine, model/view/SQLite, PDF printing, A11y bridge, font fallback, native dialogs, IME Telex/VNI, UIA/AT-SPI providers, GIF/TKVV/MJPEG/MP4 codecs, packaging/WASM tooling.",
   "license": "MIT",
   "repository": "https://github.com/nguyenhungtran18/TokenVector",
   "toolchain": {
