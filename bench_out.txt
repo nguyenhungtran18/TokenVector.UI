@@ -1,1 +1,0 @@
-atlas_ms=47 classic_ms=406 lines=2000 chars=108000

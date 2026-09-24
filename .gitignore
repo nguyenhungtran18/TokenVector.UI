@@ -12,12 +12,23 @@ dist/
 __pycache__/
 *.pyc
 
-# logs / scratch
+# logs / scratch / one-off migration scripts
 *.log
+*_out.txt
+*_err.txt
 logs/
 tmp/
 _dev_probe.tkv
 _spike.tkv
+test_minimal.tkv
+fix_*.py
+check_syntax.py
+optimize_text.py
+*.backup
+*.backup2
+*.tkvv
+TASK_SUMMARY.md
+TOKENVECTOR_PLAN*.md
 
 # editor / OS
 .vs/

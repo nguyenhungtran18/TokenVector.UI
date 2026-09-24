@@ -1,6 +1,6 @@
 # TkvUI Text Shaping & Font Status — Phase 11
 
-> Cập nhật: 2026-09-18. Xem `TOKENVECTOR_PLAN_P2.md` Phase 11.
+> Cập nhật: 2026-09-18. Roadmap text: `docs/TEXT_RENDER_OPTIMIZATION.md` + `CHANGELOG.md`.
 
 ---
 
