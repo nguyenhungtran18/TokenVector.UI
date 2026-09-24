@@ -1,6 +1,6 @@
 # Hướng dẫn tích hợp TkvUI
 
-Cách một ứng dụng TokenVector (`.tkv`) nhập và dùng TkvUI v2.1.0.
+Cách một ứng dụng TokenVector (`.tkv`) nhập và dùng TkvUI v1.0.1.
 
 ## 1. Cách lấy thư viện
 
@@ -12,7 +12,7 @@ trong project của bạn, giữ nguyên cấu trúc:
 myapp/
 ├── TokenVector.UI/          <- giai nen .tkvpkg (thu muc goc cung ten package)
 │   ├── TokenVector.UI.tkv   <- umbrella: file duy nhat ban can import
-│   ├── TkvUI.Core.tkv ...   <- 9 module
+│   ├── TkvUI.Core.tkv ...   <- 49 module (xem `tkvui.pkg.json`)
 │   ├── tkvui.pkg.json       <- manifest (version, modules, verify)
 │   ├── docs/ examples/ tools/
 └── myapp.tkv                <- ung dung cua ban
@@ -23,7 +23,7 @@ myapp/
 
 ## 2. Import trong file `.tkv`
 
-Chỉ cần import umbrella — nó kéo theo 9 module theo DAG, không có vòng:
+Chỉ cần import umbrella — nó kéo theo toàn bộ suite theo DAG, không có vòng:
 
 ```python
 # -*- coding: utf-8 -*-

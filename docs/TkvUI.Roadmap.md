@@ -4,7 +4,7 @@
 > 100% TokenVector (.tkv). Zero Dependency (không Skia/SDL/WPF).
 > Trạng thái: v2 P1–P7 **DONE** (đã build + chạy nghiệm thu headless bằng `tkvc.exe`, lint 0 findings) + **P7.5 Live harness DONE** (`examples/TkvUI.Live.tkv`, 27/27 PASS `TKVUI_LIVE_OK` — vong 60fps that: Win32 ULW + Input + Layout + Spring + present_diff) + **P7.6 Input poll thật DONE** (`run_live`: pump `PeekMessage` + `GetMessagePos` + `GetAsyncKeyState`, 62 render + 538 idle/600 vòng, `TKVUI_LIVE_RUN_OK`). P8/P9 (mobile) có khung + example nhưng **chưa verify trên thiết bị thật**; v3 chưa code.
 > **v2.1.0 (P1.1 hardening) DONE** — selftest cho 4 module còn thiếu (Core/Graphics/Text/Effects), `detect_platform()` probe runtime thật, iOS/Android gate theo platform (không còn crash `DllNotFoundException`), sửa lỗi `IOSPlatform.present` ghi đè vùng nhớ CGContext, umbrella có `main()` chạy cả suite, thêm `tools/verify.sh` + README/LICENSE/CHANGELOG. Chi tiết §8.
-> Toolchain dùng để verify: `D:\TokenVector\3.code\dist\tkvc.exe` (thư viện resolve import theo thư mục FILE NGUỒN — xem §0 ràng buộc *P5–P7*). One-shot: `bash tools/verify.sh` (12 PASS / 0 FAIL / 2 SKIPPED, `TKVUI_VERIFY_OK`).
+> Toolchain dùng để verify: `D:\TokenVector\3.code\dist\tkvc.exe` (thư viện resolve import theo thư mục FILE NGUỒN — xem §0 ràng buộc *P5–P7*). One-shot: `bash tools/verify.sh` (55 PASS / 0 FAIL / 2 SKIPPED, `TKVUI_VERIFY_OK`).
 
 ## 0. Baseline đã có (v1)
 

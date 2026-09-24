@@ -16,7 +16,7 @@
 | Ngôn ngữ | .tkv → .NET IL | Python (binding Qt C++) | Python (binding Qt C++, official) | Rust/C++/JS/Python (.slint DSL) | Rust (immediate) | C++ (immediate) |
 | License | MIT | GPL-3 / commercial | LGPL-3 / commercial | GPL-3 / commercial (royalty-free) | MIT/Apache-2.0 | MIT |
 | Stars | (local, chưa public — **0**) | PyPI dl ~M/tháng | PyPI dl ~M/tháng | **~23.7k** (2026-09-24) | **~30.5k** (2026-09-24) | **~76k** (2026-09-19) |
-| Tuổi / nhịp | 2026-, **46 commits** dày, v2.9.0 | từ 1998, release đều | official Qt Co, release đều | 2020-, active | 2019-, active | 2014-, active |
+| Tuổi / nhịp | 2026-, **59 commits** dày, v1.0.1 | từ 1998, release đều | official Qt Co, release đều | 2020-, active | 2019-, active | 2014-, active |
 | Repo size | **94 file `.tkv`** (~4.2 MB repo tracked) | binding + Qt binary | = PyQt6 | monorepo lớn | crates | single-header + examples |
 | Widget | **93 constructors** (Widgets 42 + Native 41 + Media 10; Wave A +10 form-control, Wave B +Dock float/tab/MDI tile/Ribbon/PropGrid/Tree multi/ContextMenu) | **~1000 classes Qt** | = PyQt6 | default set + Material/Fluent/Cupertino/Native | ~30 + custom dễ | ~60, tool-oriented |
 | Test | **verify 55/0/2** headless (~2200+ checks) + LOCALS_OK | pytest/offscreen | = PyQt | GUI automation | **kittest** (a11y-tree) | manual/examples |
@@ -40,7 +40,7 @@
 | CI | `.github/workflows/ci.yml` **static-only** + issue templates ×3 + LOCALS_OK | Slint GUI e2e; egui **kittest** | Thua GUI-e2e; có unit+static gate |
 | Cross-plat | Win32 thật; **X11/Cocoa stub**; Android/iOS host contract (verify SKIP) | Qt/Slint/egui multi-OS | **Thua** (L8 blocker R7 `.so`) |
 | OS look | self-drawn theme Win light/dark/HC (**41 native widgets** after Wave B) | Qt native style / Fluent | ⚠️ Partial (L5) |
-| Cộng đồng | **0 star / 0 issue** (local, 46 commits) | Qt Company; Slint/egui/ImGui **23k–76k stars** | **Thua** (L10 — cần public repo) |
+| Cộng đồng | mới public trên GitHub (59 commits) | Qt Company; Slint/egui/ImGui **23k–76k stars** | **Thua** (L10 — cần thời gian gây dựng) |
 
 ---
 
@@ -220,7 +220,7 @@ và **đã đóng 2 gap lớn L1 (Wave A+B) + L2 (HB wire)** trong 2026-09-24.
 
 | | TokenVector.UI | PyQt6/PySide6 | Slint | egui | Dear ImGui |
 |---|---|---|---|---|---|
-| Tuổi | **~1 năm**, **46 commits** local, v2.9.0 | Qt từ **1998** | **2020–** | **2019–** | **2014–** |
+| Tuổi | **2026–**, **59 commits**, v1.0.1 | Qt từ **1998** | **2020–** | **2019–** | **2014–** |
 | Stars (2026-09-24) | **0** (chưa public) | PyPI ~M download/th | **~23.7k** | **~30.5k** | **~76k** |
 | Contributors | 1 | Qt Company + rất lớn | **276** | hàng trăm | **583** |
 | Open issues sống | 0 | nghìn+ across Qt | ~700+ | ~900+ | nghìn+ |
