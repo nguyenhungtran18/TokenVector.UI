@@ -1,6 +1,6 @@
 # Kế hoạch san bằng — TokenVector.UI vs Đối thủ
 
-> Cập nhật: 2026-09-24. Nguồn: `docs/COMPETITORS.md` (verify 55/0/2), `COMPILER_FIX_LIST.md`, `COMPILER_GAPS.md`.
+> Cập nhật: 2026-09-24. Nguồn: `docs/COMPETITORS.md` (verify 55/0/2), `docs/COMPILER_GAPS.md`.
 > Mục tiêu: biến từng "thua" thành "thắng được" hoặc "hòa có điều kiện" — có acceptance test đo thật.
 
 ---
@@ -258,4 +258,4 @@ Tuần 4  ── L8 X11 headless (cần R7 upstream song song)
 - **Thắng niche giữ nguyên:** binary size, memory, text ASCII, SQL/PDF built-in, clipboard Win32, Vietnamese-first, H.264 Baseline nhỏ.
 - **San bằng优先:** L2 text complex (mặt tiền) → L7 a11y (mở user) → L1 widgets (độ phủ) → L3 startup (perception).
 - **Không claim** “đánh bại Qt mọi mặt” — claim “desktop CRUD/admin/Vietnamese app: nhỏ hơn, nhanh hơn, built-in persistence/print, shaping đủ dùng”.
-- **Upstream song song:** R7 `.so`, R10 NGEN, R1 struct lồng — gửi `COMPILER_FIX_LIST` khi cần, không block local plan.
+- **Upstream song song:** R7 `.so`, R10 NGEN, R1 struct lồng — gửi `docs/COMPILER_GAPS.md` §0 khi cần, không block local plan.
