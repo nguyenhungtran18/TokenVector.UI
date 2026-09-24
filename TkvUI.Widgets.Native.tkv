@@ -648,7 +648,9 @@ class NativeTreeView:
     selected: "i32"
     item_h: "f64"
     enabled: "i32"
-    def __init__(self, bx, by, bw, bh, scroll, selected, item_h, enabled):
+    multi: "i32"
+    anchor: "i32"
+    def __init__(self, bx, by, bw, bh, scroll, selected, item_h, enabled, multi, anchor):
         self.bx = bx
         self.by = by
         self.bw = bw
@@ -657,6 +659,8 @@ class NativeTreeView:
         self.selected = selected
         self.item_h = item_h
         self.enabled = enabled
+        self.multi = multi
+        self.anchor = anchor
     def toggle(self, open_flags: "list[i32]", idx: "i32") -> "i32":
         if idx < 0:
             return 0
@@ -675,10 +679,114 @@ class NativeTreeView:
         if row >= n:
             return -1
         return row
+    def hit_expand(self, px: "f64", py: "f64", depths: "list[i32]", has_kids: "list[i32]", n: "i32") -> "i32":
+        row = self.hit_row(py, n)
+        if row < 0:
+            return -1
+        if row >= len(has_kids):
+            return -1
+        if has_kids[row] == 0:
+            return -1
+        dep = 0
+        if row < len(depths):
+            dep = depths[row]
+        cx = self.bx + 4.0 + float(dep) * 18.0 + 5.0
+        if px < cx - 6.0 or px > cx + 6.0:
+            return -1
+        return row
     def scroll_by(self, dy: "f64", n: "i32") -> "f64":
         total = float(n) * 22.0
         self.scroll = os_clamp_scroll(self.scroll + dy, total, self.bh)
         return self.scroll
+    def sels_clear(self, sels: "list[i32]") -> "i32":
+        i = int(0)
+        while i < len(sels):
+            sels[i] = 0
+            i = i + 1
+        self.selected = -1
+        self.anchor = -1
+        return 0
+    def sels_select(self, sels: "list[i32]", idx: "i32", n: "i32") -> "i32":
+        if idx < 0 or idx >= n:
+            return -1
+        if self.multi == 0:
+            self.sels_clear(sels)
+        else:
+            if idx < len(sels):
+                if sels[idx] == 1:
+                    sels[idx] = 0
+                    self.selected = -1
+                    return -1
+                sels[idx] = 1
+        if idx < len(sels):
+            sels[idx] = 1
+        self.selected = idx
+        self.anchor = idx
+        return idx
+    def sels_range(self, sels: "list[i32]", a: "i32", b: "i32", n: "i32") -> "i32":
+        if a < 0:
+            a = 0
+        if b < 0:
+            b = 0
+        if a >= n or b >= n:
+            return 0
+        lo = a
+        hi = b
+        if a > b:
+            lo = b
+            hi = a
+        i = lo
+        c = 0
+        while i <= hi:
+            if i < len(sels):
+                sels[i] = 1
+                c = c + 1
+            i = i + 1
+        self.selected = b
+        if self.anchor < 0:
+            self.anchor = a
+        return c
+    def sels_count(self, sels: "list[i32]") -> "i32":
+        c = int(0)
+        i = int(0)
+        while i < len(sels):
+            if sels[i] == 1:
+                c = c + 1
+            i = i + 1
+        return c
+    def sels_click(self, sels: "list[i32]", idx: "i32", n: "i32", shift: "i32", ctrl: "i32") -> "i32":
+        if idx < 0 or idx >= n:
+            return -1
+        if self.multi == 0:
+            return self.sels_select(sels, idx, n)
+        if shift == 1:
+            a = self.anchor
+            if a < 0:
+                a = idx
+            self.sels_range(sels, a, idx, n)
+            return idx
+        if ctrl == 1:
+            if idx < len(sels):
+                if sels[idx] == 1:
+                    sels[idx] = 0
+                    if self.selected == idx:
+                        self.selected = -1
+                    return -1
+            if idx < len(sels):
+                sels[idx] = 1
+            self.selected = idx
+            self.anchor = idx
+            return idx
+        self.sels_clear(sels)
+        if idx < len(sels):
+            sels[idx] = 1
+        self.selected = idx
+        self.anchor = idx
+        return idx
+    def row_selected(self, sels: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0 or idx >= len(sels):
+            return 0
+        return sels[idx]
     def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", labels: "list[str]", depths: "list[i32]", has_kids: "list[i32]", open_flags: "list[i32]", n: "i32") -> "i32":
         pal = os_palette_for_mode(mode)
         r = Rect2D(self.bx, self.by, self.bw, self.bh)
@@ -722,9 +830,58 @@ class NativeTreeView:
                             draw_string(buf, surf, labels[idx], ix, y + 7.0, 1.0, os_row_fg(pal, sel))
             k = k + 1
         return 1
+    def render_multi(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", labels: "list[str]", depths: "list[i32]", has_kids: "list[i32]", open_flags: "list[i32]", sels: "list[i32]", n: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        first = os_list_first_visible(self.scroll, 22.0)
+        vis = os_list_visible_count(self.bh, 22.0)
+        k = int(0)
+        while k < vis:
+            idx = first + k
+            if idx < n:
+                y = self.by + float(idx) * 22.0 - self.scroll
+                if y + 22.0 > self.by:
+                    if y < self.by + self.bh:
+                        sel = 0
+                        if idx < len(sels):
+                            if sels[idx] == 1:
+                                sel = 1
+                        if idx == self.selected:
+                            sel = 1
+                        rr = Rect2D(self.bx + 1.0, y, self.bw - 2.0, 22.0)
+                        fill_round_rect(buf, surf, rr, 0.0, os_row_bg(pal, idx, sel))
+                        dep = 0
+                        if idx < len(depths):
+                            dep = depths[idx]
+                        ix = self.bx + 4.0 + float(dep) * 18.0
+                        hk = 0
+                        if idx < len(has_kids):
+                            hk = has_kids[idx]
+                        if hk == 1:
+                            op = 0
+                            if idx < len(open_flags):
+                                op = open_flags[idx]
+                            cx = ix + 5.0
+                            cy = y + 11.0
+                            if op == 1:
+                                draw_line(buf, surf, cx - 4.0, cy - 2.0, cx, cy + 2.0, 1.5, os_role_color(pal, 6))
+                                draw_line(buf, surf, cx, cy + 2.0, cx + 4.0, cy - 2.0, 1.5, os_role_color(pal, 6))
+                            else:
+                                draw_line(buf, surf, cx - 1.0, cy - 4.0, cx + 3.0, cy, 1.5, os_role_color(pal, 6))
+                                draw_line(buf, surf, cx + 3.0, cy, cx - 1.0, cy + 4.0, 1.5, os_role_color(pal, 6))
+                            ix = ix + 14.0
+                        if idx < len(labels):
+                            draw_string(buf, surf, labels[idx], ix, y + 7.0, 1.0, os_row_fg(pal, sel))
+            k = k + 1
+        return 1
 
 def make_native_tree(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeTreeView":
-    return NativeTreeView(x, y, w, h, 0.0, -1, 22.0, 1)
+    return NativeTreeView(x, y, w, h, 0.0, -1, 22.0, 1, 0, -1)
+
+def make_native_tree_multi(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeTreeView":
+    return NativeTreeView(x, y, w, h, 0.0, -1, 22.0, 1, 1, -1)
 
 # =========================================================
 # 6) NativeTabBar - closable tabs
@@ -1258,7 +1415,13 @@ class NativeDockPanel:
     top_h: "f64"
     bottom_h: "f64"
     enabled: "i32"
-    def __init__(self, bx, by, bw, bh, left_w, right_w, top_h, bottom_h, enabled):
+    floating: "i32"
+    fx: "f64"
+    fy: "f64"
+    fw: "f64"
+    fh: "f64"
+    tab_active: "i32"
+    def __init__(self, bx, by, bw, bh, left_w, right_w, top_h, bottom_h, enabled, floating, fx, fy, fw, fh, tab_active):
         self.bx = bx
         self.by = by
         self.bw = bw
@@ -1268,6 +1431,12 @@ class NativeDockPanel:
         self.top_h = top_h
         self.bottom_h = bottom_h
         self.enabled = enabled
+        self.floating = floating
+        self.fx = fx
+        self.fy = fy
+        self.fw = fw
+        self.fh = fh
+        self.tab_active = tab_active
     def set_left(self, w: "f64") -> "f64":
         if w < 0.0:
             w = 0.0
@@ -1305,8 +1474,59 @@ class NativeDockPanel:
     def bottom_rect(self) -> "Rect2D":
         return Rect2D(self.bx, self.by + self.bh - self.bottom_h, self.bw, self.bottom_h)
     def central_rect(self) -> "Rect2D":
+        if self.floating == 1:
+            return Rect2D(self.fx, self.fy, self.fw, self.fh)
         return Rect2D(self.bx + self.left_w, self.by + self.top_h, self.bw - self.left_w - self.right_w, self.bh - self.top_h - self.bottom_h)
+    def float_rect(self) -> "Rect2D":
+        return Rect2D(self.fx, self.fy, self.fw, self.fh)
+    def dock_tab_rect(self, idx: "i32", count: "i32") -> "Rect2D":
+        if count <= 0:
+            return Rect2D(self.fx, self.fy, 0.0, 0.0)
+        ox = self.bx
+        oy = self.by
+        base = self.bw
+        if self.floating == 1:
+            ox = self.fx
+            oy = self.fy
+            base = self.fw
+        tw = base / float(count)
+        return Rect2D(ox + float(idx) * tw, oy, tw, 22.0)
+    def hit_dock_tab(self, px: "f64", py: "f64", count: "i32") -> "i32":
+        if self.floating == 1:
+            return -1
+        if py < self.by or py >= self.by + 22.0:
+            return -1
+        if px < self.bx or px >= self.bx + self.bw:
+            return -1
+        if count <= 0:
+            return -1
+        tw = self.bw / float(count)
+        idx = int((px - self.bx) / tw)
+        if idx < 0 or idx >= count:
+            return -1
+        return idx
+    def select_dock_tab(self, idx: "i32", count: "i32") -> "i32":
+        if idx < 0 or idx >= count:
+            return self.tab_active
+        self.tab_active = idx
+        return idx
+    def set_floating(self, on: "i32", x: "f64", y: "f64", w: "f64", h: "f64") -> "i32":
+        if on == 1:
+            self.floating = 1
+            self.fx = x
+            self.fy = y
+            if w < 80.0:
+                w = 80.0
+            if h < 60.0:
+                h = 60.0
+            self.fw = w
+            self.fh = h
+            return 1
+        self.floating = 0
+        return 0
     def hit_gutter(self, px: "f64", py: "f64") -> "i32":
+        if self.floating == 1:
+            return 0
         if px < self.bx or px >= self.bx + self.bw:
             return 0
         if py < self.by or py >= self.by + self.bh:
@@ -1329,6 +1549,15 @@ class NativeDockPanel:
     def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", labels: "list[str]") -> "i32":
         pal = os_palette_for_mode(mode)
         c = self.central_rect()
+        if self.floating == 1:
+            stroke_round_rect(buf, surf, c, 4.0, 1.0, os_role_color(pal, 6))
+            tr = Rect2D(c.x, c.y, c.w, 22.0)
+            fill_round_rect(buf, surf, tr, 4.0, os_state_color(pal, 7, 0))
+            if len(labels) > 0:
+                draw_string(buf, surf, labels[0], c.x + 6.0, c.y + 7.0, 1.0, os_role_color(pal, 1))
+            body = Rect2D(c.x, c.y + 22.0, c.w, c.h - 22.0)
+            fill_round_rect(buf, surf, body, 0.0, os_role_color(pal, 2))
+            return 1
         fill_round_rect(buf, surf, c, 0.0, os_role_color(pal, 0))
         lr = self.left_rect()
         if lr.w > 0.0:
@@ -1351,7 +1580,12 @@ class NativeDockPanel:
         return 1
 
 def make_native_dock(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeDockPanel":
-    return NativeDockPanel(x, y, w, h, 120.0, 120.0, 28.0, 24.0, 1)
+    return NativeDockPanel(x, y, w, h, 120.0, 120.0, 28.0, 24.0, 1, 0, 0.0, 0.0, 0.0, 0.0, 0)
+
+def make_native_dock_float(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativeDockPanel":
+    d = NativeDockPanel(x, y, w, h, 120.0, 120.0, 28.0, 24.0, 1, 0, 0.0, 0.0, 0.0, 0.0, 0)
+    d.set_floating(1, x + 40.0, y + 40.0, w, h)
+    return d
 
 class NativeMdiArea:
     bx: "f64"
@@ -1432,6 +1666,18 @@ class NativeMdiArea:
                 xs[i] = self.bx + float(i) * w
             if i < len(ws):
                 ws[i] = w
+            i = i + 1
+        return n
+    def tile_horizontal(self, ys: "list[f64]", hs: "list[f64]", n: "i32") -> "i32":
+        if n <= 0:
+            return 0
+        h = (self.bh - 24.0) / float(n)
+        i = int(0)
+        while i < n:
+            if i < len(ys):
+                ys[i] = self.by + float(i) * h
+            if i < len(hs):
+                hs[i] = h
             i = i + 1
         return n
     def hit_child(self, titles: "list[str]", xs: "list[f64]", ys: "list[f64]", ws: "list[f64]", hs: "list[f64]", mins: "list[i32]", px: "f64", py: "f64") -> "i32":
@@ -2806,6 +3052,340 @@ def make_native_groupcheck(x: "f64", y: "f64", w: "f64", h: "f64", title: "str")
     return NativeGroupBox(x, y, w, h, title, 1, 1, 1)
 
 # =========================================================
+# Wave B L1: Ribbon / CommandBar
+# =========================================================
+class NativeRibbon:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    ngroups: "i32"
+    active: "i32"
+    hover: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, ngroups, active, hover, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.ngroups = ngroups
+        self.active = active
+        self.hover = hover
+        self.enabled = enabled
+    def select(self, idx: "i32") -> "i32":
+        if idx < 0 or idx >= self.ngroups:
+            return self.active
+        self.active = idx
+        return idx
+    def group_w(self) -> "f64":
+        if self.ngroups <= 0:
+            return self.bw
+        return self.bw / float(self.ngroups)
+    def hit_group(self, px: "f64") -> "i32":
+        if self.ngroups <= 0:
+            return -1
+        gw = self.group_w()
+        idx = int((px - self.bx) / gw)
+        if idx < 0 or idx >= self.ngroups:
+            return -1
+        return idx
+    def hit_large(self, px: "f64", py: "f64", nlarges: "i32") -> "i32":
+        if py < self.by + 24.0 or py >= self.by + self.bh:
+            return -1
+        g = self.hit_group(px)
+        if g != self.active:
+            return -1
+        if nlarges <= 0:
+            return -1
+        gw = self.group_w()
+        rel = px - (self.bx + float(g) * gw)
+        idx = int((rel - 6.0) / 56.0)
+        if idx < 0 or idx >= nlarges:
+            return -1
+        return idx
+    def hit_small(self, px: "f64", py: "f64", nsmalls: "i32") -> "i32":
+        if py < self.by + self.bh - 24.0 or py >= self.by + self.bh:
+            return -1
+        g = self.hit_group(px)
+        if g != self.active:
+            return -1
+        if nsmalls <= 0:
+            return -1
+        gw = self.group_w()
+        rel = px - (self.bx + float(g) * gw)
+        idx = int((rel - 6.0) / 72.0)
+        if idx < 0 or idx >= nsmalls:
+            return -1
+        return idx
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", glabels: "list[str]", ng: "i32", llabels: "list[str]", nl: "i32", slabels: "list[str]", ns: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        bar = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, bar, 0.0, os_role_color(pal, 0))
+        draw_line(buf, surf, self.bx, self.by + 23.0, self.bx + self.bw, self.by + 23.0, 1.0, os_separator_color(pal))
+        gw = self.group_w()
+        i = int(0)
+        while i < self.ngroups and i < ng:
+            gx = self.bx + float(i) * gw
+            gl = "G" + str(i)
+            if i < len(glabels):
+                gl = glabels[i]
+            sel = 0
+            if i == self.active:
+                sel = 1
+            tr = Rect2D(gx, self.by, gw, 22.0)
+            if sel == 1:
+                fill_round_rect(buf, surf, tr, 0.0, os_state_color(pal, 11, 0))
+            draw_string(buf, surf, gl, gx + 6.0, self.by + 7.0, 1.0, os_role_color(pal, 1))
+            i = i + 1
+        if self.active >= 0 and self.active < self.ngroups:
+            gx = self.bx + float(self.active) * gw
+            j = int(0)
+            while j < nl:
+                lx = gx + 6.0 + float(j) * 56.0
+                if lx + 52.0 > gx + gw:
+                    break
+                lr = Rect2D(lx, self.by + 28.0, 50.0, self.bh - 56.0)
+                fill_round_rect(buf, surf, lr, 3.0, os_state_color(pal, 7, 1))
+                txt = "L" + str(j)
+                if j < len(llabels):
+                    txt = llabels[j]
+                draw_string(buf, surf, txt, lx + 4.0, lr.y + lr.h / 2.0 - 3.0, 1.0, os_role_color(pal, 1))
+                j = j + 1
+            k = int(0)
+            while k < ns:
+                sx = gx + 6.0 + float(k) * 72.0
+                if sx + 68.0 > gx + gw:
+                    break
+                draw_string(buf, surf, slabels[k], sx + 4.0, self.by + self.bh - 20.0, 1.0, os_role_color(pal, 1))
+                k = k + 1
+        return 1
+
+def make_native_ribbon(x: "f64", y: "f64", w: "f64", ngroups: "i32") -> "NativeRibbon":
+    return NativeRibbon(x, y, w, 72.0, ngroups, 0, -1, 1)
+
+# =========================================================
+# Wave B L1: PropertyGrid (2-col + category)
+# =========================================================
+class NativePropertyGrid:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    bh: "f64"
+    selected: "i32"
+    editing: "i32"
+    scroll: "f64"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, bh, selected, editing, scroll, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.bh = bh
+        self.selected = selected
+        self.editing = editing
+        self.scroll = scroll
+        self.enabled = enabled
+    def row_at(self, py: "f64", n: "i32") -> "i32":
+        rel = py - self.by + self.scroll
+        row = int(rel / 22.0)
+        if row < 0 or row >= n:
+            return -1
+        return row
+    def hit_name(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        r = self.row_at(py, n)
+        if r < 0:
+            return -1
+        if px < self.bx or px >= self.bx + self.bw * 0.5:
+            return -1
+        return r
+    def hit_value(self, px: "f64", py: "f64", n: "i32") -> "i32":
+        r = self.row_at(py, n)
+        if r < 0:
+            return -1
+        if px < self.bx + self.bw * 0.5 or px >= self.bx + self.bw:
+            return -1
+        return r
+    def select(self, idx: "i32", n: "i32", cats: "list[i32]") -> "i32":
+        if idx < 0 or idx >= n:
+            return self.selected
+        if idx < len(cats):
+            if cats[idx] == 1:
+                return self.selected
+        self.selected = idx
+        self.editing = 0
+        return idx
+    def begin_edit(self) -> "i32":
+        if self.selected < 0:
+            return 0
+        self.editing = 1
+        return 1
+    def commit_edit(self, values: "list[str]", text: "str") -> "str":
+        if self.editing == 1 and self.selected >= 0:
+            if self.selected < len(values):
+                values[self.selected] = text
+        self.editing = 0
+        if self.selected >= 0 and self.selected < len(values):
+            return values[self.selected]
+        return ""
+    def begin_cat(self, cats: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0 or idx >= len(cats):
+            return -1
+        if cats[idx] == 0:
+            cats[idx] = 1
+            return 1
+        cats[idx] = 0
+        return 0
+    def visible_rows(self, cats: "list[i32]", n: "i32") -> "i32":
+        c = int(0)
+        hidden = -1
+        i = int(0)
+        while i < n and i < len(cats):
+            if cats[i] == 1:
+                hidden = i
+                c = c - 1
+            if cats[i] == 0 and hidden >= 0:
+                hidden = -1
+            c = c + 1
+            i = i + 1
+        if c < 0:
+            c = 0
+        return c
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", names: "list[str]", values: "list[str]", cats: "list[i32]", n: "i32") -> "i32":
+        pal = os_palette_for_mode(mode)
+        r = Rect2D(self.bx, self.by, self.bw, self.bh)
+        fill_round_rect(buf, surf, r, 2.0, os_role_color(pal, 2))
+        stroke_round_rect(buf, surf, r, 2.0, 1.0, os_separator_color(pal))
+        mx = self.bx + self.bw * 0.5
+        draw_line(buf, surf, mx, self.by, mx, self.by + self.bh, 1.0, os_separator_color(pal))
+        hidden = -1
+        y = self.by - self.scroll
+        i = int(0)
+        while i < n:
+            show = 1
+            if i < len(cats):
+                if cats[i] == 1:
+                    hidden = i
+                if hidden >= 0 and i > hidden:
+                    show = 0
+                if cats[i] == 1 and i > hidden:
+                    show = 0
+            if show == 1:
+                if y + 22.0 > self.by and y < self.by + self.bh:
+                    sel = 0
+                    if i == self.selected:
+                        sel = 1
+                    iscat = 0
+                    if i < len(cats):
+                        iscat = cats[i]
+                    rr = Rect2D(self.bx + 1.0, y, self.bw - 2.0, 22.0)
+                    if iscat == 1:
+                        fill_round_rect(buf, surf, rr, 0.0, os_state_color(pal, 7, 0))
+                        nm = ""
+                        if i < len(names):
+                            nm = names[i]
+                        draw_string(buf, surf, nm, self.bx + 4.0, y + 7.0, 1.0, os_role_color(pal, 1))
+                    else:
+                        fill_round_rect(buf, surf, rr, 0.0, os_row_bg(pal, i, sel))
+                        nm = ""
+                        if i < len(names):
+                            nm = names[i]
+                        draw_string(buf, surf, nm, self.bx + 4.0, y + 7.0, 1.0, os_row_fg(pal, sel))
+                        vv = ""
+                        if i < len(values):
+                            vv = values[i]
+                        if self.editing == 1 and sel == 1:
+                            fill_round_rect(buf, surf, Rect2D(mx + 2.0, y + 1.0, self.bw * 0.5 - 4.0, 20.0), 2.0, os_role_color(pal, 0))
+                        draw_string(buf, surf, vv, mx + 6.0, y + 7.0, 1.0, os_row_fg(pal, sel))
+                y = y + 22.0
+            i = i + 1
+        return 1
+
+def make_native_propgrid(x: "f64", y: "f64", w: "f64", h: "f64") -> "NativePropertyGrid":
+    return NativePropertyGrid(x, y, w, h, -1, 0, 0.0, 1)
+
+# =========================================================
+# Wave B L1: ContextMenu (popup items + separators)
+# =========================================================
+class NativeContextMenu:
+    bx: "f64"
+    by: "f64"
+    bw: "f64"
+    open: "i32"
+    selected: "i32"
+    enabled: "i32"
+    def __init__(self, bx, by, bw, open, selected, enabled):
+        self.bx = bx
+        self.by = by
+        self.bw = bw
+        self.open = open
+        self.selected = selected
+        self.enabled = enabled
+    def show_at(self, x: "f64", y: "f64") -> "i32":
+        self.bx = x
+        self.by = y
+        self.open = 1
+        self.selected = -1
+        return 1
+    def hide(self) -> "i32":
+        self.open = 0
+        self.selected = -1
+        return 0
+    def item_h(self, n: "i32") -> "f64":
+        return float(n) * 22.0
+    def height_for(self, n: "i32") -> "f64":
+        return self.item_h(n) + 4.0
+    def hit_item(self, py: "f64", n: "i32") -> "i32":
+        if self.open == 0:
+            return -1
+        rel = py - self.by - 2.0
+        if rel < 0.0:
+            return -1
+        idx = int(rel / 22.0)
+        if idx < 0 or idx >= n:
+            return -1
+        return idx
+    def is_separator(self, seps: "list[i32]", idx: "i32") -> "i32":
+        if idx < 0 or idx >= len(seps):
+            return 0
+        return seps[idx]
+    def activate(self, seps: "list[i32]", idx: "i32", n: "i32") -> "i32":
+        if self.is_separator(seps, idx) == 1:
+            return -1
+        if idx < 0 or idx >= n:
+            return -1
+        self.selected = idx
+        self.hide()
+        return idx
+    def render(self, buf: "list[i64]", surf: "PixelSurface", mode: "i32", items: "list[str]", seps: "list[i32]", n: "i32") -> "i32":
+        if self.open == 0:
+            return 0
+        pal = os_palette_for_mode(mode)
+        h = self.height_for(n)
+        r = Rect2D(self.bx, self.by, self.bw, h)
+        fill_round_rect(buf, surf, r, 3.0, os_role_color(pal, 0))
+        stroke_round_rect(buf, surf, r, 3.0, 1.0, os_separator_color(pal))
+        i = int(0)
+        while i < n:
+            y = self.by + 2.0 + float(i) * 22.0
+            sep = self.is_separator(seps, i)
+            if sep == 1:
+                draw_line(buf, surf, self.bx + 4.0, y + 11.0, self.bx + self.bw - 4.0, y + 11.0, 1.0, os_separator_color(pal))
+            else:
+                sel = 0
+                if i == self.selected:
+                    sel = 1
+                if sel == 1:
+                    fill_round_rect(buf, surf, Rect2D(self.bx + 2.0, y, self.bw - 4.0, 22.0), 2.0, os_state_color(pal, 11, 0))
+                txt = ""
+                if i < len(items):
+                    txt = items[i]
+                draw_string(buf, surf, txt, self.bx + 10.0, y + 7.0, 1.0, os_row_fg(pal, sel))
+            i = i + 1
+        return 1
+
+def make_native_contextmenu(x: "f64", y: "f64", w: "f64") -> "NativeContextMenu":
+    return NativeContextMenu(x, y, w, 0, -1, 1)
+
+# =========================================================
 # SELFTEST
 # =========================================================
 def nvcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
@@ -2852,6 +3432,22 @@ def nv_alloc_buf(n: "i32") -> "list[i64]":
         buf.append(0)
         i = i + 1
     return buf
+
+def nv_alloc_f64(n: "i32", v: "f64") -> "list[f64]":
+    out = []
+    i = int(0)
+    while i < n:
+        out.append(v)
+        i = i + 1
+    return out
+
+def nv_alloc_i32(n: "i32", v: "i32") -> "list[i32]":
+    out = []
+    i = int(0)
+    while i < n:
+        out.append(v)
+        i = i + 1
+    return out
 
 def nv_probe2() -> "str":
     return "UNUSED"
@@ -3279,6 +3875,130 @@ def native_selftest() -> "str":
     nvcheck_f(acc, "gb.ch", gb.content_h(), 90.0, 0.001)
     nvcheck_i(acc, "gb.contains", gb.contains(50.0, 60.0), 1)
     nvcheck_i(acc, "gb.render", gb.render(rbuf2, rsurf2, 0), 1)
+    # Wave B: Tree multi-sel (D1: literal khong append cho list[i32] vao method)
+    tsel = [int(0), int(0), int(0), int(0)]
+    tm = make_native_tree_multi(0.0, 0.0, 200.0, 120.0)
+    nvcheck_i(acc, "tm.multi", tm.multi, 1)
+    ofm = [int(1), int(0)]
+    nvcheck_i(acc, "tm.toggle", tm.toggle(ofm, 0), 0)
+    nvcheck_i(acc, "tm.toggle2", tm.toggle(ofm, 0), 1)
+    nvcheck_i(acc, "tm.sels_count", tm.sels_count(tsel), 0)
+    nvcheck_i(acc, "tm.sels_clear", tm.sels_clear(tsel), 0)
+    nvcheck_i(acc, "tm.click0", tm.sels_click(tsel, 0, 4, 0, 0), 0)
+    nvcheck_i(acc, "tm.sel0", tsel[0], 1)
+    nvcheck_i(acc, "tm.ctrl1", tm.sels_click(tsel, 1, 4, 0, 1), 1)
+    nvcheck_i(acc, "tm.sel0b", tsel[0], 1)
+    nvcheck_i(acc, "tm.sel1", tsel[1], 1)
+    nvcheck_i(acc, "tm.count2", tm.sels_count(tsel), 2)
+    tm.anchor = 0
+    nvcheck_i(acc, "tm.shift2", tm.sels_click(tsel, 2, 4, 1, 0), 2)
+    nvcheck_i(acc, "tm.sel2", tsel[2], 1)
+    nvcheck_i(acc, "tm.count3", tm.sels_count(tsel), 3)
+    nvcheck_i(acc, "tm.ctrl.off", tm.sels_click(tsel, 1, 4, 0, 1), -1)
+    nvcheck_i(acc, "tm.count2b", tm.sels_count(tsel), 2)
+    nvcheck_i(acc, "tm.plain", tm.sels_click(tsel, 3, 4, 0, 0), 3)
+    nvcheck_i(acc, "tm.count1", tm.sels_count(tsel), 1)
+    tdl = []
+    tdl.append("A")
+    tdl.append("B")
+    tdl.append("C")
+    tdp = [int(0), int(1), int(1)]
+    thk = [int(1), int(1), int(0)]
+    top = [int(1), int(0), int(0)]
+    nvcheck_i(acc, "tm.expand", tm.hit_expand(14.0, 11.0, tdp, thk, 3), 0)
+    nvcheck_i(acc, "tm.expand.miss", tm.hit_expand(180.0, 11.0, tdp, thk, 3), -1)
+    nvcheck_i(acc, "tm.renderm", tm.render_multi(rbuf2, rsurf2, 0, tdl, tdp, thk, top, tsel, 3), 1)
+    # Wave B: Dock float + tab
+    dkf = make_native_dock_float(10.0, 10.0, 400.0, 300.0)
+    nvcheck_i(acc, "dockf.float", dkf.floating, 1)
+    nvcheck_f(acc, "dockf.fw", dkf.fw, 400.0, 0.001)
+    nvcheck_i(acc, "dockf.tab", dkf.select_dock_tab(1, 3), 1)
+    nvcheck_i(acc, "dockf.tab.bad", dkf.select_dock_tab(9, 3), 1)
+    dkf.set_floating(0, 0.0, 0.0, 0.0, 0.0)
+    nvcheck_i(acc, "dockf.dock", dkf.floating, 0)
+    nvcheck_i(acc, "dockf.hit.tab0", dkf.hit_dock_tab(30.0, 15.0, 3), 0)
+    nvcheck_i(acc, "dockf.hit.tab2", dkf.hit_dock_tab(350.0, 15.0, 3), 2)
+    nvcheck_i(acc, "dockf.hit.out", dkf.hit_dock_tab(30.0, 100.0, 3), -1)
+    tr2 = dkf.dock_tab_rect(1, 3)
+    nvcheck_f(acc, "dockf.tab.w", tr2.w, 400.0 / 3.0, 0.5)
+    # Wave B: MDI tile horizontal (D1: helper return-type cho list[f64])
+    mhy = nv_alloc_f64(2, 0.0)
+    mhh = nv_alloc_f64(2, 0.0)
+    trh = mdi.tile_horizontal(mhy, mhh, 2)
+    nvcheck_i(acc, "mdi.tileh.rc", trh, 2)
+    nvcheck_f(acc, "mdi.tileh.h", mhh[0], 138.0, 0.5)
+    nvcheck_f(acc, "mdi.tileh.y1", mhy[1], 138.0, 0.5)
+    # Wave B: Ribbon
+    rb2 = make_native_ribbon(0.0, 0.0, 600.0, 3)
+    nvcheck_i(acc, "rib.select", rb2.select(2), 2)
+    nvcheck_i(acc, "rib.select.bad", rb2.select(9), 2)
+    nvcheck_i(acc, "rib.hit.g", rb2.hit_group(450.0), 2)
+    nvcheck_i(acc, "rib.hit.large", rb2.hit_large(410.0, rb2.by + 40.0, 2), 0)
+    nvcheck_i(acc, "rib.hit.large.1", rb2.hit_large(466.0, rb2.by + 40.0, 2), 1)
+    nvcheck_i(acc, "rib.hit.small", rb2.hit_small(410.0, rb2.by + 60.0, 2), 0)
+    nvcheck_i(acc, "rib.hit.g.out", rb2.hit_group(700.0), -1)
+    gl2 = []
+    gl2.append("Home")
+    gl2.append("Insert")
+    gl2.append("View")
+    ll2 = []
+    ll2.append("Paste")
+    ll2.append("Copy")
+    sl2 = []
+    sl2.append("Bold")
+    sl2.append("Italic")
+    nvcheck_i(acc, "rib.render", rb2.render(rbuf2, rsurf2, 0, gl2, 3, ll2, 2, sl2, 2), 1)
+    # Wave B: PropertyGrid
+    pg = make_native_propgrid(0.0, 0.0, 240.0, 160.0)
+    pgn = []
+    pgn.append("Layout")
+    pgn.append("Width")
+    pgn.append("Height")
+    pgv = []
+    pgv.append("")
+    pgv.append("100")
+    pgv.append("50")
+    pgc = [int(1), int(0), int(0)]
+    nvcheck_i(acc, "pg.cat", pg.select(0, 3, pgc), -1)
+    nvcheck_i(acc, "pg.row", pg.select(1, 3, pgc), 1)
+    nvcheck_i(acc, "pg.edit", pg.begin_edit(), 1)
+    nvcheck_i(acc, "pg.hit.name", pg.hit_name(10.0, 22.0 + 2.0, 3), 1)
+    nvcheck_i(acc, "pg.hit.val", pg.hit_value(200.0, 24.0, 3), 1)
+    nvcheck_i(acc, "pg.hit.out", pg.hit_name(500.0, 24.0, 3), -1)
+    pg_r = pg.commit_edit(pgv, "200")
+    pg_ok = 0
+    if pg_r == "200":
+        pg_ok = 1
+    nvcheck_i(acc, "pg.commit", pg_ok, 1)
+    pg_okv = 0
+    if pgv[1] == "200":
+        pg_okv = 1
+    nvcheck_i(acc, "pg.val", pg_okv, 1)
+    nvcheck_i(acc, "pg.edit.off", pg.editing, 0)
+    nvcheck_i(acc, "pg.cat.open", pg.begin_cat(pgc, 0), 0)
+    nvcheck_i(acc, "pg.cat.closed", pgc[0], 0)
+    nvcheck_i(acc, "pg.render", pg.render(rbuf2, rsurf2, 0, pgn, pgv, pgc, 3), 1)
+    # Wave B: ContextMenu
+    cm = make_native_contextmenu(100.0, 100.0, 140.0)
+    nvcheck_i(acc, "cm.closed", cm.open, 0)
+    nvcheck_i(acc, "cm.show", cm.show_at(50.0, 60.0), 1)
+    nvcheck_i(acc, "cm.hit", cm.hit_item(70.0, 3), 0)
+    nvcheck_i(acc, "cm.hit.1", cm.hit_item(92.0, 3), 1)
+    nvcheck_i(acc, "cm.hit.out", cm.hit_item(200.0, 3), -1)
+    cms = [int(0), int(1), int(0)]
+    cmi = []
+    cmi.append("Open")
+    cmi.append("---")
+    cmi.append("Close")
+    nvcheck_i(acc, "cm.sep", cm.is_separator(cms, 1), 1)
+    nvcheck_i(acc, "cm.act.sep", cm.activate(cms, 1, 3), -1)
+    nvcheck_i(acc, "cm.still", cm.open, 1)
+    nvcheck_i(acc, "cm.act", cm.activate(cms, 0, 3), 0)
+    nvcheck_i(acc, "cm.hide", cm.open, 0)
+    cm.show_at(50.0, 60.0)
+    nvcheck_i(acc, "cm.render", cm.render(rbuf2, rsurf2, 0, cmi, cms, 3), 1)
+    cm.hide()
+    nvcheck_i(acc, "cm.render.hide", cm.render(rbuf2, rsurf2, 0, cmi, cms, 3), 0)
     print("native: " + str(acc[0]) + "/" + str(acc[1]))
     if acc[0] == acc[1]:
         return "NATIVE_OK"

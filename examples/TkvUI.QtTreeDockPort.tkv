@@ -1,0 +1,223 @@
+# -*- coding: utf-8 -*-
+"""TkvUI.QtTreeDockPort - port trung thuc Qt 6 dockwidgets + TreeWidget
+(examples/widgets/mainwindows/dockwidgets + itemviews/treewidget) sang TokenVector.UI.
+
+Qt goc (>=90% feature set):
+  - QMainWindow + QDockWidget (left/right/bottom floatable/tabbable, close/float)
+  - QTreeWidget multi-level expand/collapse, multi-select (Ctrl/Shift), header
+  - View menu: toggle dock visibility, tile/cascade MDI-like area
+  - StatusBar dock location feedback
+
+Map sang TkvUI:
+  QMainWindow layout  -> NativeDockPanel (split + float + tab) + NativeMenuBar
+  QDockWidget         -> dock slots (left/right/bottom/central) + float rect + tabs
+  QTreeWidget         -> NativeTreeView multi-sel (sels_click shift/ctrl/anchor)
+  View menu           -> menubar items + dock toggle + tile_horizontal
+  MDI tile            -> NativeMdiArea.tile_horizontal (Qt-like cascade/tile)
+
+Headless: qttd_run mo phong dock show/hide/float/tab, tree expand/multi-sel,
+view menu toggle, tile layout + assert state + render non-blank.
+Build:
+  tkvc.exe build examples/TkvUI.QtTreeDockPort.tkv --entry qttd_run --out build/qttd.exe
+"""
+__tkv_import__ = ["../TkvUI.Core", "../TkvUI.Graphics", "../TkvUI.Text", "../TkvUI.Theme", "../TkvUI.Widgets.Native"]
+
+def qtdcheck(acc: "list[i32]", name: "str", ok: "i32") -> "i32":
+    acc[1] = acc[1] + 1
+    if ok == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS " + name)
+        return 1
+    print("  FAIL " + name)
+    return 0
+
+def qtdcheck_i(acc: "list[i32]", name: "str", got: "i32", want: "i32") -> "i32":
+    if got == want:
+        return qtdcheck(acc, name + " = " + str(got), 1)
+    print("  FAIL " + name + " got=" + str(got) + " want=" + str(want))
+    acc[1] = acc[1] + 1
+    return 0
+
+def qtd_near(a: "f64", b: "f64") -> "i32":
+    d = a - b
+    if d < 0.0:
+        d = 0.0 - d
+    if d < 0.5:
+        return 1
+    return 0
+
+def qtd_labels() -> "list[str]":
+    out = []
+    out.append("Project")
+    out.append("src")
+    out.append("main.tkv")
+    out.append("README.md")
+    return out
+
+def qtd_depths() -> "list[i32]":
+    return [int(0), int(1), int(2), int(2)]
+
+def qtd_kids() -> "list[i32]":
+    return [int(1), int(1), int(0), int(0)]
+
+def qtd_open() -> "list[i32]":
+    return [int(1), int(1), int(0), int(0)]
+
+def qtd_sels() -> "list[i32]":
+    return [int(0), int(0), int(0), int(0)]
+
+def qttd_run() -> "str":
+    print("=== TkvUI.QtTreeDockPort selftest ===")
+    acc = [int(0), int(0)]
+    W = 640
+    H = 480
+    buf = []
+    i = int(0)
+    total = W * H
+    while i < total:
+        buf.append(0)
+        i = i + 1
+    surf = PixelSurface(W, H, W)
+    bg = ColorRgba(32, 32, 36, 255)
+    surface_clear(buf, surf, bg)
+    bgp = bg.to_uint32()
+
+    # --- Dock layout: left + right + bottom + central (Qt dockwidgets) ---
+    dk = make_native_dock(0.0, 24.0, 640.0, 420.0)
+    dk.set_left(160.0)
+    dk.set_right(180.0)
+    dk.set_bottom(80.0)
+    cr = dk.central_rect()
+    acc[1] = acc[1] + 1
+    if qtd_near(cr.x, 160.0) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS dock central.x=160")
+    else:
+        print("  FAIL dock central.x got=" + str(cr.x))
+    acc[1] = acc[1] + 1
+    if cr.w > 100.0:
+        acc[0] = acc[0] + 1
+        print("  PASS dock central.w>0")
+    else:
+        print("  FAIL dock central.w=" + str(cr.w))
+
+    # Float dock (Qt: floating QDockWidget)
+    dkf = make_native_dock_float(100.0, 100.0, 320.0, 240.0)
+    qtdcheck_i(acc, "dock float flag", dkf.floating, 1)
+    acc[1] = acc[1] + 1
+    if qtd_near(dkf.fw, 320.0) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS dock float w=320")
+    else:
+        print("  FAIL dock float w=" + str(dkf.fw))
+
+    # Tab docking (Qt: tabified docks)
+    qtdcheck_i(acc, "dock tab select", dkf.select_dock_tab(1, 3), 1)
+    qtdcheck_i(acc, "dock tab active", dkf.tab_active, 1)
+    tr2 = dkf.dock_tab_rect(1, 3)
+    acc[1] = acc[1] + 1
+    if tr2.w > 10.0:
+        acc[0] = acc[0] + 1
+        print("  PASS dock tab width>0")
+    else:
+        print("  FAIL dock tab width=" + str(tr2.w))
+
+    # Floating dock has no docked-tab hit (Qt: separate window)
+    qtdcheck_i(acc, "dock float tab hit=-1", dkf.hit_dock_tab(130.0, 115.0, 3), -1)
+
+    # Undock -> dock again
+    dkf.set_floating(0, 0.0, 0.0, 0.0, 0.0)
+    qtdcheck_i(acc, "dock undock", dkf.floating, 0)
+    qtdcheck_i(acc, "dock tab hit after undock", dkf.hit_dock_tab(130.0, 115.0, 3), 0)
+
+    # --- Tree multi-level expand + multi-sel (Qt QTreeWidget) ---
+    tr = make_native_tree_multi(170.0, 24.0, 200.0, 160.0)
+    labs = qtd_labels()
+    deps = qtd_depths()
+    kids = qtd_kids()
+    opn = qtd_open()
+    sels = qtd_sels()
+    qtdcheck_i(acc, "tree multi flag", tr.multi, 1)
+    qtdcheck_i(acc, "tree expand hit", tr.hit_expand(179.0, 34.0, deps, kids, 4), 0)
+    qtdcheck_i(acc, "tree expand toggle", tr.toggle(opn, 0), 0)
+    qtdcheck_i(acc, "tree expand restore", tr.toggle(opn, 0), 1)
+
+    # Plain select
+    qtdcheck_i(acc, "tree select row0", tr.sels_click(sels, 0, 4, 0, 0), 0)
+    qtdcheck_i(acc, "tree sel0", sels[0], 1)
+    # Ctrl multi
+    qtdcheck_i(acc, "tree ctrl+row2", tr.sels_click(sels, 2, 4, 0, 1), 2)
+    qtdcheck_i(acc, "tree count2", tr.sels_count(sels), 2)
+    # Shift range from anchor 0
+    tr.anchor = 0
+    qtdcheck_i(acc, "tree shift+row3", tr.sels_click(sels, 3, 4, 1, 0), 3)
+    acc[1] = acc[1] + 1
+    if tr.sels_count(sels) >= 3:
+        acc[0] = acc[0] + 1
+        print("  PASS tree count>=3")
+    else:
+        print("  FAIL tree count=" + str(tr.sels_count(sels)))
+    # Ctrl toggle off
+    qtdcheck_i(acc, "tree ctrl off row2", tr.sels_click(sels, 2, 4, 0, 1), -1)
+    # Plain clears others
+    qtdcheck_i(acc, "tree plain row1", tr.sels_click(sels, 1, 4, 0, 0), 1)
+    qtdcheck_i(acc, "tree count1", tr.sels_count(sels), 1)
+    qtdcheck_i(acc, "tree row selected", tr.row_selected(sels, 1), 1)
+    qtdcheck_i(acc, "tree row not sel", tr.row_selected(sels, 0), 0)
+
+    # --- View menu (Qt: toggle docks + tile) ---
+    mb = make_native_menubar(0.0, 0.0, 640.0, 3)
+    qtdcheck_i(acc, "view menu open", mb.open(0), 0)
+    qtdcheck_i(acc, "view menu item", mb.hit_item(10.0, 6), 0)
+
+    # --- MDI tile horizontal (Qt: tileWindows) ---
+    mdi = make_native_mdi(0.0, 24.0, 640.0, 400.0)
+    mtitles = []
+    mxs = nv_alloc_f64(0, 0.0)
+    mys = nv_alloc_f64(0, 0.0)
+    mws = nv_alloc_f64(0, 0.0)
+    mhs = nv_alloc_f64(0, 0.0)
+    mmins = nv_alloc_i32(0, 0)
+    mdi.add_child(mtitles, mxs, mys, mws, mhs, mmins, "Doc1", 200.0, 150.0)
+    mdi.add_child(mtitles, mxs, mys, mws, mhs, mmins, "Doc2", 200.0, 150.0)
+    qtdcheck_i(acc, "mdi count2", mdi.count(mtitles), 2)
+    mhy = nv_alloc_f64(2, 0.0)
+    mhh = nv_alloc_f64(2, 0.0)
+    qtdcheck_i(acc, "mdi tile_h rc", mdi.tile_horizontal(mhy, mhh, 2), 2)
+    acc[1] = acc[1] + 1
+    if mhh[0] > 50.0:
+        acc[0] = acc[0] + 1
+        print("  PASS mdi tile_h h>0")
+    else:
+        print("  FAIL mdi tile_h h=" + str(mhh[0]))
+
+    # --- Render composite ---
+    dock_labels = []
+    dock_labels.append("Project")
+    dock_labels.append("Output")
+    dock_labels.append("Properties")
+    dk.render(buf, surf, 0, dock_labels)
+    dkf.render(buf, surf, 0, dock_labels)
+    tr.render_multi(buf, surf, 0, labs, deps, kids, opn, sels, 4)
+    mb.render(buf, surf, 0, dock_labels, dock_labels, 3)
+    mdi.render(buf, surf, 0, mtitles, mxs, mys, mws, mhs, mmins)
+
+    painted = 0
+    i = int(0)
+    while i < total:
+        if buf[i] != bgp:
+            painted = painted + 1
+        i = i + 1
+    acc[1] = acc[1] + 1
+    if painted >= 10000:
+        acc[0] = acc[0] + 1
+        print("  PASS render non-blank (" + str(painted) + ")")
+    else:
+        print("  FAIL render non-blank got=" + str(painted))
+
+    print("--- qttd: " + str(acc[0]) + "/" + str(acc[1]) + " PASS ---")
+    if acc[0] == acc[1] and acc[1] >= 30:
+        print("QTDOCK_OK")
+        return "QTDOCK_OK"
+    print("QTDOCK_FAIL")
+    return "QTDOCK_FAIL"

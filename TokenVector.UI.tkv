@@ -92,6 +92,11 @@ def widget_constructor_catalog() -> "list[str]":
     names.append("make_native_radio")
     names.append("make_native_groupbox")
     names.append("make_native_groupcheck")
+    names.append("make_native_tree_multi")
+    names.append("make_native_dock_float")
+    names.append("make_native_ribbon")
+    names.append("make_native_propgrid")
+    names.append("make_native_contextmenu")
     names.append("make_media_transport")
     names.append("make_media_seekbar")
     names.append("make_media_volume")
@@ -217,13 +222,74 @@ def widgets_breadth_selftest() -> "str":
     nc.render(buf, surf, 0)
     msb = make_media_seekbar(160.0, 350.0, 200.0, 1000, 5000)
     msb.render(buf, surf)
+    # Wave B smoke: tree multi + dock float + ribbon + propgrid + contextmenu
+    wtm = make_native_tree_multi(180.0, 210.0, 140.0, 70.0)
+    wsel = [int(0), int(0), int(1)]
+    wtm.sels_click(wsel, 2, 3, 0, 0)
+    wdl = []
+    wdl.append("Root")
+    wdl.append("Child")
+    wdep = [int(0), int(1)]
+    whk = [int(1), int(0)]
+    wop = [int(1), int(0)]
+    wtm.render_multi(buf, surf, 0, wdl, wdep, whk, wop, wsel, 2)
+    wdk = make_native_dock_float(330.0, 210.0, 140.0, 70.0)
+    wdk.render(buf, surf, 0, wdl)
+    wrb = make_native_ribbon(4.0, 285.0, 320.0, 3)
+    wrb.render(buf, surf, 0, wdl, 1, wdl, 1, wdl, 1)
+    wpg = make_native_propgrid(330.0, 285.0, 140.0, 70.0)
+    wpn = []
+    wpn.append("Prop")
+    wpv = []
+    wpv.append("1")
+    wpc = [int(0)]
+    wpg.render(buf, surf, 0, wpn, wpv, wpc, 1)
+    wcm = make_native_contextmenu(200.0, 300.0, 100.0)
+    wcm.show_at(200.0, 300.0)
+    wci = []
+    wci.append("Open")
+    wcs = [int(0)]
+    wcm.render(buf, surf, 0, wci, wcs, 1)
     acc[1] = acc[1] + 1
     painted2 = widget_count_non_bg(buf, surf, bgp)
     if painted2 >= 8000:
         acc[0] = acc[0] + 1
-        print("  PASS native+media render non-blank (" + str(painted2) + ")")
+        print("  PASS native+media+waveB render non-blank (" + str(painted2) + ")")
     else:
-        print("  FAIL native+media render non-blank got=" + str(painted2))
+        print("  FAIL native+media+waveB render non-blank got=" + str(painted2))
+    # Wave B hit-test
+    acc[1] = acc[1] + 1
+    if wtm.sels_count(wsel) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS tree multi-sel count")
+    else:
+        print("  FAIL tree multi-sel count")
+    wdk.set_floating(0, 0.0, 0.0, 0.0, 0.0)
+    acc[1] = acc[1] + 1
+    if wdk.floating == 0 and wdk.hit_dock_tab(360.0, 215.0, 2) == 0:
+        acc[0] = acc[0] + 1
+        print("  PASS dock undock tab hit")
+    else:
+        print("  FAIL dock undock tab hit")
+    acc[1] = acc[1] + 1
+    if wrb.hit_group(10.0) == 0 and wrb.select(1) == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS ribbon group hit+select")
+    else:
+        print("  FAIL ribbon group hit+select")
+    wpg.select(0, 1, wpc)
+    acc[1] = acc[1] + 1
+    if wpg.begin_edit() == 1 and wpg.editing == 1:
+        acc[0] = acc[0] + 1
+        print("  PASS propgrid begin edit")
+    else:
+        print("  FAIL propgrid begin edit")
+    acc[1] = acc[1] + 1
+    if wcm.open == 1 and wcm.hit_item(310.0, 1) == 0:
+        acc[0] = acc[0] + 1
+        print("  PASS context menu hit")
+    else:
+        print("  FAIL context menu hit")
     print("--- breadth selftest: " + str(acc[0]) + "/" + str(acc[1]) + " PASS, constructors=" + str(n) + " ---")
     if acc[0] == acc[1] and n >= 80:
         print("WIDGETS_BREADTH_OK")

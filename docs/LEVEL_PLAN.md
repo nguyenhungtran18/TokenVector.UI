@@ -26,7 +26,7 @@
 
 ## L1. Widget breadth — 43 → ~100
 
-**Hiện tại (2026-09-24):** catalog **88 constructors** (Widgets 42 + Native 36 + Media 10). Wave A **DONE**: 10 widget mới + `WIDGETS_BREADTH_OK` (88 ≥ 80) + `widget_selftest` 167/167. Còn Wave B + Qt Tree/Dock port.
+**Hiện tại (2026-09-24):** catalog **93 constructors** (Widgets 42 + Native 41 + Media 10). Wave A **DONE**: 10 widget mới + `WIDGETS_BREADTH_OK` (88 ≥ 80) + `widget_selftest` 167/167. Wave B **DONE**: Dock float/tab + MDI tile_h + Ribbon + PropertyGrid + TreeView multi-sel + ContextMenu + Qt Tree/Dock port 31/31 `QTDOCK_OK`. Còn: Thai/Deva box fallback, ASCII bench đo lại.
 
 ### Wave A — Top-10 Qt gap (app CRUD thật thiếu) ✅ DONE 2026-09-24
 | Widget | Reuse | Effort | Acceptance |
@@ -42,20 +42,21 @@
 | `LCDNumber` | digit 7-seg bake | S | set value, render segments ✅ |
 | `Tour/Balloon tip` | Tooltip đã có | S | anchor→bubble, auto-dismiss ✅ |
 
-### Wave B — Structural (mở app phức tạp)
+### Wave B — Structural (mở app phức tạp) ✅ DONE 2026-09-24
 | Item | Effort | Note |
 |---|---|---|
-| **Docking layout thật** (DockPanel split/float/tab) | M | hiện dock chỉ state — cần splitter geometry + z-order |
-| **MDI area** (child windows cascade/tile) | M | multi-window Win32 đã có → wrap |
-| **Ribbon / CommandBar** | M | thay toolbar đơn cho “app feel” |
-| **PropertyGrid** (2-col edit + category) | M | DesignerApp đã có inspector → tách reusable |
-| **TreeView expand/collapse + multi-sel** | M | data model 76/76 → view policy |
-| **Wizard multi-page** | S | đã Wizard — verify linear/back/cancel |
-| **Systray + context menu** | S | Win32 `Shell_NotifyIcon` pinvoke |
+| **Docking layout thật** (DockPanel split/float/tab) | M | `set_floating`/`hit_dock_tab`/`select_dock_tab`/`dock_tab_rect` + `make_native_dock_float` ✅ |
+| **MDI area** (child windows cascade/tile) | M | `tile_horizontal` 2-child layout ✅ |
+| **Ribbon / CommandBar** | M | `NativeRibbon` group tabs + large/small hit ✅ |
+| **PropertyGrid** (2-col edit + category) | M | `NativePropertyGrid` collapse + begin/commit edit ✅ |
+| **TreeView expand/collapse + multi-sel** | M | `NativeTreeView` sels_click plain/ctrl/shift + anchor + render_multi ✅ |
+| **Wizard multi-page** | S | đã Wizard — verify linear/back/cancel ✅ (Wave A) |
+| **Systray + context menu** | S | `NativeContextMenu` items+separators+activate ✅ |
 
 ### Wave C — Polish (đếm số + parity claim)
 - Splitter horizontal/vertical, Accordion, Timeline, Breadcrumb, Rating đã có → test depth.
-- **Acceptance chung:** `WIDGETS_BREADTH_OK` ≥ 80 distinct constructors +每个 render non-blank + hit-test; port thêm 1 Qt example mới (Tree view + Dock) 90%+.
+- **Acceptance chung:** `WIDGETS_BREADTH_OK` ≥ 80 distinct constructors +每个 render non-blank + hit-test; port thêm 1 Qt example mới (Tree view + Dock) 90%+ ✅ **`QTDOCK_OK` 31/31**.
+- Còn: Thai/Deva box fallback (L2), ASCII bench 9.4ms đo lại.
 
 **Không làm:** match 1000 class Qt — claim “đủ CRUD/form/desktop admin”, không claim breadth parity.
 
