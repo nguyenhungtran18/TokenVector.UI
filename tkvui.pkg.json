@@ -56,7 +56,12 @@
     { "name": "TkvUI.Mp4Data", "file": "TkvUI.Mp4Data.tkv", "imports": ["TkvUI.Core"], "summary": "MP4 2-track craft san (avc1 3 samples + mp4a 2 samples, 1480B) + ground truth tracks/durations/sizes/offsets; khong doc file luc chay", "selftest": null },
     { "name": "TkvUI.Mp4", "file": "TkvUI.Mp4.tkv", "imports": ["TkvUI.Core","TkvUI.Mp4Data","TkvUI.Mp4RData"], "summary": "MP4 demux thuan .tkv (duong B): box walk + moov/mvhd + trak (tkhd/mdia/stbl) + sample table (stsz/stsc/stco/co64) + ctts + SPS Exp-Golomb + O(1) sample offset + extract + ms durations; tra ma loi ro", "selftest": "mp4_selftest" },
     { "name": "TkvUI.Mp4RData", "file": "TkvUI.Mp4RData.tkv", "imports": ["TkvUI.Core"], "summary": "File MP4 realistic (moov sau mdat, co64, elst, ctts, stsc 2 runs, SPS that 160x128 Baseline); khong doc file luc chay", "selftest": null },
-    { "name": "TkvUI.Clipboard", "file": "TkvUI.Clipboard.tkv", "imports": ["TkvUI.Core"], "summary": "Clipboard OS that (Win32 GlobalAlloc/Lock + R2 buffers + ConvertToUtf32): CF_TEXT/CF_UNICODETEXT, ASCII/Viet/emoji round-trip", "selftest": "clipboard_selftest" }
+    { "name": "TkvUI.Clipboard", "file": "TkvUI.Clipboard.tkv", "imports": ["TkvUI.Core"], "summary": "Clipboard OS that (Win32 GlobalAlloc/Lock + R2 buffers + ConvertToUtf32): CF_TEXT/CF_UNICODETEXT, ASCII/Viet/emoji round-trip", "selftest": "clipboard_selftest" },
+    { "name": "TkvUI.H264", "file": "TkvUI.H264.tkv", "imports": ["TkvUI.Core","TkvUI.Platform"], "summary": "OpenH264 decode qua C# shim (R2 buffers + R3 full-identity, docs/OPENH264.md); shim-gated (can OpenH264Shim.dll + openh264), khong import boi umbrella", "selftest": "h264_selftest" },
+    { "name": "TkvUI.MicroBench", "file": "TkvUI.MicroBench.tkv", "imports": ["TkvUI.Core","TkvUI.Text"], "summary": "Bench helpers fullscreen text (bench_full_ex/bench_full_no_clear); bench asset, ngoai verify/suite", "selftest": null },
+    { "name": "TkvUI.TkvvPlay", "file": "TkvUI.TkvvPlay.tkv", "imports": ["TkvUI.Core"], "summary": "Content demo player bake san 160x120 ball+square 8 frames (sinh boi tools/tkvv_play_gen.py); dung boi examples/TkvUI.VideoDemo.tkv", "selftest": null },
+    { "name": "TkvUI.TkvvClip", "file": "TkvUI.TkvvClip.tkv", "imports": ["TkvUI.Core"], "summary": "Clip ingest tu PNG-sequence 160x120 8 frames palette 8 (sinh boi tools/tkvv_import.py); ground truth index-exact", "selftest": null },
+    { "name": "TkvUI.TkvvClipMp4", "file": "TkvUI.TkvvClipMp4.tkv", "imports": ["TkvUI.Core"], "summary": "Clip ingest tu PNG-sequence 320x240 4 frames palette 16 (sinh boi tools/tkvv_import.py); dung boi examples/TkvUI.ClipPlayer.tkv", "selftest": null }
   ],
   "umbrella": {
     "file": "TokenVector.UI.tkv",
